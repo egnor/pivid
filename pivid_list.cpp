@@ -107,9 +107,14 @@ void inspect_card(const int card) {
         exit(1);
     }
 
+    auto* const ver = drmGetVersion(fd);
+    if (ver == nullptr) {
+        absl::PrintF("*** %s: Error reading version\n", path);
+        exit(1);
+    }
     absl::PrintF(
-        "=== Inspecting card: %s (max %dx%d) ===\n", path,
-        res->max_width, res->max_height
+        "=== %s: %s (%dx%d max) ===\n",
+        path, ver->name, res->max_width, res->max_height
     );
 
     //
@@ -324,6 +329,7 @@ void inspect_card(const int card) {
         drmModeFreeConnector(conn);
     }
     absl::PrintF("\n");
+    drmFreeVersion(ver);
     drmModeFreeResources(res);
     close(fd);
 }
