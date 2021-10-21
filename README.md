@@ -10,7 +10,7 @@ Experimental video code for Linux / Raspberry Pi
 
 ## Notes and links
 
-### Raspberry Pi
+### Raspberry Pi specifics
 * [All about accelerated video on the Raspberry Pi](https://forums.raspberrypi.com/viewtopic.php?f=67&p=1901014) - my notes
 * [kernel.org: V3D Graphics Driver](https://www.kernel.org/doc/html/v5.10/gpu/v3d.html) - RPi 4 GPU kernel driver docs
 * [raspberrypi: V3D driver source](https://github.com/raspberrypi/linux/tree/rpi-5.10.y/drivers/gpu/drm/v3d) - RPi 4 GPU kernel driver source
@@ -28,13 +28,14 @@ Experimental video code for Linux / Raspberry Pi
 
 ### Video decoding: V4L2
 * [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - general V4L2 api
-* [kernel.org: Video for Linux Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html) - specifically this part
-* [libv4l](https://github.com/philips/libv4l) - library wrapper; see [libv4l2.h](https://github.com/philips/libv4l/blob/master/include/libv4l2.h)
-* [v4l-utils](https://linuxtv.org/wiki/index.php/V4l-utils) - command line tools; see [v4l2-ctl](https://manpages.debian.org/testing/v4l-utils/v4l2-ctl.1.en.html)
+* [kernel.org: Video for Linux - Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html) - specifically this part
+* [libv4l](https://github.com/philips/libv4l) - thin library wrapper with format conversion; see [libv4l2.h](https://github.com/philips/libv4l/blob/master/include/libv4l2.h)
+* [v4l-utils](https://linuxtv.org/wiki/index.php/V4l-utils) - command line tools, especially [v4l2-ctl](https://manpages.debian.org/testing/v4l-utils/v4l2-ctl.1.en.html)
 
-### Zero-copy buffers
+### Zero-copy buffer sharing
 * [kernel.org: Buffer Sharing and Synchronization](https://www.kernel.org/doc/html/v5.10/driver-api/dma-buf.html#userspace-interface-notes) - kernel buffer management (and user interface)
 * [kernel.org: Linux GPU Memory Management - PRIME buffer sharing](https://www.kernel.org/doc/html/v5.10/gpu/drm-mm.html#prime-buffer-sharing) - exporting GPU buffers as "dma-buf" objects
+* [kernel.org: Video for Linux - Streaming I/O (DMA buffer importing)](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dmabuf.html) - using "dma-buf" objects in V4L2
 * [v4l2test](https://github.com/rdkcmf/v4l2test) - test/example of V4L2 H.264 decoding feeding KMS
 
 Of all the bits and pieces here, memory management seems to be the most complex and poorly explained. Here is what I have gleaned:
