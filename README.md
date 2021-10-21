@@ -13,8 +13,8 @@ Experimental video code for Linux / Raspberry Pi
 ### Raspberry Pi specifics
 * [All about accelerated video on the Raspberry Pi](https://forums.raspberrypi.com/viewtopic.php?f=67&p=1901014) - my notes
 * [kernel.org: V3D Graphics Driver](https://www.kernel.org/doc/html/v5.10/gpu/v3d.html) - RPi 4 GPU kernel driver docs
-* [raspberrypi: V3D driver source](https://github.com/raspberrypi/linux/tree/rpi-5.10.y/drivers/gpu/drm/v3d) - RPi 4 GPU kernel driver source
-* [raspberrypi: V3D user header](https://github.com/raspberrypi/linux/blob/rpi-5.10.y/include/uapi/drm/v3d_drm.h) - ioctl defs for RPi 4 GPU kernel driver
+* [rpi kernel source: drivers/gpu/drm/v3d](https://github.com/raspberrypi/linux/tree/rpi-5.10.y/drivers/gpu/drm/v3d) - RPi 4 GPU kernel driver source
+* [rpi kernel source: include/uapi/v3d_drm.h](https://github.com/raspberrypi/linux/blob/rpi-5.10.y/include/uapi/drm/v3d_drm.h) - ioctl defs for RPi 4 GPU kernel driver
 
 ### Graphics output: DRM and KMS
 * [Wikipedia: Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) - a good overview
@@ -28,7 +28,8 @@ Experimental video code for Linux / Raspberry Pi
 
 ### Video decoding: V4L2
 * [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - general V4L2 api
-* [kernel.org: Video for Linux - Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html) - specifically this part
+* [kernel.org: Video for Linux - Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html)
+* [kernel source: include/uapi/linux/videodev2.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/videodev2.h)
 * [libv4l](https://github.com/philips/libv4l) - thin library wrapper with format conversion; see [libv4l2.h](https://github.com/philips/libv4l/blob/master/include/libv4l2.h)
 * [v4l-utils](https://linuxtv.org/wiki/index.php/V4l-utils) - command line tools, especially [v4l2-ctl](https://manpages.debian.org/testing/v4l-utils/v4l2-ctl.1.en.html)
 
