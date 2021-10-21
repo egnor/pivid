@@ -1,3 +1,5 @@
+// Simple command line tool to list DRM/KMS resources and their IDs.
+
 #include <fcntl.h>
 
 #include <vector>
@@ -12,6 +14,7 @@
 ABSL_FLAG(int, card, -1, "Video card number (/dev/dri/card#) to inspect");
 ABSL_FLAG(bool, props, false, "Print detailed object properties");
 
+// Scan all DRM/KMS capable video cards and print a line for each.
 void scan_cards() {
     absl::PrintF("=== Scanning video cards ===\n");
     int found = 0;
@@ -53,6 +56,8 @@ void scan_cards() {
     }
 }
 
+// Print key/value properties about a KMS "object" ID,
+// using the generic KMS property-value interface.
 void print_properties(const int fd, const uint32_t id) {
     auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
     if (props == nullptr) return;
@@ -87,16 +92,17 @@ void print_properties(const int fd, const uint32_t id) {
     drmModeFreeObjectProperties(props);
 }
 
+// Print information about the DRM/KMS resources associated with a video card.
 void inspect_card(const int card) {
     const auto path = absl::StrFormat("/dev/dri/card%d", card);
     const bool print_props = absl::GetFlag(FLAGS_props);
-
     const int fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
         absl::PrintF("*** %s: Error opening\n", path);
         exit(1);
     }
 
+    // Enable any client capabilities that expose more information.
     drmSetClientCap(fd, DRM_CLIENT_CAP_STEREO_3D, 1);
     drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     drmSetClientCap(fd, DRM_CLIENT_CAP_ASPECT_RATIO, 1);
@@ -118,7 +124,7 @@ void inspect_card(const int card) {
     );
 
     //
-    // Planes (framebuffers can't be inspected, sadly)
+    // Planes (framebuffers can't be inspected from another process, sadly)
     //
 
     auto* const planes = drmModeGetPlaneResources(fd);
@@ -184,7 +190,7 @@ void inspect_card(const int card) {
     drmModeFreePlaneResources(planes);
 
     //
-    // CRTCs
+    // CRT controllers
     //
 
     absl::PrintF("%d CRT (sic) controllers:\n", res->count_crtcs);
@@ -336,12 +342,11 @@ void inspect_card(const int card) {
 
 int main(const int argc, char** const argv) {
     absl::ParseCommandLine(argc, argv);
-
     const int card = absl::GetFlag(FLAGS_card);
     if (card < 0) {
-	scan_cards();
+	scan_cards();  // Without --card, summarize all video cards
     } else {
-        inspect_card(card);
+        inspect_card(card);  // Show resources for one card
     }
 
     return 0;
