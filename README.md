@@ -2,7 +2,7 @@
 Experimental video code for Linux / Raspberry Pi
 
 ## Building
-1. Run `./dev_setup.py`. (Works On My Machine™, your mileage may vary. Eventually we should use Docker.)
+1. Run `./dev_setup.py`. (Works On My Machine™, YMMV. Eventually we should use Docker.)
 2. Make sure the `pip` installation of `meson` (in `~/.local/bin` by default) is on your `$PATH`.
 3. Run `meson b` to set up a build directory (`b` is just my convention, use any name).
 4. Run `ninja -C b` to run the actual build (this is the only part to repeat after edits).
@@ -12,7 +12,7 @@ Experimental video code for Linux / Raspberry Pi
 
 ### Raspberry Pi
 * [All about accelerated video on the Raspberry Pi](https://forums.raspberrypi.com/viewtopic.php?f=67&p=1901014) - my notes
-* [kernel.org: V3D Graphics Driver](https://www.kernel.org/doc/html/latest/gpu/v3d.html) - RPi 4 GPU kernel driver docs
+* [kernel.org: V3D Graphics Driver](https://www.kernel.org/doc/html/v5.10/gpu/v3d.html) - RPi 4 GPU kernel driver docs
 * [raspberrypi: V3D driver source](https://github.com/raspberrypi/linux/tree/rpi-5.10.y/drivers/gpu/drm/v3d) - RPi 4 GPU kernel driver source
 * [raspberrypi: V3D user header](https://github.com/raspberrypi/linux/blob/rpi-5.10.y/include/uapi/drm/v3d_drm.h) - ioctl defs for RPi 4 GPU kernel driver
 
@@ -22,11 +22,13 @@ Experimental video code for Linux / Raspberry Pi
 * [Man page: Direct Rendering Manager - Memory Management](https://manpages.debian.org/testing/libdrm-dev/drm-memory.7.en.html) - incomplete but helpful
 * [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - kernel interface
 * [kernel.org: Linux GPU Driver Developer's Guide](https://www.kernel.org/doc/html/v5.10/gpu/index.html) - kernel internals, good to know about
-* [libdrm](https://gitlab.freedesktop.org/mesa/drm) - kernel interface wrapper; undocumented but simple; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite the "xf86")
+* [libdrm](https://gitlab.freedesktop.org/mesa/drm) - library wrapper; undocumented but simple; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite the "xf86")
 * [libgbm](https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/gbm) - GPU allocation helper library; undocumented; see [gbm.h](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/gbm/main/gbm.h)
 
 ### Video decoding: V4L2
-* [kernel.org: V4L Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/latest/userspace-api/media/v4l/dev-decoder.html) - the interface needed to decode H.264 streams
+* [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - general V4L2 api
+* [kernel.org: Video for Linux Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html) - specifically this part
+* [libv4l](https://github.com/philips/libv4l) - library wrapper; see [libv4l2.h](https://github.com/philips/libv4l/blob/master/include/libv4l2.h)
 
 ### Zero-copy buffers
 * [kernel.org: Buffer Sharing and Synchronization](https://www.kernel.org/doc/html/v5.10/driver-api/dma-buf.html#userspace-interface-notes) - kernel buffer management (and user interface)
