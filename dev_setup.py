@@ -7,7 +7,14 @@ from subprocess import check_call, check_output
 os.chdir(str(Path(__file__).resolve().parent))
 
 print("=== Update system packages (sudo apt) ===")
-apt_packages = ["libabsl-dev", "libdrm-dev", "libdrm-tests", "ninja-build"]
+apt_packages = [
+    "libabsl-dev",
+    "libdrm-dev",
+    "libdrm-tests",
+    "libv4l-dev",
+    "ninja-build",
+    "v4l-utils",
+]
 check_call(["sudo", "apt", "install"] + apt_packages)
 print()
 

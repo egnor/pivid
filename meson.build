@@ -10,7 +10,10 @@ absl_dep = dependency('absl', method: 'cmake',
 
 libdrm_dep = dependency('libdrm')
 
+libv4l2_dep = dependency('libv4l2')
+
 executable('pivid_list', 'pivid_list.cpp', dependencies: [
     absl_dep,
     libdrm_dep,
+    libv4l2_dep,
 ])
