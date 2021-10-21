@@ -16,7 +16,7 @@
 
 ABSL_FLAG(std::string, gpu, "", "GPU device (in /dev/dri) to inspect");
 ABSL_FLAG(std::string, video, "", "Video device (in /dev/v4l) to inspect");
-ABSL_FLAG(bool, props, false, "Print detailed object properties");
+ABSL_FLAG(bool, detail, false, "Print detailed object properties");
 
 //
 // GPU listing
@@ -68,14 +68,15 @@ void print_properties(const int fd, const uint32_t id) {
     if (!props) return;
 
     for (uint32_t pi = 0; pi < props->count_props; ++pi) {
-        const auto value = props->prop_values[pi];
         auto* const meta = drmModeGetProperty(fd, props->props[pi]);
         if (!meta) {
             absl::PrintF("*** Error reading property #%d\n", props->props[pi]);
             exit(1);
         }
 
-        absl::PrintF("        Prop #%d %s =", props->props[pi], meta->name);
+        const std::string name = meta->name;
+        const auto value = props->prop_values[pi];
+        absl::PrintF("        Prop #%d %s =", props->props[pi], name);
         if (meta->flags & DRM_MODE_PROP_BLOB) {
             absl::PrintF(" [blob]");
         } else {
@@ -88,6 +89,21 @@ void print_properties(const int fd, const uint32_t id) {
             }
         }
         if (meta->flags & DRM_MODE_PROP_IMMUTABLE) absl::PrintF(" [ro]");
+
+        if (name == "IN_FORMATS" && (meta->flags & DRM_MODE_PROP_BLOB)) {
+            auto* const formats = drmModeGetPropertyBlob(fd, value);
+            const auto data = (const char *) formats->data;
+            const auto header = (const drm_format_modifier_blob *) data;
+            if (header->version == FORMAT_BLOB_CURRENT) {
+                for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
+                    if (fi % 12 == 0) absl::PrintF("\n           ");
+                    const auto* fourcc = data + header->formats_offset + fi * 4;
+                    absl::PrintF(" %.4s", fourcc);
+                }
+            }
+            drmModeFreePropertyBlob(formats);
+        }
+
         absl::PrintF("\n");
         drmModeFreeProperty(meta);
     }
@@ -137,7 +153,7 @@ void inspect_gpu() {
         exit(1);
     }
 
-    const bool print_props = absl::GetFlag(FLAGS_props);
+    const bool detail = absl::GetFlag(FLAGS_detail);
     absl::PrintF("%d image planes:\n", planes->count_planes);
     for (uint32_t p = 0; p < planes->count_planes; ++p) {
         const auto id = planes->planes[p];
@@ -164,44 +180,25 @@ void inspect_gpu() {
            );
         }
 
-        drmModePropertyBlobPtr formats = nullptr;
         const auto obj_type = DRM_MODE_OBJECT_PLANE;
         auto* const props = drmModeObjectGetProperties(fd, id, obj_type);
-        for (uint32_t pi = 0; props && pi < props->count_props; ++pi) {
-            auto* const meta = drmModeGetProperty(fd, props->props[pi]);
-            if (!meta) continue;
-
-            const std::string name(meta->name);
-            const auto value = props->prop_values[pi];
-            if (name == "IN_FORMATS" && (meta->flags & DRM_MODE_PROP_BLOB)) {
-                formats = drmModeGetPropertyBlob(fd, value);
-            } else if (name == "type") {
-                for (int ei = 0; ei < meta->count_enums; ++ei) {
-                    if (meta->enums[ei].value == value)
-                        absl::PrintF(" %s", meta->enums[ei].name);
+        if (props) {
+            for (uint32_t pi = 0; pi < props->count_props; ++pi) {
+                auto* const meta = drmModeGetProperty(fd, props->props[pi]);
+                if (!meta) continue;
+                if (std::string(meta->name) == "type") {
+                    for (int ei = 0; ei < meta->count_enums; ++ei) {
+                        if (meta->enums[ei].value == props->prop_values[pi])
+                            absl::PrintF(" %s", meta->enums[ei].name);
+                    }
                 }
+                drmModeFreeProperty(meta);
             }
-            drmModeFreeProperty(meta);
-        }
-        if (props) drmModeFreeObjectProperties(props);
-
-        if (formats && formats->length >= sizeof(drm_format_modifier_blob)) {
-            const auto data = (const char *) formats->data;
-            const auto header = (const drm_format_modifier_blob *) data;
-            const auto arr = data + header->formats_offset;
-            if (header->version == FORMAT_BLOB_CURRENT) {
-                absl::PrintF("\n        Formats:");
-                for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
-                    if (fi && (fi % 12) == 11) absl::PrintF("\n           ");
-                    const auto* fourcc = data + header->formats_offset + fi * 4;
-                    absl::PrintF(" %.4s", fourcc);
-                }
-            }
-            drmModeFreePropertyBlob(formats);
+            drmModeFreeObjectProperties(props);
         }
 
         absl::PrintF("\n");
-        if (print_props) print_properties(fd, id);
+        if (detail) print_properties(fd, id);
         drmModeFreePlane(plane);
     }
     absl::PrintF("\n");
@@ -239,7 +236,7 @@ void inspect_gpu() {
         }
 
         absl::PrintF("\n");
-        if (print_props) print_properties(fd, id);
+        if (detail) print_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
     absl::PrintF("\n");
@@ -285,7 +282,7 @@ void inspect_gpu() {
         }
 
         absl::PrintF("\n");
-        if (print_props) print_properties(fd, id);
+        if (detail) print_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
     absl::PrintF("\n");
@@ -349,7 +346,7 @@ void inspect_gpu() {
         }
 
         absl::PrintF("\n");
-        if (print_props) print_properties(fd, id);
+        if (detail) print_properties(fd, id);
         drmModeFreeConnector(conn);
     }
     absl::PrintF("\n");
@@ -365,7 +362,7 @@ void inspect_gpu() {
 // Print capability bits from VIDIOC_QUERYCAP results.
 void print_capability(const int fd) {
     v4l2_capability cap = {};
-    if (ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
+    if (v4l2_ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
         absl::PrintF("*** Error querying device\n");
         exit(1);
     }
@@ -489,13 +486,12 @@ void inspect_videodev() {
 #undef T
                     default: absl::PrintF("?%d?", format.type); break;
                 }
-                absl::PrintF(" format(s):\n");
+                absl::PrintF(" formats:\n");
             }
 
             const std::string fourcc((const char *) &format.pixelformat, 4);
             const std::string desc((const char *) format.description);
             absl::PrintF("    %s", fourcc);
-            if (desc != fourcc) absl::PrintF(" (%s)", desc);
             for (uint32_t bit = 1; bit != 0; bit <<= 1) {
                 if (!(format.flags & bit)) continue;
                 switch (bit) {
@@ -513,33 +509,35 @@ void inspect_videodev() {
                    default: absl::PrintF(" ?0x%x?", bit);
                 }
             }
-            absl::PrintF("\n");
+            if (desc != fourcc) absl::PrintF(" (%s)", desc);
 
-            v4l2_frmsizeenum frame_size = {};
-            frame_size.pixel_format = format.pixelformat;
-            for (;;) {
-                if (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frame_size)) break;
-                if (frame_size.index == 0) absl::PrintF("      ");
-                if (frame_size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-                    const auto &size = frame_size.discrete;
-                    absl::PrintF(" %dx%d", size.width, size.height);
-                } else {
-                    const auto &size = frame_size.stepwise;
-                    absl::PrintF(
-                        " %dx%d - %dx%d",
-                        size.min_width, size.min_height,
-                        size.max_width, size.max_height
-                    );
-                    if (size.step_width != 1 || size.step_height != 1) {
+            if (absl::GetFlag(FLAGS_detail)) {
+                v4l2_frmsizeenum size = {};
+                size.pixel_format = format.pixelformat;
+                for (;;) {
+                    if (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size)) break;
+                    if (size.index % 6 == 0) absl::PrintF("\n       ");
+                    if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+                        const auto &dim = size.discrete;
+                        absl::PrintF(" %dx%d", dim.width, dim.height);
+                    } else {
+                        const auto &dim = size.stepwise;
                         absl::PrintF(
-                            " (by %dx%d)", size.step_width, size.step_height
+                            " %dx%d - %dx%d",
+                            dim.min_width, dim.min_height,
+                            dim.max_width, dim.max_height
                         );
+                        if (dim.step_width != 1 || dim.step_height != 1) {
+                            absl::PrintF(
+                                " ±%dx%d", dim.step_width, dim.step_height
+                            );
+                        }
                     }
-                }
 
-                ++frame_size.index;
+                    ++size.index;
+                }
             }
-            if (frame_size.index > 0) absl::PrintF("\n");
+            absl::PrintF("\n");
             ++format.index;
         }
         if (format.index > 0) absl::PrintF("\n");
@@ -547,35 +545,117 @@ void inspect_videodev() {
 
     v4l2_input input = {};
     for (;;) {
-        if (ioctl(fd, VIDIOC_ENUMINPUT, &input)) break;
-        if (input.index == 0) absl::PrintF("Input(s):\n");
+        if (v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input)) break;
+        if (input.index == 0) absl::PrintF("Inputs:\n");
         absl::PrintF("    Inp #%d", input.index);
         switch (input.type) {
-            case V4L2_INPUT_TYPE_TUNER: absl::PrintF(" TUNER"); break;
-            case V4L2_INPUT_TYPE_CAMERA: absl::PrintF(" VIDEO"); break;
-            case V4L2_INPUT_TYPE_TOUCH: absl::PrintF(" TOUCH"); break;
+#define I(X, y) case V4L2_INPUT_TYPE_##X: absl::PrintF(" %s%s", #X, y); break
+            I(TUNER, "");
+            I(CAMERA, "/video");
+            I(TOUCH, "");
+#undef I
             default: absl::PrintF(" ?%d?", input.type); break;
         }
-        absl::PrintF(" \"%s\"\n", (const char *) input.name);
+        absl::PrintF(" (%s)\n", (const char *) input.name);
         ++input.index;
     }
     if (input.index > 0) absl::PrintF("\n");
 
     v4l2_output output = {};
     for (;;) {
-        if (ioctl(fd, VIDIOC_ENUMOUTPUT, &output)) break;
-        if (output.index == 0) absl::PrintF("Output(s):\n");
+        if (v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output)) break;
+        if (output.index == 0) absl::PrintF("Outputs:\n");
         absl::PrintF("    Out #%d", output.index);
         switch (output.type) {
-            case V4L2_OUTPUT_TYPE_MODULATOR: absl::PrintF(" MODULATOR"); break;
-            case V4L2_OUTPUT_TYPE_ANALOG: absl::PrintF(" VIDEO"); break;
-            case V4L2_OUTPUT_TYPE_ANALOGVGAOVERLAY: absl::PrintF(" OVL"); break;
+#define O(X, y) case V4L2_OUTPUT_TYPE_##X: absl::PrintF(" %s%s", #X, y); break
+            O(MODULATOR, "");
+            O(ANALOG, "/video");
+            O(ANALOGVGAOVERLAY, "/overlay");
+#undef O
             default: absl::PrintF(" ?%d?", output.type); break;
         }
-        absl::PrintF(" \"%s\"\n", (const char *) output.name);
+        absl::PrintF(" (%s)\n", (const char *) output.name);
         ++output.index;
     }
     if (output.index > 0) absl::PrintF("\n");
+
+    if (absl::GetFlag(FLAGS_detail)) {
+        v4l2_query_ext_ctrl ctrl = {};
+        int found = 0;
+        for (;;) {
+            ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
+            if (v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl)) break;
+            if (!found++) absl::PrintF("Controls:\n");
+            absl::PrintF("    Ctrl 0x%x", ctrl.id);
+            switch (ctrl.type) {
+#define T(X) case V4L2_CTRL_TYPE_##X: absl::PrintF(" %-7s", #X); break
+                T(INTEGER);
+                T(BOOLEAN);
+                T(MENU);
+                T(BUTTON);
+                T(INTEGER64);
+                T(CTRL_CLASS);
+                T(STRING);
+                T(BITMASK);
+                T(INTEGER_MENU);
+                T(U8);
+                T(U16);
+                T(U32);
+                T(AREA);
+                T(HDR10_CLL_INFO);
+                T(HDR10_MASTERING_DISPLAY);
+                T(H264_SPS);
+                T(H264_PPS);
+                T(H264_SCALING_MATRIX);
+                T(H264_SLICE_PARAMS);
+                T(H264_DECODE_PARAMS);
+                T(H264_PRED_WEIGHTS);
+                T(FWHT_PARAMS);
+                T(VP8_FRAME);
+#undef T
+                default: absl::PrintF(" ?%d?", ctrl.type); break;
+            }
+
+            if (ctrl.minimum || ctrl.maximum) {
+                absl::PrintF(" %4d-%-4d", ctrl.minimum, ctrl.maximum);
+                if (ctrl.step > 1) absl::PrintF(" ±%d", ctrl.step);
+            }
+            for (uint32_t bit = 1; bit > 0; bit <<= 1) {
+                if (ctrl.flags & bit) {
+                    switch (bit) {
+#define F(X) case V4L2_CTRL_FLAG_##X: absl::PrintF(" %s", #X); break
+                        F(DISABLED);
+                        F(GRABBED);
+                        F(READ_ONLY);
+                        F(UPDATE);
+                        F(INACTIVE);
+                        F(SLIDER);
+                        F(WRITE_ONLY);
+                        F(VOLATILE);
+                        F(HAS_PAYLOAD);
+                        F(EXECUTE_ON_WRITE);
+                        F(MODIFY_LAYOUT);
+#undef F
+                    }
+                }
+            }
+            absl::PrintF(" (%s)\n", ctrl.name);
+
+            if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
+                v4l2_querymenu item = {};
+                item.id = ctrl.id;
+                for (;;) {
+                    if (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item)) break;
+                    absl::PrintF(
+                        "        %d: %s\n",
+                        item.index, (const char *) item.name
+                    );
+                    ++item.index;
+                }
+            }
+        }
+        if (found > 0) absl::PrintF("\n");
+    }
 
     v4l2_close(fd);
 }
