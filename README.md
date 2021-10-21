@@ -20,18 +20,18 @@ Experimental video code for Linux / Raspberry Pi
 * [Wikipedia: Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) - a good overview
 * [Man page: Direct Rendering Manager - Kernel Mode-Setting](https://manpages.debian.org/testing/libdrm-dev/drm-kms.7.en.html) - incomplete but helpful
 * [Man page: Direct Rendering Manager - Memory Management](https://manpages.debian.org/testing/libdrm-dev/drm-memory.7.en.html) - incomplete but helpful
-* [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - kernel interface
-* [kernel.org: Linux GPU Driver Developer's Guide](https://www.kernel.org/doc/html/v5.10/gpu/index.html) - kernel internals, good to know about
+* [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - kernel/user interface
+* [kernel source: include/uapi/drm/drm.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm.h) and [drm_mode.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm_mode.h) - kernel/user headers
 * [libdrm](https://gitlab.freedesktop.org/mesa/drm) - library wrapper; undocumented but simple; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite the "xf86")
 * [modetest](https://cgit.freedesktop.org/drm/libdrm/tree/tests/modetest/modetest.c) - command line tool (in the [libdrm-tests](https://packages.debian.org/sid/main/libdrm-tests) Debian package)
 * [libgbm](https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/gbm) - GPU allocation helper library; undocumented; see [gbm.h](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/gbm/main/gbm.h)
 
 ### Video decoding: V4L2
-* [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - general V4L2 api
+* [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - kernel/user interface
 * [kernel.org: Video for Linux - Memory-to-Memory Stateful Video Decoder Interface](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html)
-* [kernel source: include/uapi/linux/videodev2.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/videodev2.h)
+* [kernel source: include/uapi/linux/videodev2.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/videodev2.h) - kernel/user header
 * [libv4l](https://github.com/philips/libv4l) - thin library wrapper with format conversion; see [libv4l2.h](https://github.com/philips/libv4l/blob/master/include/libv4l2.h)
-* [v4l-utils](https://linuxtv.org/wiki/index.php/V4l-utils) - command line tools, especially [v4l2-ctl](https://manpages.debian.org/testing/v4l-utils/v4l2-ctl.1.en.html)
+* [v4l-utils](https://linuxtv.org/wiki/index.php/V4l-utils) - useful tools, especially [v4l2-ctl](https://manpages.debian.org/testing/v4l-utils/v4l2-ctl.1.en.html)
 
 ### Zero-copy buffer sharing
 * [kernel.org: Buffer Sharing and Synchronization](https://www.kernel.org/doc/html/v5.10/driver-api/dma-buf.html#userspace-interface-notes) - kernel buffer management (and user interface)
