@@ -18,7 +18,7 @@ DEFINE_string(video, "", "Video device (in /dev/v4l) to inspect");
 DEFINE_bool(detail, false, "Print detailed object properties");
 
 //
-// GPU listing
+// GPUs
 //
 
 // Scan all DRM/KMS capable video cards and print a line for each.
@@ -71,7 +71,7 @@ void scan_gpus() {
 
 // Print key/value properties about a KMS "object" ID,
 // using the generic KMS property-value interface.
-void print_properties(const int fd, const uint32_t id) {
+void print_gpu_object_properties(const int fd, const uint32_t id) {
     auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
     if (!props) return;
 
@@ -205,7 +205,7 @@ void inspect_gpu() {
         }
 
         fmt::print("\n");
-        if (FLAGS_detail) print_properties(fd, id);
+        if (FLAGS_detail) print_gpu_object_properties(fd, id);
         drmModeFreePlane(plane);
     }
     fmt::print("\n");
@@ -243,7 +243,7 @@ void inspect_gpu() {
         }
 
         fmt::print("\n");
-        if (FLAGS_detail) print_properties(fd, id);
+        if (FLAGS_detail) print_gpu_object_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
     fmt::print("\n");
@@ -289,7 +289,7 @@ void inspect_gpu() {
         }
 
         fmt::print("\n");
-        if (FLAGS_detail) print_properties(fd, id);
+        if (FLAGS_detail) print_gpu_object_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
     fmt::print("\n");
@@ -351,7 +351,7 @@ void inspect_gpu() {
         }
 
         fmt::print("\n");
-        if (FLAGS_detail) print_properties(fd, id);
+        if (FLAGS_detail) print_gpu_object_properties(fd, id);
         drmModeFreeConnector(conn);
     }
     fmt::print("\n");
@@ -361,11 +361,11 @@ void inspect_gpu() {
 }
 
 //
-// Video device listing
+// Video devices
 //
 
-// Print capability bits from VIDIOC_QUERYCAP results.
-void print_capability(const int fd) {
+// Print driver name and capability bits from VIDIOC_QUERYCAP results.
+void print_videodev_driver(const int fd) {
     v4l2_capability cap = {};
     if (v4l2_ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
         fmt::print("*** Error querying device\n");
@@ -436,7 +436,7 @@ void scan_videodevs() {
 
         ++found;
         fmt::print("{}\n    ", entry.path().native());
-        print_capability(fd);
+        print_videodev_driver(fd);
         fmt::print("\n");
         v4l2_close(fd);
     }
@@ -467,7 +467,7 @@ void inspect_videodev() {
     }
 
     fmt::print("Driver: ");
-    print_capability(fd);
+    print_videodev_driver(fd);
     fmt::print("\n\n");
 
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {
@@ -643,7 +643,7 @@ void inspect_videodev() {
                     if (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item)) break;
                     fmt::print(
                         "        {}: {}\n",
-                        item.index, (const char *) item.name
+                        int(item.index), (const char *) item.name
                     );
                     ++item.index;
                 }
