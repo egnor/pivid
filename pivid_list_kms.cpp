@@ -1,4 +1,4 @@
-// Simple command line tool to list DRM/KMS resources and their IDs.
+// Simple command line tool to list DRM/KMS resources.
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
