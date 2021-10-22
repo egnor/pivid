@@ -25,10 +25,10 @@ DEFINE_bool(detail, false, "Print detailed object properties");
 void scan_gpus() {
     fmt::print("=== Scanning GPUs ===\n");
     int found = 0;
-    const std::filesystem::path dri_dir = "/dev/dri/by-path";
+    const std::filesystem::path dri_dir = "/dev/dri";
     for (const auto &entry : std::filesystem::directory_iterator(dri_dir)) {
         const std::string filename = entry.path().filename();
-        if (filename.substr(filename.size() - 5) != "-card") continue;
+        if (filename.substr(0, 4) != "card") continue;
 
         const int fd = open(entry.path().c_str(), O_RDWR);
         if (fd < 0) {
@@ -41,12 +41,21 @@ void scan_gpus() {
             fmt::print("*** {}: Error reading version\n", filename);
         } else {
             ++found;
-            fmt::print(
-                "{}\n    {} v{}: {}\n",
-                entry.path().native(), ver->name, ver->date, ver->desc
-            );
+            fmt::print("{}", entry.path().native());
+
+            // See https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html
+            drmSetVersion api_version = {1, 4, -1, -1};
+            drmSetInterfaceVersion(fd, &api_version);
+            auto* const busid = drmGetBusid(fd);
+            if (busid) {
+                if (*busid) fmt::print(" ({})", busid);
+                drmFreeBusid(busid);
+            }
+
+            fmt::print("\n    {} v{}: {}\n", ver->name, ver->date, ver->desc);
             drmFreeVersion(ver);
         }
+
         drmClose(fd);
     }
 
@@ -77,7 +86,7 @@ void print_properties(const int fd, const uint32_t id) {
         const auto value = props->prop_values[pi];
         fmt::print("        Prop #{} {} =", props->props[pi], name);
         if (meta->flags & DRM_MODE_PROP_BLOB) {
-            fmt::print(" [blob]");
+            fmt::print(" <blob>");
         } else {
             fmt::print(" {}", value);
             for (int ei = 0; ei < meta->count_enums; ++ei) {
@@ -206,7 +215,7 @@ void inspect_gpu() {
     // CRT controllers
     //
 
-    fmt::print("{} CRT (sic) controllers:\n", res->count_crtcs);
+    fmt::print("{} CRT/scanout controllers:\n", res->count_crtcs);
     for (int ci = 0; ci < res->count_crtcs; ++ci) {
         const auto id = res->crtcs[ci];
         auto* const crtc = drmModeGetCrtc(fd, id);
