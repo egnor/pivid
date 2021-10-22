@@ -7,16 +7,15 @@
 #include <filesystem>
 #include <vector>
 
-#include <absl/flags/flag.h>
-#include <absl/flags/parse.h>
-#include <absl/strings/str_format.h>
+#include <fmt/core.h>
+#include <gflags/gflags.h>
 #include <libv4l2.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-ABSL_FLAG(std::string, gpu, "", "GPU device (in /dev/dri) to inspect");
-ABSL_FLAG(std::string, video, "", "Video device (in /dev/v4l) to inspect");
-ABSL_FLAG(bool, detail, false, "Print detailed object properties");
+DEFINE_string(gpu, "", "GPU device (in /dev/dri) to inspect");
+DEFINE_string(video, "", "Video device (in /dev/v4l) to inspect");
+DEFINE_bool(detail, false, "Print detailed object properties");
 
 //
 // GPU listing
@@ -24,7 +23,7 @@ ABSL_FLAG(bool, detail, false, "Print detailed object properties");
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
-    absl::PrintF("=== Scanning GPUs ===\n");
+    fmt::print("=== Scanning GPUs ===\n");
     int found = 0;
     const std::filesystem::path dri_dir = "/dev/dri/by-path";
     for (const auto &entry : std::filesystem::directory_iterator(dri_dir)) {
@@ -33,18 +32,18 @@ void scan_gpus() {
 
         const int fd = open(entry.path().c_str(), O_RDWR);
         if (fd < 0) {
-            absl::PrintF("*** Error opening: %s\n", entry.path());
+            fmt::print("*** Error opening: {}\n", entry.path().native());
             continue;
         }
 
         auto* const ver = drmGetVersion(fd);
         if (!ver) {
-            absl::PrintF("*** %s: Error reading version\n", entry.path());
+            fmt::print("*** {}: Error reading version\n", filename);
         } else {
             ++found;
-            absl::PrintF(
-                "%s\n    %s v%s: %s\n",
-                entry.path(), ver->name, ver->date, ver->desc
+            fmt::print(
+                "{}\n    {} v{}: {}\n",
+                entry.path().native(), ver->name, ver->date, ver->desc
             );
             drmFreeVersion(ver);
         }
@@ -52,12 +51,12 @@ void scan_gpus() {
     }
 
     if (found) {
-        absl::PrintF(
-            "--- %d GPU(s); inspect with: pivid_list --gpu=<dev>\n\n",
+        fmt::print(
+            "--- {} GPU(s); inspect with: pivid_list --gpu=<dev>\n\n",
             found
         );
     } else {
-        absl::PrintF("No cards found\n\n");
+        fmt::print("No cards found\n\n");
     }
 }
 
@@ -70,25 +69,25 @@ void print_properties(const int fd, const uint32_t id) {
     for (uint32_t pi = 0; pi < props->count_props; ++pi) {
         auto* const meta = drmModeGetProperty(fd, props->props[pi]);
         if (!meta) {
-            absl::PrintF("*** Error reading property #%d\n", props->props[pi]);
+            fmt::print("*** Error reading property #{}\n", props->props[pi]);
             exit(1);
         }
 
         const std::string name = meta->name;
         const auto value = props->prop_values[pi];
-        absl::PrintF("        Prop #%d %s =", props->props[pi], name);
+        fmt::print("        Prop #{} {} =", props->props[pi], name);
         if (meta->flags & DRM_MODE_PROP_BLOB) {
-            absl::PrintF(" [blob]");
+            fmt::print(" [blob]");
         } else {
-            absl::PrintF(" %d", value);
+            fmt::print(" {}", value);
             for (int ei = 0; ei < meta->count_enums; ++ei) {
                 if (meta->enums[ei].value == value) {
-                    absl::PrintF(" (%s)", meta->enums[ei].name);
+                    fmt::print(" ({})", meta->enums[ei].name);
                     break;
                 }
             }
         }
-        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) absl::PrintF(" [ro]");
+        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print(" [ro]");
 
         if (name == "IN_FORMATS" && (meta->flags & DRM_MODE_PROP_BLOB)) {
             auto* const formats = drmModeGetPropertyBlob(fd, value);
@@ -96,15 +95,15 @@ void print_properties(const int fd, const uint32_t id) {
             const auto header = (const drm_format_modifier_blob *) data;
             if (header->version == FORMAT_BLOB_CURRENT) {
                 for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
-                    if (fi % 12 == 0) absl::PrintF("\n           ");
+                    if (fi % 12 == 0) fmt::print("\n           ");
                     const auto* fourcc = data + header->formats_offset + fi * 4;
-                    absl::PrintF(" %.4s", fourcc);
+                    fmt::print(" {:.4s}", fourcc);
                 }
             }
             drmModeFreePropertyBlob(formats);
         }
 
-        absl::PrintF("\n");
+        fmt::print("\n");
         drmModeFreeProperty(meta);
     }
 
@@ -113,12 +112,12 @@ void print_properties(const int fd, const uint32_t id) {
 
 // Print information about the DRM/KMS resources associated with a video card.
 void inspect_gpu() {
-    const auto path = absl::GetFlag(FLAGS_gpu);
-    absl::PrintF("=== %s ===\n", path);
+    const auto& path = FLAGS_gpu;
+    fmt::print("=== {} ===\n", path);
 
     const int fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
-        absl::PrintF("*** Error opening: %s\n", path);
+        fmt::print("*** Error opening: {}\n", path);
         exit(1);
     }
 
@@ -129,17 +128,17 @@ void inspect_gpu() {
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {
-        absl::PrintF("*** %s: Error reading resources\n", path);
+        fmt::print("*** {}: Error reading resources\n", path);
         exit(1);
     }
 
     auto* const ver = drmGetVersion(fd);
     if (!ver) {
-        absl::PrintF("*** %s: Error reading version\n", path);
+        fmt::print("*** {}: Error reading version\n", path);
         exit(1);
     }
-    absl::PrintF(
-        "Driver: %s v%s (%dx%d max)\n\n",
+    fmt::print(
+        "Driver: {} v{} ({}x{} max)\n\n",
         ver->name, ver->date, res->max_width, res->max_height
     );
 
@@ -149,33 +148,32 @@ void inspect_gpu() {
 
     auto* const planes = drmModeGetPlaneResources(fd);
     if (!planes) {
-        absl::PrintF("*** %s: Error reading plane resources\n", path);
+        fmt::print("*** {}: Error reading plane resources\n", path);
         exit(1);
     }
 
-    const bool detail = absl::GetFlag(FLAGS_detail);
-    absl::PrintF("%d image planes:\n", planes->count_planes);
+    fmt::print("{} image planes:\n", planes->count_planes);
     for (uint32_t p = 0; p < planes->count_planes; ++p) {
         const auto id = planes->planes[p];
         auto* const plane = drmModeGetPlane(fd, id);
         if (!plane) {
-            absl::PrintF("*** %s: Error reading plane #%d\n", path, id);
+            fmt::print("*** {}: Error reading plane #{}\n", path, id);
             exit(1);
         }
 
-        absl::PrintF("    Plane #%-3d [CRTC", id);
+        fmt::print("    Plane #{:<3} [CRTC", id);
         for (int ci = 0; ci < res->count_crtcs; ++ci) {
             if (plane->possible_crtcs & (1 << ci))
-                absl::PrintF(
-                    " #%d%s", res->crtcs[ci],
+                fmt::print(
+                    " #{}{}", res->crtcs[ci],
                     res->crtcs[ci] == plane->crtc_id ? "*" : ""
                 );
         }
-        absl::PrintF("]");
+        fmt::print("]");
 
         if (plane->fb_id) {
-            absl::PrintF(
-                " [FB #%d* (%d,%d)=>(%d,%d)]", plane->fb_id,
+            fmt::print(
+                " [FB #{}* ({},{})=>({},{})]", plane->fb_id,
                 plane->x, plane->y, plane->crtc_x, plane->crtc_y
            );
         }
@@ -189,7 +187,7 @@ void inspect_gpu() {
                 if (std::string(meta->name) == "type") {
                     for (int ei = 0; ei < meta->count_enums; ++ei) {
                         if (meta->enums[ei].value == props->prop_values[pi])
-                            absl::PrintF(" %s", meta->enums[ei].name);
+                            fmt::print(" {}", meta->enums[ei].name);
                     }
                 }
                 drmModeFreeProperty(meta);
@@ -197,77 +195,77 @@ void inspect_gpu() {
             drmModeFreeObjectProperties(props);
         }
 
-        absl::PrintF("\n");
-        if (detail) print_properties(fd, id);
+        fmt::print("\n");
+        if (FLAGS_detail) print_properties(fd, id);
         drmModeFreePlane(plane);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
     drmModeFreePlaneResources(planes);
 
     //
     // CRT controllers
     //
 
-    absl::PrintF("%d CRT (sic) controllers:\n", res->count_crtcs);
+    fmt::print("{} CRT (sic) controllers:\n", res->count_crtcs);
     for (int ci = 0; ci < res->count_crtcs; ++ci) {
         const auto id = res->crtcs[ci];
         auto* const crtc = drmModeGetCrtc(fd, id);
         if (!crtc) {
-            absl::PrintF("*** %s: Error reading CRTC #%d\n", path, id);
+            fmt::print("*** {}: Error reading CRTC #{}\n", path, id);
             exit(1);
         }
 
         if (crtc->buffer_id != 0) {
-            absl::PrintF(
-                "  * CRTC #%-3d [FB #%d* (%d,%d)+(%dx%d)]",
+            fmt::print(
+                "  * CRTC #{:<3} [FB #{}* ({},{})+({}x{})]",
                 id, crtc->buffer_id,
                 crtc->x, crtc->y, crtc->width, crtc->height
             );
         } else {
-            absl::PrintF("    CRTC #%-3d", id);
+            fmt::print("    CRTC #{:<3}", id);
         }
 
         if (crtc->mode_valid) {
-            absl::PrintF(
-                " => %dx%d @%dHz",
+            fmt::print(
+                " => {}x{} @{}Hz",
                 crtc->mode.hdisplay, crtc->mode.vdisplay,
                 crtc->mode.vrefresh
             );
         }
 
-        absl::PrintF("\n");
-        if (detail) print_properties(fd, id);
+        fmt::print("\n");
+        if (FLAGS_detail) print_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
 
     //
     // Encoders
     //
 
-    absl::PrintF("%d signal encoders:\n", res->count_encoders);
+    fmt::print("{} signal encoders:\n", res->count_encoders);
     for (int ei = 0; ei < res->count_encoders; ++ei) {
         const auto id = res->encoders[ei];
         auto* const enc = drmModeGetEncoder(fd, id);
         if (!enc) {
-            absl::PrintF("*** %s: Error reading encoder #%d\n", path, id);
+            fmt::print("*** {}: Error reading encoder #{}\n", path, id);
             exit(1);
         }
 
-        absl::PrintF(
-            "  %c Enc #%-3d [CRTC", enc->crtc_id != 0 ? '*' : ' ', id
+        fmt::print(
+            "  {} Enc #{:<3} [CRTC", enc->crtc_id != 0 ? '*' : ' ', id
         );
         for (int c = 0; c < res->count_crtcs; ++c) {
             if (enc->possible_crtcs & (1 << c))
-                absl::PrintF(
-                    " #%d%s", res->crtcs[c],
+                fmt::print(
+                    " #{}{}", res->crtcs[c],
                     res->crtcs[c] == enc->crtc_id ? "*" : ""
                 );
         }
-        absl::PrintF("]");
+        fmt::print("]");
 
         switch (enc->encoder_type) {
-#define E(X) case DRM_MODE_ENCODER_##X: absl::PrintF(" %s", #X); break
+#define E(X) case DRM_MODE_ENCODER_##X: fmt::print(" {}", #X); break
             E(NONE);
             E(DAC);
             E(TMDS);
@@ -278,44 +276,44 @@ void inspect_gpu() {
             E(DPMST);
             E(DPI);
 #undef E
-            default: absl::PrintF(" ?%d?", enc->encoder_type); break;
+            default: fmt::print(" ?{}?", enc->encoder_type); break;
         }
 
-        absl::PrintF("\n");
-        if (detail) print_properties(fd, id);
+        fmt::print("\n");
+        if (FLAGS_detail) print_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
 
     //
     // Connectors
     //
 
-    absl::PrintF("%d video connectors:\n", res->count_connectors);
+    fmt::print("{} video connectors:\n", res->count_connectors);
     for (int ci = 0; ci < res->count_connectors; ++ci) {
         const auto id = res->connectors[ci];
         auto* const conn = drmModeGetConnector(fd, id);
         if (!conn) {
-            absl::PrintF("*** %s: Error reading connector #%d\n", path, id);
+            fmt::print("*** {}: Error reading connector #{}\n", path, id);
             exit(1);
         }
 
-        absl::PrintF(
-            "  %c Conn #%-3d",
+        fmt::print(
+            "  {} Conn #{:<3}",
             conn->connection == DRM_MODE_CONNECTED ? '*' : ' ', id
         );
 
-        absl::PrintF(" [Enc");
+        fmt::print(" [Enc");
         for (int e = 0; e < conn->count_encoders; ++e) {
-            absl::PrintF(
-                " #%d%s", conn->encoders[e],
+            fmt::print(
+                " #{}{}", conn->encoders[e],
                 conn->encoders[e] == conn->encoder_id ? "*" : ""
             );
         }
-        absl::PrintF("]");
+        fmt::print("]");
 
         switch (conn->connector_type) {
-#define C(X) case DRM_MODE_CONNECTOR_##X: absl::PrintF(" %s", #X); break
+#define C(X) case DRM_MODE_CONNECTOR_##X: fmt::print(" {}", #X); break
             C(Unknown);
             C(VGA);
             C(DVII);
@@ -333,23 +331,21 @@ void inspect_gpu() {
             C(eDP);
             C(VIRTUAL);
             C(DSI);
-            C(DPI);
             C(WRITEBACK);
-            C(SPI);
 #undef C
-            default: absl::PrintF(" ?%d?", conn->connector_type); break;
+            default: fmt::print(" ?{}?", conn->connector_type); break;
         }
 
-        absl::PrintF("-%d", conn->connector_type_id);
+        fmt::print("-{}", conn->connector_type_id);
         if (conn->mmWidth || conn->mmHeight) {
-            absl::PrintF(" (%dx%dmm)", conn->mmWidth, conn->mmHeight);
+            fmt::print(" ({}x{}mm)", conn->mmWidth, conn->mmHeight);
         }
 
-        absl::PrintF("\n");
-        if (detail) print_properties(fd, id);
+        fmt::print("\n");
+        if (FLAGS_detail) print_properties(fd, id);
         drmModeFreeConnector(conn);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
     drmFreeVersion(ver);
     drmModeFreeResources(res);
     close(fd);
@@ -363,13 +359,13 @@ void inspect_gpu() {
 void print_capability(const int fd) {
     v4l2_capability cap = {};
     if (v4l2_ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
-        absl::PrintF("*** Error querying device\n");
+        fmt::print("*** Error querying device\n");
         exit(1);
     }
 
     const uint32_t v = cap.version;
-    absl::PrintF(
-        "%s v%d.%d.%d:",
+    fmt::print(
+        "{} v{}.{}.{}:",
         (const char *) cap.driver, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
     );
 
@@ -378,7 +374,7 @@ void print_capability(const int fd) {
     for (uint32_t bit = 1; bit != 0; bit <<= 1) {
         if (!(caps & bit)) continue;
         switch (bit) {
-#define C(X) case V4L2_CAP_##X: absl::PrintF(" %s", #X); break
+#define C(X) case V4L2_CAP_##X: fmt::print(" {}", #X); break
             C(VIDEO_CAPTURE);
             C(VIDEO_CAPTURE_MPLANE);
             C(VIDEO_OUTPUT);
@@ -409,14 +405,14 @@ void print_capability(const int fd) {
             C(TOUCH);
             C(IO_MC);
 #undef C
-            default: absl::PrintF(" ?0x%x?", bit);
+            default: fmt::print(" ?0x{:x}?", bit);
         }
     }
 }
 
 // Scan all V4L2 video devices and print a line for each.
 void scan_videodevs() {
-    absl::PrintF("=== Scanning video devices ===\n");
+    fmt::print("=== Scanning video devices ===\n");
     int found = 0;
     const std::filesystem::path v4l_dir = "/dev/v4l/by-path";
     for (const auto &entry : std::filesystem::directory_iterator(v4l_dir)) {
@@ -425,45 +421,45 @@ void scan_videodevs() {
 
         const int fd = v4l2_open(entry.path().c_str(), O_RDWR);
         if (fd < 0) {
-            absl::PrintF("*** Error opening: %s\n", entry.path());
+            fmt::print("*** Error opening: {}\n", entry.path().native());
             continue;
         }
 
         ++found;
-        absl::PrintF("%s\n    ", entry.path());
+        fmt::print("{}\n    ", entry.path().native());
         print_capability(fd);
-        absl::PrintF("\n");
+        fmt::print("\n");
         v4l2_close(fd);
     }
 
     if (found) {
-        absl::PrintF(
-            "--- %d device(s); inspect with: pivid_list --video=<dev>\n\n",
+        fmt::print(
+            "--- {} device(s); inspect with: pivid_list --video=<dev>\n\n",
             found
         );
     } else {
-        absl::PrintF("No video devices found\n\n");
+        fmt::print("No video devices found\n\n");
     }
 }
 
 // Print information about a V4L2 video device.
 void inspect_videodev() {
-    const auto path = absl::GetFlag(FLAGS_video);
-    absl::PrintF("=== %s ===\n", path);
+    const auto& path = FLAGS_video;
+    fmt::print("=== {} ===\n", path);
 
     const int fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
-        absl::PrintF("*** Error opening: %s\n", path);
+        fmt::print("*** Error opening: {}\n", path);
         exit(1);
     }
     if (v4l2_fd_open(fd, V4L2_DISABLE_CONVERSION) != fd) {
-        absl::PrintF("*** Error in V4L2 open: %s\n", path);
+        fmt::print("*** Error in V4L2 open: {}\n", path);
         exit(1);
     }
 
-    absl::PrintF("Driver: ");
+    fmt::print("Driver: ");
     print_capability(fd);
-    absl::PrintF("\n\n");
+    fmt::print("\n\n");
 
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {
         v4l2_fmtdesc format = {};
@@ -473,7 +469,7 @@ void inspect_videodev() {
 
             if (format.index == 0) {
                 switch (format.type) {
-#define T(X) case V4L2_BUF_TYPE_##X: absl::PrintF("%s", #X); break
+#define T(X) case V4L2_BUF_TYPE_##X: fmt::print("{}", #X); break
                     T(VIDEO_CAPTURE);
                     T(VIDEO_CAPTURE_MPLANE);
                     T(VIDEO_OUTPUT);
@@ -484,18 +480,18 @@ void inspect_videodev() {
                     T(META_CAPTURE);
                     T(META_OUTPUT);
 #undef T
-                    default: absl::PrintF("?%d?", format.type); break;
+                    default: fmt::print("?{}?", format.type); break;
                 }
-                absl::PrintF(" formats:\n");
+                fmt::print(" formats:\n");
             }
 
             const std::string fourcc((const char *) &format.pixelformat, 4);
             const std::string desc((const char *) format.description);
-            absl::PrintF("    %s", fourcc);
+            fmt::print("    {}", fourcc);
             for (uint32_t bit = 1; bit != 0; bit <<= 1) {
                 if (!(format.flags & bit)) continue;
                 switch (bit) {
-#define F(X) case V4L2_FMT_FLAG_##X: absl::PrintF(" %s", #X); break
+#define F(X) case V4L2_FMT_FLAG_##X: fmt::print(" {}", #X); break
                    F(COMPRESSED);
                    F(EMULATED);
                    F(CONTINUOUS_BYTESTREAM);
@@ -506,30 +502,30 @@ void inspect_videodev() {
                    F(CSC_YCBCR_ENC);
                    F(CSC_QUANTIZATION);
 #undef F
-                   default: absl::PrintF(" ?0x%x?", bit);
+                   default: fmt::print(" ?0x{:x}?", bit);
                 }
             }
-            if (desc != fourcc) absl::PrintF(" (%s)", desc);
+            if (desc != fourcc) fmt::print(" ({})", desc);
 
-            if (absl::GetFlag(FLAGS_detail)) {
+            if (FLAGS_detail) {
                 v4l2_frmsizeenum size = {};
                 size.pixel_format = format.pixelformat;
                 for (;;) {
                     if (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size)) break;
-                    if (size.index % 6 == 0) absl::PrintF("\n       ");
+                    if (size.index % 6 == 0) fmt::print("\n       ");
                     if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
                         const auto &dim = size.discrete;
-                        absl::PrintF(" %dx%d", dim.width, dim.height);
+                        fmt::print(" {}x{}", dim.width, dim.height);
                     } else {
                         const auto &dim = size.stepwise;
-                        absl::PrintF(
-                            " %dx%d - %dx%d",
+                        fmt::print(
+                            " {}x{} - {}x{}",
                             dim.min_width, dim.min_height,
                             dim.max_width, dim.max_height
                         );
                         if (dim.step_width != 1 || dim.step_height != 1) {
-                            absl::PrintF(
-                                " ±%dx%d", dim.step_width, dim.step_height
+                            fmt::print(
+                                " ±{}x{}", dim.step_width, dim.step_height
                             );
                         }
                     }
@@ -537,58 +533,58 @@ void inspect_videodev() {
                     ++size.index;
                 }
             }
-            absl::PrintF("\n");
+            fmt::print("\n");
             ++format.index;
         }
-        if (format.index > 0) absl::PrintF("\n");
+        if (format.index > 0) fmt::print("\n");
     }
 
     v4l2_input input = {};
     for (;;) {
         if (v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input)) break;
-        if (input.index == 0) absl::PrintF("Inputs:\n");
-        absl::PrintF("    Inp #%d", input.index);
+        if (input.index == 0) fmt::print("Inputs:\n");
+        fmt::print("    Inp #{}", input.index);
         switch (input.type) {
-#define I(X, y) case V4L2_INPUT_TYPE_##X: absl::PrintF(" %s%s", #X, y); break
+#define I(X, y) case V4L2_INPUT_TYPE_##X: fmt::print(" {}{}", #X, y); break
             I(TUNER, "");
             I(CAMERA, "/video");
             I(TOUCH, "");
 #undef I
-            default: absl::PrintF(" ?%d?", input.type); break;
+            default: fmt::print(" ?{}?", input.type); break;
         }
-        absl::PrintF(" (%s)\n", (const char *) input.name);
+        fmt::print(" ({})\n", (const char *) input.name);
         ++input.index;
     }
-    if (input.index > 0) absl::PrintF("\n");
+    if (input.index > 0) fmt::print("\n");
 
     v4l2_output output = {};
     for (;;) {
         if (v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output)) break;
-        if (output.index == 0) absl::PrintF("Outputs:\n");
-        absl::PrintF("    Out #%d", output.index);
+        if (output.index == 0) fmt::print("Outputs:\n");
+        fmt::print("    Out #{}", output.index);
         switch (output.type) {
-#define O(X, y) case V4L2_OUTPUT_TYPE_##X: absl::PrintF(" %s%s", #X, y); break
+#define O(X, y) case V4L2_OUTPUT_TYPE_##X: fmt::print(" {}{}", #X, y); break
             O(MODULATOR, "");
             O(ANALOG, "/video");
             O(ANALOGVGAOVERLAY, "/overlay");
 #undef O
-            default: absl::PrintF(" ?%d?", output.type); break;
+            default: fmt::print(" ?{}?", output.type); break;
         }
-        absl::PrintF(" (%s)\n", (const char *) output.name);
+        fmt::print(" ({})\n", (const char *) output.name);
         ++output.index;
     }
-    if (output.index > 0) absl::PrintF("\n");
+    if (output.index > 0) fmt::print("\n");
 
-    if (absl::GetFlag(FLAGS_detail)) {
+    if (FLAGS_detail) {
         v4l2_query_ext_ctrl ctrl = {};
         int found = 0;
         for (;;) {
             ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
             if (v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl)) break;
-            if (!found++) absl::PrintF("Controls:\n");
-            absl::PrintF("    Ctrl 0x%x", ctrl.id);
+            if (!found++) fmt::print("Controls:\n");
+            fmt::print("    Ctrl 0x{:x}", ctrl.id);
             switch (ctrl.type) {
-#define T(X) case V4L2_CTRL_TYPE_##X: absl::PrintF(" %-7s", #X); break
+#define T(X) case V4L2_CTRL_TYPE_##X: fmt::print(" {:<7}", #X); break
                 T(INTEGER);
                 T(BOOLEAN);
                 T(MENU);
@@ -602,28 +598,18 @@ void inspect_videodev() {
                 T(U16);
                 T(U32);
                 T(AREA);
-                T(HDR10_CLL_INFO);
-                T(HDR10_MASTERING_DISPLAY);
-                T(H264_SPS);
-                T(H264_PPS);
-                T(H264_SCALING_MATRIX);
-                T(H264_SLICE_PARAMS);
-                T(H264_DECODE_PARAMS);
-                T(H264_PRED_WEIGHTS);
-                T(FWHT_PARAMS);
-                T(VP8_FRAME);
 #undef T
-                default: absl::PrintF(" ?%d?", ctrl.type); break;
+                default: fmt::print(" ?{}?", ctrl.type); break;
             }
 
             if (ctrl.minimum || ctrl.maximum) {
-                absl::PrintF(" %4d-%-4d", ctrl.minimum, ctrl.maximum);
-                if (ctrl.step > 1) absl::PrintF(" ±%d", ctrl.step);
+                fmt::print(" {:<4}-{:<4}", ctrl.minimum, ctrl.maximum);
+                if (ctrl.step > 1) fmt::print(" ±{}", ctrl.step);
             }
             for (uint32_t bit = 1; bit > 0; bit <<= 1) {
                 if (ctrl.flags & bit) {
                     switch (bit) {
-#define F(X) case V4L2_CTRL_FLAG_##X: absl::PrintF(" %s", #X); break
+#define F(X) case V4L2_CTRL_FLAG_##X: fmt::print(" {}", #X); break
                         F(DISABLED);
                         F(GRABBED);
                         F(READ_ONLY);
@@ -639,32 +625,32 @@ void inspect_videodev() {
                     }
                 }
             }
-            absl::PrintF(" (%s)\n", ctrl.name);
+            fmt::print(" ({})\n", ctrl.name);
 
             if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
                 v4l2_querymenu item = {};
                 item.id = ctrl.id;
                 for (;;) {
                     if (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item)) break;
-                    absl::PrintF(
-                        "        %d: %s\n",
+                    fmt::print(
+                        "        {}: {}\n",
                         item.index, (const char *) item.name
                     );
                     ++item.index;
                 }
             }
         }
-        if (found > 0) absl::PrintF("\n");
+        if (found > 0) fmt::print("\n");
     }
 
     v4l2_close(fd);
 }
 
-int main(const int argc, char** const argv) {
-    absl::ParseCommandLine(argc, argv);
-    if (!absl::GetFlag(FLAGS_gpu).empty()) {
+int main(int argc, char** argv) {
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    if (!FLAGS_gpu.empty()) {
         inspect_gpu();  // Show resources for one card
-    } else if (!absl::GetFlag(FLAGS_video).empty()) {
+    } else if (!FLAGS_video.empty()) {
         inspect_videodev();
     } else {
         scan_gpus();       // Without --gpu, summarize all GPUs

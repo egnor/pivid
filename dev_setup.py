@@ -8,9 +8,10 @@ os.chdir(str(Path(__file__).resolve().parent))
 
 print("=== Update system packages (sudo apt) ===")
 apt_packages = [
-    "libabsl-dev",
     "libdrm-dev",
     "libdrm-tests",
+    "libfmt-dev",
+    "libgflags-dev",
     "libv4l-dev",
     "ninja-build",
     "v4l-utils",
