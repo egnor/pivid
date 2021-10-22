@@ -12,6 +12,7 @@ apt_packages = [
     "libdrm-tests",
     "libfmt-dev",
     "libgflags-dev",
+    "libavformat-dev",
     "libv4l-dev",
     "ninja-build",
     "v4l-utils",
