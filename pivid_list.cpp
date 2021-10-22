@@ -4,6 +4,8 @@
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <vector>
 
@@ -24,24 +26,27 @@ DEFINE_bool(detail, false, "Print detailed object properties");
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
     fmt::print("=== Scanning GPUs ===\n");
-    int found = 0;
     const std::filesystem::path dri_dir = "/dev/dri";
+    std::vector<std::string> dev_files;
     for (const auto &entry : std::filesystem::directory_iterator(dri_dir)) {
         const std::string filename = entry.path().filename();
-        if (filename.substr(0, 4) != "card") continue;
+        if (filename.substr(0, 4) == "card" && isdigit(filename[4]))
+            dev_files.push_back(entry.path().native());
+    }
 
-        const int fd = open(entry.path().c_str(), O_RDWR);
+    std::sort(dev_files.begin(), dev_files.end());
+    for (const auto &path : dev_files) {
+        const int fd = open(path.c_str(), O_RDWR);
         if (fd < 0) {
-            fmt::print("*** Error opening: {}\n", entry.path().native());
+            fmt::print("*** Error opening: {}\n", path);
             continue;
         }
 
         auto* const ver = drmGetVersion(fd);
         if (!ver) {
-            fmt::print("*** {}: Error reading version\n", filename);
+            fmt::print("*** {}: Error reading version\n", path);
         } else {
-            ++found;
-            fmt::print("{}", entry.path().native());
+            fmt::print("{}", path);
 
             // See https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html
             drmSetVersion api_version = {1, 4, -1, -1};
@@ -59,10 +64,10 @@ void scan_gpus() {
         drmClose(fd);
     }
 
-    if (found) {
+    if (!dev_files.empty()) {
         fmt::print(
-            "--- {} GPU(s); inspect with: pivid_list --gpu=<dev>\n\n",
-            found
+            "--- {} GPU device(s); inspect with: pivid_list --gpu=<dev>\n\n",
+            dev_files.size()
         );
     } else {
         fmt::print("No cards found\n\n");
@@ -422,29 +427,32 @@ void print_videodev_driver(const int fd) {
 // Scan all V4L2 video devices and print a line for each.
 void scan_videodevs() {
     fmt::print("=== Scanning video devices ===\n");
-    int found = 0;
-    const std::filesystem::path v4l_dir = "/dev/v4l/by-path";
-    for (const auto &entry : std::filesystem::directory_iterator(v4l_dir)) {
+    const std::filesystem::path dev_dir = "/dev";
+    std::vector<std::string> dev_files;
+    for (const auto &entry : std::filesystem::directory_iterator(dev_dir)) {
         const std::string filename = entry.path().filename();
-        if (filename.find("-video-index") == std::string::npos) continue;
+        if (filename.substr(0, 5) == "video" && isdigit(filename[5]))
+            dev_files.push_back(entry.path().native());
+    }
 
-        const int fd = v4l2_open(entry.path().c_str(), O_RDWR);
+    std::sort(dev_files.begin(), dev_files.end());
+    for (const auto &path : dev_files) {
+        const int fd = v4l2_open(path.c_str(), O_RDWR);
         if (fd < 0) {
-            fmt::print("*** Error opening: {}\n", entry.path().native());
+            fmt::print("*** Error opening: {}\n", path);
             continue;
         }
 
-        ++found;
-        fmt::print("{}\n    ", entry.path().native());
+        fmt::print("{}\n    ", path);
         print_videodev_driver(fd);
         fmt::print("\n");
         v4l2_close(fd);
     }
 
-    if (found) {
+    if (!dev_files.empty()) {
         fmt::print(
             "--- {} device(s); inspect with: pivid_list --video=<dev>\n\n",
-            found
+            dev_files.size()
         );
     } else {
         fmt::print("No video devices found\n\n");
