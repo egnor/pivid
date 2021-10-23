@@ -32,6 +32,7 @@ Experimental video code for Linux / Raspberry Pi
 * [kernel source: include/uapi/linux/videodev2.h](https://github.com/torvalds/linux/blob/master/include/uapi/linux/videodev2.h) - kernel/user header
 * [libv4l](https://github.com/philips/libv4l) - thin library wrapper with format conversion; see [libv4l2.h](https://github.com/philips/libv4l/blob/master/include/libv4l2.h)
 * [v4l-utils](https://linuxtv.org/wiki/index.php/V4l-utils) - useful tools, especially [v4l2-ctl](https://manpages.debian.org/testing/v4l-utils/v4l2-ctl.1.en.html)
+* [libavformat](https://github.com/FFmpeg/FFmpeg/tree/master/libavformat) - for unpacking containers (.mp4, .mkv); see [avformat.h](https://github.com/FFmpeg/FFmpeg/blob/master/libavformat/avformat.h) and [avio.h](https://github.com/FFmpeg/FFmpeg/blob/master/libavformat/avio.h)
 
 ### Zero-copy buffer sharing
 * [kernel.org: Buffer Sharing and Synchronization](https://www.kernel.org/doc/html/v5.10/driver-api/dma-buf.html#userspace-interface-notes) - kernel buffer management (and user interface)
