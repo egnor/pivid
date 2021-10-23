@@ -1,4 +1,4 @@
-// Simple command line tool to list V4L resources.
+// Simple command line tool to list V4L devices.
 
 #include <fcntl.h>
 #include <linux/videodev2.h>
