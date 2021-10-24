@@ -156,8 +156,48 @@ void inspect_media(const std::string& media) {
                     }
                 }
             }
-            fmt::print("\n");
 
+            if (packet.side_data_elems) fmt::print(" /");
+            for (int si = 0; si < packet.side_data_elems; ++si) {
+                switch (packet.side_data[si].type) {
+#define S(X) case AV_PKT_DATA_##X: fmt::print(" {}", #X); break
+                    S(PALETTE);
+                    S(NEW_EXTRADATA);
+                    S(PARAM_CHANGE);
+                    S(H263_MB_INFO);
+                    S(REPLAYGAIN);
+                    S(DISPLAYMATRIX);
+                    S(STEREO3D);
+                    S(AUDIO_SERVICE_TYPE);
+                    S(QUALITY_STATS);
+                    S(FALLBACK_TRACK);
+                    S(CPB_PROPERTIES);
+                    S(SKIP_SAMPLES);
+                    S(JP_DUALMONO);
+                    S(STRINGS_METADATA);
+                    S(SUBTITLE_POSITION);
+                    S(MATROSKA_BLOCKADDITIONAL);
+                    S(WEBVTT_IDENTIFIER);
+                    S(WEBVTT_SETTINGS);
+                    S(METADATA_UPDATE);
+                    S(MPEGTS_STREAM_ID);
+                    S(MASTERING_DISPLAY_METADATA);
+                    S(SPHERICAL);
+                    S(CONTENT_LIGHT_LEVEL);
+                    S(A53_CC);
+                    S(ENCRYPTION_INIT_INFO);
+                    S(ENCRYPTION_INFO);
+                    S(AFD);
+                    S(PRFT);
+                    S(ICC_PROFILE);
+                    S(DOVI_CONF);
+                    S(S12M_TIMECODE);
+#undef S
+                    default: fmt::print(" ?side%d?", packet.side_data[si].type);
+                }
+            }
+
+            fmt::print("\n");
             av_packet_unref(&packet);
         }
         fmt::print("\n");
