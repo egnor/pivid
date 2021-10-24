@@ -13,6 +13,7 @@
 
 extern "C" {
 #include <libavcodec/codec_id.h>
+#include <libavcodec/packet.h>
 #include <libavformat/avio.h>
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
@@ -20,7 +21,7 @@ extern "C" {
 #include <libavutil/rational.h>
 }
 
-DEFINE_bool(verbose, false, "Print detailed properties");
+DEFINE_bool(frames, false, "Print individual frames");
 
 void inspect_media(const std::string& media) {
     AVFormatContext *context = nullptr;
@@ -56,7 +57,7 @@ void inspect_media(const std::string& media) {
 
         fmt::print("    Str #{}", stream->id);
         if (stream->duration > 0)
-            fmt::print(" {:.1f}sec", stream->duration / time_base);
+            fmt::print(" {:.1f}sec", stream->duration * time_base);
         if (stream->nb_frames > 0)
             fmt::print(" {}fr", stream->nb_frames);
         if (stream->avg_frame_rate.num > 0)
@@ -119,6 +120,47 @@ void inspect_media(const std::string& media) {
         ))) {
             fmt::print("        {}: {}\n", entry->key, entry->value);
         }
+    }
+    fmt::print("\n");
+
+    AVPacket packet = {};
+    if (FLAGS_frames) {
+        fmt::print("--- Frames ---\n");
+        while (av_read_frame(context, &packet) >= 0) {
+            const auto* stream = context->streams[packet.stream_index];
+            fmt::print(
+                "S{} ({})",
+                packet.stream_index,
+                avcodec_get_name(stream->codecpar->codec_id)
+            );
+            const double time_base = av_q2d(stream->time_base);
+            fmt::print(" {:4d}kB", packet.size / 1024);
+            if (packet.duration != 0)
+                fmt::print(" {:.3f}s", packet.duration * time_base);
+            if (packet.pts != AV_NOPTS_VALUE)
+                fmt::print(" show@{:.3f}s", packet.pts * time_base);
+            if (packet.dts != AV_NOPTS_VALUE)
+                fmt::print(" deco@{:.3f}s", packet.dts * time_base);
+
+            for (uint32_t bit = 1; bit > 0; bit <<= 1) {
+                if ((packet.flags & bit)) {
+                    switch (bit) {
+#define F(X) case AV_PKT_FLAG_##X: fmt::print(" {}", #X); break
+                        F(KEY);
+                        F(CORRUPT);
+                        F(DISCARD);
+                        F(TRUSTED);
+                        F(DISPOSABLE);
+#undef F
+                        default: fmt::print(" ?0x{:x}?", bit); break;
+                    }
+                }
+            }
+            fmt::print("\n");
+
+            av_packet_unref(&packet);
+        }
+        fmt::print("\n");
     }
 
     avformat_close_input(&context);
