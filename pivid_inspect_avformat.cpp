@@ -6,61 +6,132 @@
 
 #include <algorithm>
 #include <cctype>
-#include <vector>
+#include <map>
 
 #include <fmt/core.h>
 #include <gflags/gflags.h>
 
 extern "C" {
+#include <libavcodec/codec_id.h>
 #include <libavformat/avio.h>
 #include <libavformat/avformat.h>
+#include <libavutil/dict.h>
+#include <libavutil/pixdesc.h>
+#include <libavutil/rational.h>
 }
 
 DEFINE_bool(verbose, false, "Print detailed properties");
 
-void scan_media(const std::string &dir_path) {
-    AVIODirContext *dir = nullptr;
-    AVDictionary *options = nullptr;
-    if (avio_open_dir(&dir, dir_path.c_str(), &options) < 0) {
-        fmt::print("*** Error reading dir: {}\n", dir_path);
+void inspect_media(const std::string& media) {
+    AVFormatContext *context = nullptr;
+    if (avformat_open_input(&context, media.c_str(), nullptr, nullptr) < 0) {
+        fmt::print("*** Error opening: {}\n", media);
         exit(1);
     }
 
-    AVIODirEntry *entry = nullptr;
-    std::vector<std::string> possible;
-    while (avio_read_dir(dir, &entry) >= 0 && entry != nullptr) {
-        if (entry->type != AVIO_ENTRY_DIRECTORY) {
-            AVProbeData probe = {};
-            probe.filename = entry->name;
-            const auto* const format = av_probe_input_format(&probe, false);
-            if (format) {
-                possible.push_back(fmt::format("{}/{}", dir_path, entry->name));
+    if (avformat_find_stream_info(context, nullptr) < 0) {
+        fmt::print("*** {}: Error reading stream info\n", media);
+    }
+
+    fmt::print("=== {} ===\n", context->url);
+    fmt::print("Container:");
+    if (context->duration)
+        fmt::print(" {:.1f}sec", context->duration * 1.0 / AV_TIME_BASE);
+    if (context->bit_rate)
+        fmt::print(" {}bps", context->bit_rate);
+    fmt::print(" ({})\n", context->iformat->long_name);
+
+    AVDictionaryEntry *entry = nullptr;
+    while ((entry = av_dict_get(
+        context->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
+    ))) {
+        fmt::print("    {}: {}\n", entry->key, entry->value);
+    }
+    fmt::print("\n");
+
+    fmt::print("{} stream(s):\n", context->nb_streams);
+    for (uint32_t si = 0; si < context->nb_streams; ++si) {
+        auto const* stream = context->streams[si];
+        const double time_base = av_q2d(stream->time_base);
+
+        fmt::print("    Str #{}", stream->id);
+        if (stream->duration > 0)
+            fmt::print(" {:.1f}sec", stream->duration / time_base);
+        if (stream->nb_frames > 0)
+            fmt::print(" {}fr", stream->nb_frames);
+        if (stream->avg_frame_rate.num > 0)
+            fmt::print(" {:.1f}fps", av_q2d(stream->avg_frame_rate));
+        for (uint32_t bit = 1; bit > 0; bit <<= 1) {
+            if ((stream->disposition & bit)) {
+                switch (bit) {
+#define D(X) case AV_DISPOSITION_##X: fmt::print(" {}", #X); break
+                    D(DEFAULT);
+                    D(DUB);
+                    D(ORIGINAL);
+                    D(COMMENT);
+                    D(LYRICS);
+                    D(KARAOKE);
+                    D(FORCED);
+                    D(HEARING_IMPAIRED);
+                    D(VISUAL_IMPAIRED);
+                    D(CLEAN_EFFECTS);
+                    D(ATTACHED_PIC);
+                    D(TIMED_THUMBNAILS);
+                    D(CAPTIONS);
+                    D(DESCRIPTIONS);
+                    D(METADATA);
+                    D(DEPENDENT);
+                    D(STILL_IMAGE);
+#undef D
+                    default: fmt::print(" ?disp=0x{:x}?", bit); break;
+                }
             }
         }
-        avio_free_directory_entry(&entry);
+        if (stream->codecpar) {
+            const auto *par = stream->codecpar;
+            switch (par->codec_type) {
+#define T(X) case AVMEDIA_TYPE_##X: fmt::print(" {}", #X); break
+                T(UNKNOWN);
+                T(VIDEO);
+                T(AUDIO);
+                T(DATA);
+                T(SUBTITLE);
+                T(ATTACHMENT);
+#undef T
+                default: fmt::print(" ?type=%d?", par->codec_type); break;
+            }
+            fmt::print(" ({})", avcodec_get_name(par->codec_id));
+            if (par->bit_rate)
+                fmt::print(" {}bps", par->bit_rate);
+            if (par->width || par->height)
+                fmt::print(" {}x{}", par->width, par->height);
+            if (par->sample_rate)
+                fmt::print(" {}hz", par->sample_rate);
+            if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
+                const auto pixfmt = (AVPixelFormat) par->format;
+                fmt::print(" ({})", av_get_pix_fmt_name(pixfmt));
+            }
+        }
+        fmt::print("\n");
+
+        while ((entry = av_dict_get(
+            stream->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
+        ))) {
+            fmt::print("        {}: {}\n", entry->key, entry->value);
+        }
     }
 
-    std::sort(possible.begin(), possible.end());
-    for (const auto &file_path : possible) {
-        fmt::print("{}\n", file_path);
-    }
-
-    avio_close_dir(&dir);
+    avformat_close_input(&context);
 }
 
-void inspect_media(const std::string& media) {
-    (void) media;
-}
-
-DEFINE_string(dir, ".", "Directory to scan for media");
 DEFINE_string(media, "", "Media file or URL to inspect");
 
 int main(int argc, char** argv) {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
-    if (!FLAGS_media.empty()) {
-        inspect_media(FLAGS_media);
-    } else {
-        scan_media(FLAGS_dir);
+    if (FLAGS_media.empty()) {
+        fmt::print("*** Usage: pivid_inspect_avformat --media=<mediafile>\n");
+        exit(1);
     }
+    inspect_media(FLAGS_media);
     return 0;
 }

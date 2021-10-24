@@ -95,13 +95,13 @@ void scan_videodevs() {
         v4l2_close(fd);
     }
 
-    if (!dev_files.empty()) {
+    if (dev_files.empty()) {
+        fmt::print("*** No V4L devices found\n");
+    } else {
         fmt::print(
-            "--- {} V4L device(s); inspect with --dev=<dev>\n\n",
+            "--- {} V4L device(s); inspect with --dev=<dev>\n",
             dev_files.size()
         );
-    } else {
-        fmt::print("No V4L devices found\n\n");
     }
 }
 

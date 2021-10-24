@@ -57,13 +57,13 @@ void scan_gpus() {
         drmClose(fd);
     }
 
-    if (!dev_files.empty()) {
+    if (dev_files.empty()) {
+        fmt::print("*** No DRM/KMS devices found\n");
+    } else {
         fmt::print(
-            "--- {} DRM/KMS device(s); inspect with --dev=<dev>\n\n",
+            "--- {} DRM/KMS device(s); inspect with --dev=<dev>\n",
             dev_files.size()
         );
-    } else {
-        fmt::print("No cards found\n\n");
     }
 }
 
