@@ -1,5 +1,6 @@
 // Simple command line tool to list DRM/KMS resources.
 
+#include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -31,13 +32,13 @@ void scan_gpus() {
     for (const auto &path : dev_files) {
         const int fd = open(path.c_str(), O_RDWR);
         if (fd < 0) {
-            fmt::print("*** Error opening: {}\n", path);
+            fmt::print("*** {}: {}\n", path, strerror(errno));
             continue;
         }
 
         auto* const ver = drmGetVersion(fd);
         if (!ver) {
-            fmt::print("*** {}: Error reading version\n", path);
+            fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
         } else {
             fmt::print("{}", path);
 
@@ -76,7 +77,7 @@ void print_gpu_object_properties(const int fd, const uint32_t id) {
     for (uint32_t pi = 0; pi < props->count_props; ++pi) {
         auto* const meta = drmModeGetProperty(fd, props->props[pi]);
         if (!meta) {
-            fmt::print("*** Error reading property #{}\n", props->props[pi]);
+            fmt::print("*** Prop #{}: {}\n", props->props[pi], strerror(errno));
             exit(1);
         }
 
@@ -123,7 +124,7 @@ void inspect_gpu(const std::string& path) {
 
     const int fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
-        fmt::print("*** Error opening: {}\n", path);
+        fmt::print("*** {}: {}\n", path, strerror(errno));
         exit(1);
     }
 
@@ -134,13 +135,13 @@ void inspect_gpu(const std::string& path) {
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {
-        fmt::print("*** {}: Error reading resources\n", path);
+        fmt::print("*** Reading resources ({)}: {}\n", path, strerror(errno));
         exit(1);
     }
 
     auto* const ver = drmGetVersion(fd);
     if (!ver) {
-        fmt::print("*** {}: Error reading version\n", path);
+        fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
         exit(1);
     }
     fmt::print(
@@ -154,7 +155,7 @@ void inspect_gpu(const std::string& path) {
 
     auto* const planes = drmModeGetPlaneResources(fd);
     if (!planes) {
-        fmt::print("*** {}: Error reading plane resources\n", path);
+        fmt::print("*** Plane resources ({}): {}\n", path, strerror(errno));
         exit(1);
     }
 
@@ -163,7 +164,7 @@ void inspect_gpu(const std::string& path) {
         const auto id = planes->planes[p];
         auto* const plane = drmModeGetPlane(fd, id);
         if (!plane) {
-            fmt::print("*** {}: Error reading plane #{}\n", path, id);
+            fmt::print("*** Plane #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
@@ -217,7 +218,7 @@ void inspect_gpu(const std::string& path) {
         const auto id = res->crtcs[ci];
         auto* const crtc = drmModeGetCrtc(fd, id);
         if (!crtc) {
-            fmt::print("*** {}: Error reading CRTC #{}\n", path, id);
+            fmt::print("*** CRTC #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
@@ -254,7 +255,7 @@ void inspect_gpu(const std::string& path) {
         const auto id = res->encoders[ei];
         auto* const enc = drmModeGetEncoder(fd, id);
         if (!enc) {
-            fmt::print("*** {}: Error reading encoder #{}\n", path, id);
+            fmt::print("*** Encoder #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
@@ -300,7 +301,7 @@ void inspect_gpu(const std::string& path) {
         const auto id = res->connectors[ci];
         auto* const conn = drmModeGetConnector(fd, id);
         if (!conn) {
-            fmt::print("*** {}: Error reading connector #{}\n", path, id);
+            fmt::print("*** Conn #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 

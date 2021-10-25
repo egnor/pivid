@@ -1,5 +1,6 @@
 // Simple command line tool to list V4L devices.
 
+#include <errno.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
@@ -85,7 +86,7 @@ void scan_videodevs() {
     for (auto const &path : dev_files) {
         int const fd = v4l2_open(path.c_str(), O_RDWR);
         if (fd < 0) {
-            fmt::print("*** Error opening: {}\n", path);
+            fmt::print("*** {}: {}\n", path, strerror(errno));
             continue;
         }
 
@@ -111,11 +112,11 @@ void inspect_videodev(const std::string& path) {
 
     int const fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
-        fmt::print("*** Error opening: {}\n", path);
+        fmt::print("*** {}: {}\n", path, strerror(errno));
         exit(1);
     }
     if (v4l2_fd_open(fd, V4L2_DISABLE_CONVERSION) != fd) {
-        fmt::print("*** Error in V4L2 open: {}\n", path);
+        fmt::print("*** V4L2 ({}): {}\n", path, strerror(errno));
         exit(1);
     }
 
