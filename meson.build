@@ -24,7 +24,7 @@ executable(
 )
 
 executable(
-    'pivid_inspect_v4l', 'pivid_inspect_v4l.cpp',
+    'pivid_inspect_v4l2', 'pivid_inspect_v4l2.cpp',
     dependencies: [fmt_dep, gflags_dep, libv4l2_dep, stdc_fs_dep]
 )
 

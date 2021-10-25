@@ -126,9 +126,7 @@ void inspect_videodev(const std::string& path) {
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {
         v4l2_fmtdesc format = {};
         format.type = type;
-        for (;;) {
-            if (v4l2_ioctl(fd, VIDIOC_ENUM_FMT, &format)) break;
-
+        while (v4l2_ioctl(fd, VIDIOC_ENUM_FMT, &format) >= 0) {
             if (format.index == 0) {
                 switch (format.type) {
 #define T(X) case V4L2_BUF_TYPE_##X: fmt::print("{}", #X); break
@@ -172,8 +170,7 @@ void inspect_videodev(const std::string& path) {
             if (FLAGS_verbose) {
                 v4l2_frmsizeenum size = {};
                 size.pixel_format = format.pixelformat;
-                for (;;) {
-                    if (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size)) break;
+                while (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) >= 0) {
                     if (size.index % 6 == 0) fmt::print("\n       ");
                     if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
                         auto const& dim = size.discrete;
@@ -202,8 +199,7 @@ void inspect_videodev(const std::string& path) {
     }
 
     v4l2_input input = {};
-    for (;;) {
-        if (v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input)) break;
+    while (v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input) >= 0) {
         if (input.index == 0) fmt::print("Inputs:\n");
         fmt::print("    Inp #{}", input.index);
         switch (input.type) {
@@ -220,8 +216,7 @@ void inspect_videodev(const std::string& path) {
     if (input.index > 0) fmt::print("\n");
 
     v4l2_output output = {};
-    for (;;) {
-        if (v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output)) break;
+    while (v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output) >= 0) {
         if (output.index == 0) fmt::print("Outputs:\n");
         fmt::print("    Out #{}", output.index);
         switch (output.type) {
@@ -292,8 +287,7 @@ void inspect_videodev(const std::string& path) {
             if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
                 v4l2_querymenu item = {};
                 item.id = ctrl.id;
-                for (;;) {
-                    if (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item)) break;
+                while (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0) {
                     fmt::print(
                         "        {}: {}\n",
                         int(item.index), (char const*) item.name
