@@ -20,17 +20,17 @@ DEFINE_bool(verbose, false, "Print detailed properties");
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
     fmt::print("=== Scanning DRM/KMS GPU devices ===\n");
-    const std::filesystem::path dri_dir = "/dev/dri";
+    std::filesystem::path const dri_dir = "/dev/dri";
     std::vector<std::string> dev_files;
-    for (const auto &entry : std::filesystem::directory_iterator(dri_dir)) {
-        const std::string filename = entry.path().filename();
+    for (auto const& entry : std::filesystem::directory_iterator(dri_dir)) {
+        std::string const filename = entry.path().filename();
         if (filename.substr(0, 4) == "card" && isdigit(filename[4]))
             dev_files.push_back(entry.path().native());
     }
 
     std::sort(dev_files.begin(), dev_files.end());
-    for (const auto &path : dev_files) {
-        const int fd = open(path.c_str(), O_RDWR);
+    for (auto const& path : dev_files) {
+        int const fd = open(path.c_str(), O_RDWR);
         if (fd < 0) {
             fmt::print("*** {}: {}\n", path, strerror(errno));
             continue;
@@ -70,7 +70,7 @@ void scan_gpus() {
 
 // Print key/value properties about a KMS "object" ID,
 // using the generic KMS property-value interface.
-void print_gpu_object_properties(const int fd, const uint32_t id) {
+void print_gpu_object_properties(int const fd, uint32_t const id) {
     auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
     if (!props) return;
 
@@ -81,8 +81,8 @@ void print_gpu_object_properties(const int fd, const uint32_t id) {
             exit(1);
         }
 
-        const std::string name = meta->name;
-        const auto value = props->prop_values[pi];
+        std::string const name = meta->name;
+        auto const value = props->prop_values[pi];
         fmt::print("        Prop #{} {} =", props->props[pi], name);
         if (meta->flags & DRM_MODE_PROP_BLOB) {
             fmt::print(" <blob>");
@@ -99,12 +99,12 @@ void print_gpu_object_properties(const int fd, const uint32_t id) {
 
         if (name == "IN_FORMATS" && (meta->flags & DRM_MODE_PROP_BLOB)) {
             auto* const formats = drmModeGetPropertyBlob(fd, value);
-            const auto data = (const char *) formats->data;
-            const auto header = (const drm_format_modifier_blob *) data;
+            auto const data = (char const*) formats->data;
+            auto const header = (drm_format_modifier_blob const*) data;
             if (header->version == FORMAT_BLOB_CURRENT) {
                 for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
                     if (fi % 12 == 0) fmt::print("\n           ");
-                    const auto* fourcc = data + header->formats_offset + fi * 4;
+                    auto const* fourcc = data + header->formats_offset + fi * 4;
                     fmt::print(" {:.4s}", fourcc);
                 }
             }
@@ -119,10 +119,10 @@ void print_gpu_object_properties(const int fd, const uint32_t id) {
 }
 
 // Print information about the DRM/KMS resources associated with a video card.
-void inspect_gpu(const std::string& path) {
+void inspect_gpu(std::string const& path) {
     fmt::print("=== {} ===\n", path);
 
-    const int fd = open(path.c_str(), O_RDWR);
+    int const fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
         fmt::print("*** {}: {}\n", path, strerror(errno));
         exit(1);
@@ -161,7 +161,7 @@ void inspect_gpu(const std::string& path) {
 
     fmt::print("{} image planes:\n", planes->count_planes);
     for (uint32_t p = 0; p < planes->count_planes; ++p) {
-        const auto id = planes->planes[p];
+        auto const id = planes->planes[p];
         auto* const plane = drmModeGetPlane(fd, id);
         if (!plane) {
             fmt::print("*** Plane #{} ({}): {}\n", id, path, strerror(errno));
@@ -185,7 +185,7 @@ void inspect_gpu(const std::string& path) {
            );
         }
 
-        const auto obj_type = DRM_MODE_OBJECT_PLANE;
+        auto const obj_type = DRM_MODE_OBJECT_PLANE;
         auto* const props = drmModeObjectGetProperties(fd, id, obj_type);
         if (props) {
             for (uint32_t pi = 0; pi < props->count_props; ++pi) {
@@ -215,7 +215,7 @@ void inspect_gpu(const std::string& path) {
 
     fmt::print("{} CRT/scanout controllers:\n", res->count_crtcs);
     for (int ci = 0; ci < res->count_crtcs; ++ci) {
-        const auto id = res->crtcs[ci];
+        auto const id = res->crtcs[ci];
         auto* const crtc = drmModeGetCrtc(fd, id);
         if (!crtc) {
             fmt::print("*** CRTC #{} ({}): {}\n", id, path, strerror(errno));
@@ -252,7 +252,7 @@ void inspect_gpu(const std::string& path) {
 
     fmt::print("{} signal encoders:\n", res->count_encoders);
     for (int ei = 0; ei < res->count_encoders; ++ei) {
-        const auto id = res->encoders[ei];
+        auto const id = res->encoders[ei];
         auto* const enc = drmModeGetEncoder(fd, id);
         if (!enc) {
             fmt::print("*** Encoder #{} ({}): {}\n", id, path, strerror(errno));
@@ -298,7 +298,7 @@ void inspect_gpu(const std::string& path) {
 
     fmt::print("{} video connectors:\n", res->count_connectors);
     for (int ci = 0; ci < res->count_connectors; ++ci) {
-        const auto id = res->connectors[ci];
+        auto const id = res->connectors[ci];
         auto* const conn = drmModeGetConnector(fd, id);
         if (!conn) {
             fmt::print("*** Conn #{} ({}): {}\n", id, path, strerror(errno));

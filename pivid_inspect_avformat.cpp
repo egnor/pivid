@@ -20,7 +20,7 @@ extern "C" {
 
 DEFINE_bool(frames, false, "Print individual frames");
 
-void inspect_media(const std::string& filename) {
+void inspect_media(std::string const& filename) {
     AVFormatContext* context = nullptr;
     if (avformat_open_input(&context, filename.c_str(), nullptr, nullptr) < 0) {
         fmt::print("*** {}: {}\n", filename, strerror(errno));
@@ -50,7 +50,7 @@ void inspect_media(const std::string& filename) {
     fmt::print("{} stream(s):\n", context->nb_streams);
     for (uint32_t si = 0; si < context->nb_streams; ++si) {
         auto const* stream = context->streams[si];
-        const double time_base = av_q2d(stream->time_base);
+        double const time_base = av_q2d(stream->time_base);
 
         fmt::print("    Str #{}", stream->id);
         if (stream->duration > 0)
@@ -86,7 +86,7 @@ void inspect_media(const std::string& filename) {
             }
         }
         if (stream->codecpar) {
-            const auto* par = stream->codecpar;
+            auto const* par = stream->codecpar;
             switch (par->codec_type) {
 #define T(X) case AVMEDIA_TYPE_##X: fmt::print(" {}", #X); break
                 T(UNKNOWN);
@@ -106,7 +106,7 @@ void inspect_media(const std::string& filename) {
             if (par->sample_rate)
                 fmt::print(" {}hz", par->sample_rate);
             if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
-                const auto pixfmt = (AVPixelFormat) par->format;
+                auto const pixfmt = (AVPixelFormat) par->format;
                 fmt::print(" ({})", av_get_pix_fmt_name(pixfmt));
             }
         }
@@ -124,13 +124,13 @@ void inspect_media(const std::string& filename) {
     if (FLAGS_frames) {
         fmt::print("--- Frames ---\n");
         while (av_read_frame(context, &packet) >= 0) {
-            const auto* stream = context->streams[packet.stream_index];
+            auto const* stream = context->streams[packet.stream_index];
             fmt::print(
                 "S{} ({})",
                 packet.stream_index,
                 avcodec_get_name(stream->codecpar->codec_id)
             );
-            const double time_base = av_q2d(stream->time_base);
+            double const time_base = av_q2d(stream->time_base);
             fmt::print(" {:4d}kB", packet.size / 1024);
             if (packet.duration != 0)
                 fmt::print(" {:.3f}s", packet.duration * time_base);

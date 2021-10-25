@@ -17,7 +17,7 @@
 DEFINE_bool(verbose, false, "Print detailed properties");
 
 // Print driver name and capability bits from VIDIOC_QUERYCAP results.
-void print_videodev_driver(const int fd) {
+void print_videodev_driver(int const fd) {
     v4l2_capability cap = {};
     if (v4l2_ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
         fmt::print("*** Error querying device\n");
@@ -76,7 +76,7 @@ void scan_videodevs() {
     fmt::print("=== Scanning V4L video I/O devices ===\n");
     std::filesystem::path const dev_dir = "/dev";
     std::vector<std::string> dev_files;
-    for (const auto &entry : std::filesystem::directory_iterator(dev_dir)) {
+    for (auto const& entry : std::filesystem::directory_iterator(dev_dir)) {
         std::string const filename = entry.path().filename();
         if (filename.substr(0, 5) == "video" && isdigit(filename[5]))
             dev_files.push_back(entry.path().native());
@@ -107,7 +107,7 @@ void scan_videodevs() {
 }
 
 // Print information about a V4L2 video device.
-void inspect_videodev(const std::string& path) {
+void inspect_videodev(std::string const& path) {
     fmt::print("=== {} ===\n", path);
 
     int const fd = open(path.c_str(), O_RDWR);
@@ -172,8 +172,8 @@ void inspect_videodev(const std::string& path) {
                 fmt::print("\n");
             }
 
-            std::string const fourcc((const char*) &format.pixelformat, 4);
-            std::string const desc((const char*) format.description);
+            std::string const fourcc((char const*) &format.pixelformat, 4);
+            std::string const desc((char const*) format.description);
             fmt::print("    {}", fourcc);
             for (uint32_t bit = 1; bit > 0; bit <<= 1) {
                 if (!(format.flags & bit)) continue;
@@ -313,7 +313,9 @@ void inspect_videodev(const std::string& path) {
             if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
                 v4l2_querymenu item = {};
                 item.id = ctrl.id;
-                for (; v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index) {
+                for (
+                    ; v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index
+                ) {
                     fmt::print(
                         "        {}: {}\n",
                         int(item.index), (char const*) item.name
