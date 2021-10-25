@@ -31,7 +31,7 @@ void print_videodev_driver(const int fd) {
 
     auto const caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS)
         ? cap.device_caps : cap.capabilities;
-    for (uint32_t bit = 1; bit != 0; bit <<= 1) {
+    for (uint32_t bit = 1; bit > 0; bit <<= 1) {
         if (!(caps & bit)) continue;
         switch (bit) {
 #define C(X) case V4L2_CAP_##X: fmt::print(" {}", #X); break
@@ -65,7 +65,7 @@ void print_videodev_driver(const int fd) {
             C(TOUCH);
             C(IO_MC);
 #undef C
-            default: fmt::print(" ?0x{:x}?", bit);
+            default: fmt::print(" ?0x{:x}?", bit); break;
         }
     }
 }
@@ -145,13 +145,36 @@ void inspect_videodev(const std::string& path) {
 #undef T
                     default: fmt::print("?{}?", format.type); break;
                 }
-                fmt::print(" formats:\n");
+                fmt::print(":");
+
+                v4l2_requestbuffers buffers = {};
+                buffers.count = 0;  // Query capbilities only
+                buffers.type = format.type;
+                buffers.memory = V4L2_MEMORY_MMAP;
+                if (!v4l2_ioctl(fd, VIDIOC_REQBUFS, &buffers)) {
+                    for (uint32_t bit = 1; bit > 0; bit <<= 1) {
+                        if (!(buffers.capabilities & bit)) continue;
+                        switch (bit) {
+#define C(X) case V4L2_BUF_CAP_SUPPORTS_##X: fmt::print(" {}", #X); break
+                            C(MMAP);
+                            C(USERPTR);
+                            C(DMABUF);
+                            C(REQUESTS);
+                            C(ORPHANED_BUFS);
+                            C(M2M_HOLD_CAPTURE_BUF);
+                            C(MMAP_CACHE_HINTS);
+#undef C
+                            default: fmt::print(" ?0x{:x}?", bit); break;
+                        }
+                    }
+                }
+                fmt::print("\n");
             }
 
             std::string const fourcc((const char*) &format.pixelformat, 4);
             std::string const desc((const char*) format.description);
             fmt::print("    {}", fourcc);
-            for (uint32_t bit = 1; bit != 0; bit <<= 1) {
+            for (uint32_t bit = 1; bit > 0; bit <<= 1) {
                 if (!(format.flags & bit)) continue;
                 switch (bit) {
 #define F(X) case V4L2_FMT_FLAG_##X: fmt::print(" {}", #X); break
@@ -165,7 +188,7 @@ void inspect_videodev(const std::string& path) {
                    F(CSC_YCBCR_ENC);
                    F(CSC_QUANTIZATION);
 #undef F
-                   default: fmt::print(" ?0x{:x}?", bit);
+                   default: fmt::print(" ?0x{:x}?", bit); break;
                 }
             }
             if (desc != fourcc) fmt::print(" ({})", desc);
@@ -267,22 +290,21 @@ void inspect_videodev(const std::string& path) {
                 if (ctrl.step > 1) fmt::print(" ±{}", ctrl.step);
             }
             for (uint32_t bit = 1; bit > 0; bit <<= 1) {
-                if (ctrl.flags & bit) {
-                    switch (bit) {
+                if (!(ctrl.flags & bit)) continue;
+                switch (bit) {
 #define F(X) case V4L2_CTRL_FLAG_##X: fmt::print(" {}", #X); break
-                        F(DISABLED);
-                        F(GRABBED);
-                        F(READ_ONLY);
-                        F(UPDATE);
-                        F(INACTIVE);
-                        F(SLIDER);
-                        F(WRITE_ONLY);
-                        F(VOLATILE);
-                        F(HAS_PAYLOAD);
-                        F(EXECUTE_ON_WRITE);
-                        F(MODIFY_LAYOUT);
+                    F(DISABLED);
+                    F(GRABBED);
+                    F(READ_ONLY);
+                    F(UPDATE);
+                    F(INACTIVE);
+                    F(SLIDER);
+                    F(WRITE_ONLY);
+                    F(VOLATILE);
+                    F(HAS_PAYLOAD);
+                    F(EXECUTE_ON_WRITE);
+                    F(MODIFY_LAYOUT);
 #undef F
-                    }
                 }
             }
             fmt::print(" ({})\n", ctrl.name);

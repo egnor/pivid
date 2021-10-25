@@ -19,15 +19,15 @@ extern "C" {
 
 DEFINE_bool(frames, false, "Print individual frames");
 
-void inspect_media(const std::string& media) {
+void inspect_media(const std::string& filename) {
     AVFormatContext* context = nullptr;
-    if (avformat_open_input(&context, media.c_str(), nullptr, nullptr) < 0) {
-        fmt::print("*** Error opening: {}\n", media);
+    if (avformat_open_input(&context, filename.c_str(), nullptr, nullptr) < 0) {
+        fmt::print("*** Error opening: {}\n", filename);
         exit(1);
     }
 
     if (avformat_find_stream_info(context, nullptr) < 0) {
-        fmt::print("*** {}: Error reading stream info\n", media);
+        fmt::print("*** {}: Error reading stream info\n", filename);
     }
 
     fmt::print("=== {} ===\n", context->url);
