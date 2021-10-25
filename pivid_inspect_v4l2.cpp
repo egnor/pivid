@@ -125,8 +125,11 @@ void inspect_videodev(const std::string& path) {
 
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {
         v4l2_fmtdesc format = {};
-        format.type = type;
-        while (v4l2_ioctl(fd, VIDIOC_ENUM_FMT, &format) >= 0) {
+        for (
+            format.type = type;
+            v4l2_ioctl(fd, VIDIOC_ENUM_FMT, &format) >= 0;
+            ++format.index
+        ) {
             if (format.index == 0) {
                 switch (format.type) {
 #define T(X) case V4L2_BUF_TYPE_##X: fmt::print("{}", #X); break
@@ -193,13 +196,12 @@ void inspect_videodev(const std::string& path) {
                 }
             }
             fmt::print("\n");
-            ++format.index;
         }
         if (format.index > 0) fmt::print("\n");
     }
 
     v4l2_input input = {};
-    while (v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input) >= 0) {
+    for (; v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input) >= 0; ++input.index) {
         if (input.index == 0) fmt::print("Inputs:\n");
         fmt::print("    Inp #{}", input.index);
         switch (input.type) {
@@ -211,12 +213,11 @@ void inspect_videodev(const std::string& path) {
             default: fmt::print(" ?{}?", input.type); break;
         }
         fmt::print(" ({})\n", (char const*) input.name);
-        ++input.index;
     }
     if (input.index > 0) fmt::print("\n");
 
     v4l2_output output = {};
-    while (v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output) >= 0) {
+    for (; v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output) >= 0; ++output.index) {
         if (output.index == 0) fmt::print("Outputs:\n");
         fmt::print("    Out #{}", output.index);
         switch (output.type) {
@@ -228,16 +229,18 @@ void inspect_videodev(const std::string& path) {
             default: fmt::print(" ?{}?", output.type); break;
         }
         fmt::print(" ({})\n", (char const*) output.name);
-        ++output.index;
     }
     if (output.index > 0) fmt::print("\n");
 
     if (FLAGS_verbose) {
         v4l2_query_ext_ctrl ctrl = {};
+        ctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
         int found = 0;
-        for (;;) {
-            ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
-            if (v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl)) break;
+        for (
+            ;
+            v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl) >= 0;
+            ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND
+        ) {
             if (!found++) fmt::print("Controls:\n");
             fmt::print("    Ctrl 0x{:x}", ctrl.id);
             switch (ctrl.type) {
@@ -287,12 +290,11 @@ void inspect_videodev(const std::string& path) {
             if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
                 v4l2_querymenu item = {};
                 item.id = ctrl.id;
-                while (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0) {
+                for (; v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index) {
                     fmt::print(
                         "        {}: {}\n",
                         int(item.index), (char const*) item.name
                     );
-                    ++item.index;
                 }
             }
         }
