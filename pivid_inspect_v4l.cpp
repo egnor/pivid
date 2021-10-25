@@ -23,13 +23,13 @@ void print_videodev_driver(const int fd) {
         exit(1);
     }
 
-    const uint32_t v = cap.version;
+    uint32_t const v = cap.version;
     fmt::print(
         "{} v{}.{}.{}:",
-        (const char *) cap.driver, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
+        (char const*) cap.driver, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
     );
 
-    const auto caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS)
+    auto const caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS)
         ? cap.device_caps : cap.capabilities;
     for (uint32_t bit = 1; bit != 0; bit <<= 1) {
         if (!(caps & bit)) continue;
@@ -73,17 +73,17 @@ void print_videodev_driver(const int fd) {
 // Scan all V4L2 video devices and print a line for each.
 void scan_videodevs() {
     fmt::print("=== Scanning V4L video I/O devices ===\n");
-    const std::filesystem::path dev_dir = "/dev";
+    std::filesystem::path const dev_dir = "/dev";
     std::vector<std::string> dev_files;
     for (const auto &entry : std::filesystem::directory_iterator(dev_dir)) {
-        const std::string filename = entry.path().filename();
+        std::string const filename = entry.path().filename();
         if (filename.substr(0, 5) == "video" && isdigit(filename[5]))
             dev_files.push_back(entry.path().native());
     }
 
     std::sort(dev_files.begin(), dev_files.end());
-    for (const auto &path : dev_files) {
-        const int fd = v4l2_open(path.c_str(), O_RDWR);
+    for (auto const &path : dev_files) {
+        int const fd = v4l2_open(path.c_str(), O_RDWR);
         if (fd < 0) {
             fmt::print("*** Error opening: {}\n", path);
             continue;
@@ -109,7 +109,7 @@ void scan_videodevs() {
 void inspect_videodev(const std::string& path) {
     fmt::print("=== {} ===\n", path);
 
-    const int fd = open(path.c_str(), O_RDWR);
+    int const fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
         fmt::print("*** Error opening: {}\n", path);
         exit(1);
@@ -147,8 +147,8 @@ void inspect_videodev(const std::string& path) {
                 fmt::print(" formats:\n");
             }
 
-            const std::string fourcc((const char *) &format.pixelformat, 4);
-            const std::string desc((const char *) format.description);
+            std::string const fourcc((const char*) &format.pixelformat, 4);
+            std::string const desc((const char*) format.description);
             fmt::print("    {}", fourcc);
             for (uint32_t bit = 1; bit != 0; bit <<= 1) {
                 if (!(format.flags & bit)) continue;
@@ -176,10 +176,10 @@ void inspect_videodev(const std::string& path) {
                     if (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size)) break;
                     if (size.index % 6 == 0) fmt::print("\n       ");
                     if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-                        const auto &dim = size.discrete;
+                        auto const& dim = size.discrete;
                         fmt::print(" {}x{}", dim.width, dim.height);
                     } else {
-                        const auto &dim = size.stepwise;
+                        auto const& dim = size.stepwise;
                         fmt::print(
                             " {}x{} - {}x{}",
                             dim.min_width, dim.min_height,
@@ -214,7 +214,7 @@ void inspect_videodev(const std::string& path) {
 #undef I
             default: fmt::print(" ?{}?", input.type); break;
         }
-        fmt::print(" ({})\n", (const char *) input.name);
+        fmt::print(" ({})\n", (char const*) input.name);
         ++input.index;
     }
     if (input.index > 0) fmt::print("\n");
@@ -232,7 +232,7 @@ void inspect_videodev(const std::string& path) {
 #undef O
             default: fmt::print(" ?{}?", output.type); break;
         }
-        fmt::print(" ({})\n", (const char *) output.name);
+        fmt::print(" ({})\n", (char const*) output.name);
         ++output.index;
     }
     if (output.index > 0) fmt::print("\n");
@@ -296,7 +296,7 @@ void inspect_videodev(const std::string& path) {
                     if (v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item)) break;
                     fmt::print(
                         "        {}: {}\n",
-                        int(item.index), (const char *) item.name
+                        int(item.index), (char const*) item.name
                     );
                     ++item.index;
                 }

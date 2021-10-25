@@ -35,3 +35,11 @@ executable(
         libavcodec_dep, libavformat_dep, libavutil_dep
     ]
 )
+
+executable(
+    'pivid_test_decode', 'pivid_test_decode.cpp',
+    dependencies: [
+        fmt_dep, gflags_dep, stdc_fs_dep,
+        libavcodec_dep, libavformat_dep, libavutil_dep, libv4l2_dep
+    ]
+)

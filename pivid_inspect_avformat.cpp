@@ -1,19 +1,15 @@
 // Simple command line tool to list media files and their contents.
 
 #include <fcntl.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 
-#include <algorithm>
-#include <cctype>
 #include <map>
 
 #include <fmt/core.h>
 #include <gflags/gflags.h>
 
 extern "C" {
-#include <libavcodec/codec_id.h>
-#include <libavcodec/packet.h>
+#include <libavcodec/avcodec.h>
 #include <libavformat/avio.h>
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
@@ -24,7 +20,7 @@ extern "C" {
 DEFINE_bool(frames, false, "Print individual frames");
 
 void inspect_media(const std::string& media) {
-    AVFormatContext *context = nullptr;
+    AVFormatContext* context = nullptr;
     if (avformat_open_input(&context, media.c_str(), nullptr, nullptr) < 0) {
         fmt::print("*** Error opening: {}\n", media);
         exit(1);
@@ -42,7 +38,7 @@ void inspect_media(const std::string& media) {
         fmt::print(" {}bps", context->bit_rate);
     fmt::print(" ({})\n", context->iformat->long_name);
 
-    AVDictionaryEntry *entry = nullptr;
+    AVDictionaryEntry* entry = nullptr;
     while ((entry = av_dict_get(
         context->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
     ))) {
@@ -89,7 +85,7 @@ void inspect_media(const std::string& media) {
             }
         }
         if (stream->codecpar) {
-            const auto *par = stream->codecpar;
+            const auto* par = stream->codecpar;
             switch (par->codec_type) {
 #define T(X) case AVMEDIA_TYPE_##X: fmt::print(" {}", #X); break
                 T(UNKNOWN);
@@ -188,10 +184,6 @@ void inspect_media(const std::string& media) {
                     S(ENCRYPTION_INIT_INFO);
                     S(ENCRYPTION_INFO);
                     S(AFD);
-                    S(PRFT);
-                    S(ICC_PROFILE);
-                    S(DOVI_CONF);
-                    S(S12M_TIMECODE);
 #undef S
                     default: fmt::print(" ?side%d?", packet.side_data[si].type);
                 }
