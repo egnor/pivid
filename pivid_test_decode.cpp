@@ -178,8 +178,8 @@ void setup_decoder(int const fd, int width, int height) {
     } else {
         fmt::print(
             "Image format: {}x{} {:.4s}",
-            decoded_format.fmt.pix_mp.width,
-            decoded_format.fmt.pix_mp.height,
+            (int) decoded_format.fmt.pix_mp.width,
+            (int) decoded_format.fmt.pix_mp.height,
             (char const*) &decoded_format.fmt.pix_mp.pixelformat
         );
         for (int pi = 0; pi < decoded_format.fmt.pix_mp.num_planes; ++pi) {
@@ -254,7 +254,7 @@ DEFINE_string(media, "", "Media file or URL to decode");
 int main(int argc, char** argv) {
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     if (FLAGS_media.empty()) {
-        fmt::print("*** Usage: pivid_inspect_avformat --media=<mediafile>\n");
+        fmt::print("*** Usage: pivid_test_decode --media=<mediafile>\n");
         exit(1);
     }
 
