@@ -287,7 +287,7 @@ void inspect_videodev(const std::string& path) {
             }
 
             if (ctrl.minimum || ctrl.maximum) {
-                fmt::print(" {:<4}-{:<4}", ctrl.minimum, ctrl.maximum);
+                fmt::print(" {:>4}-{:<4}", ctrl.minimum, ctrl.maximum);
                 if (ctrl.step > 1) fmt::print(" ±{}", ctrl.step);
             }
             for (uint32_t bit = 1; bit > 0; bit <<= 1) {
