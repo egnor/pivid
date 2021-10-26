@@ -20,7 +20,7 @@ extern "C" {
 }
 
 DEFINE_int32(coded_buffers, 16, "Buffered frames for decoder input");
-DEFINE_int32(decoded_buffers, 2, "Buffered frames for decoder output");
+DEFINE_int32(decoded_buffers, 16, "Buffered frames for decoder output");
 
 // Open media file with libavformat and find H.264 stream
 void open_media_h264_stream(
@@ -114,13 +114,11 @@ void open_v4l2_h264_decoder(int* fd) {
 }
 
 void stop_decoder(int const fd) {
-    fmt::print("H.264 stream stopping...\n");
     int const coded_type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     if (v4l2_ioctl(fd, VIDIOC_STREAMOFF, &coded_type)) {
         fmt::print("*** Stopping H.264 stream: {}\n", strerror(errno));
         exit(1);
     }
-    fmt::print("H.264 stream OFF\n");
 
     v4l2_requestbuffers coded_buffers = {};
     coded_buffers.type = coded_type;
@@ -129,15 +127,13 @@ void stop_decoder(int const fd) {
         fmt::print("*** Releasing H.264 buffers: {}\n", strerror(errno));
         exit(1);
     }
-    fmt::print("H.264 buffers released\n");
+    fmt::print("H.264 stream OFF (buffers released)\n");
 
-    fmt::print("Image stream stopping...\n");
     int const decoded_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     if (v4l2_ioctl(fd, VIDIOC_STREAMOFF, &decoded_type)) {
         fmt::print("*** Stopping image stream: {}\n", strerror(errno));
         exit(1);
     }
-    fmt::print("Image stream OFF\n");
 
     v4l2_requestbuffers decoded_buffers = {};
     decoded_buffers.type = decoded_type;
@@ -146,7 +142,7 @@ void stop_decoder(int const fd) {
         fmt::print("*** Releasing image buffers: {}\n", strerror(errno));
         exit(1);
     }
-    fmt::print("Image buffers released\n");
+    fmt::print("Image stream OFF (buffers released)\n");
 }
 
 void setup_decoder(int const fd, int width, int height) {
@@ -176,13 +172,12 @@ void setup_decoder(int const fd, int width, int height) {
         exit(1);
     }
 
-    fmt::print("H.264 stream ({} buffers) starting...\n", coded_buffers.count);
     if (v4l2_ioctl(fd, VIDIOC_STREAMON, &coded_format.type)) {
         fmt::print("*** Starting H.264 stream: {}\n", strerror(errno));
         exit(1);
     }
 
-    fmt::print("H.264 stream ON\n");
+    fmt::print("H.264 stream ON ({} buffers)\n", coded_buffers.count);
 
     // Not sending stream data for setup -- hopefully not needed?
 
@@ -194,30 +189,29 @@ void setup_decoder(int const fd, int width, int height) {
     decoded_format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     if (v4l2_ioctl(fd, VIDIOC_G_FMT, &decoded_format)) {
         fmt::print("*** Getting image format: {}\n", strerror(errno));
-    } else {
-        fmt::print(
-            "Image format: {}x{} {:.4s}",
-            (int) decoded_format.fmt.pix_mp.width,
-            (int) decoded_format.fmt.pix_mp.height,
-            (char const*) &decoded_format.fmt.pix_mp.pixelformat
-        );
-        for (int pi = 0; pi < decoded_format.fmt.pix_mp.num_planes; ++pi) {
-            fmt::print(
-                " [{}kB]",
-                decoded_format.fmt.pix_mp.plane_fmt[pi].sizeimage / 1024
-            );
-        }
-        fmt::print("\n");
+        exit(1);
     }
+    fmt::print(
+        "Image format: {}x{} {:.4s}",
+        (int) decoded_format.fmt.pix_mp.width,
+        (int) decoded_format.fmt.pix_mp.height,
+        (char const*) &decoded_format.fmt.pix_mp.pixelformat
+    );
+    for (int pi = 0; pi < decoded_format.fmt.pix_mp.num_planes; ++pi) {
+        fmt::print(
+            " [{}kB]",
+            decoded_format.fmt.pix_mp.plane_fmt[pi].sizeimage / 1024
+        );
+    }
+    fmt::print("\n");
 
-    fmt::print("Image selection:");
     for (int const target : {0x0, 0x1, 0x2, 0x3, 0x100, 0x101, 0x102, 0x103}) {
         v4l2_selection selection = {};
         selection.type = decoded_format.type;
         selection.target = target;
         if (!v4l2_ioctl(fd, VIDIOC_G_SELECTION, &selection)) {
             switch (target) {
-#define T(X) case V4L2_SEL_TGT_##X: fmt::print(" {}=", #X); break
+#define T(X) case V4L2_SEL_TGT_##X: fmt::print("    {:15}", #X); break
                 T(CROP);
                 T(CROP_DEFAULT);
                 T(CROP_BOUNDS);
@@ -227,16 +221,15 @@ void setup_decoder(int const fd, int width, int height) {
                 T(COMPOSE_BOUNDS);
                 T(COMPOSE_PADDED);
 #undef T
-                default: fmt::print(" ?0x{:x}?=", target); break;
+                default: fmt::print("    ?0x{:x}?", target); break;
             }
             fmt::print(
-                "({},{})+({}x{})",
+                " ({},{})+({}x{})\n",
                 selection.r.left, selection.r.top,
                 selection.r.width, selection.r.height
             );
         }
     }
-    fmt::print("\n");
 
     v4l2_requestbuffers decoded_buffers = {};
     decoded_buffers.count = FLAGS_decoded_buffers;
@@ -247,13 +240,12 @@ void setup_decoder(int const fd, int width, int height) {
         exit(1);
     }
 
-    fmt::print("Image stream ({} frames) starting...\n", decoded_buffers.count);
     if (v4l2_ioctl(fd, VIDIOC_STREAMON, &decoded_format.type)) {
         fmt::print("*** Starting image stream: {}\n", strerror(errno));
         exit(1);
     }
 
-    fmt::print("Image stream ON\n");
+    fmt::print("Image stream ON ({} buffers)\n", decoded_buffers.count);
 }
 
 void decode_media(const std::string& filename) {
