@@ -2,11 +2,9 @@
 Experimental video code for Linux / Raspberry Pi
 
 ## Building
-1. Run `./dev_setup.py`. (Works On My Machine™, YMMV. Eventually we should use Docker.)
-2. Make sure the `pip` installation of `meson` (in `~/.local/bin` by default) is on your `$PATH`.
-3. Run `meson b` to set up a build directory (`b` is just my convention, use any name).
-4. Run `ninja -C b` to run the actual build (this is the only part to repeat after edits).
-5. Run binaries from `b` (like `b/pivid_list`).
+1. Run `./dev_setup.py`. (Works On My Machine™, YMMV -- use Docker eventually?)
+2. Run `ninja -C build` to run the actual build (this is the only part to repeat after edits).
+5. Run binaries from `build` (like `build/pivid_test_decode`).
 
 ## Notes and links
 
