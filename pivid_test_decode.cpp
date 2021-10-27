@@ -192,7 +192,7 @@ void setup_decoder(int const fd, int width, int height) {
     }
 
     fmt::print(
-        "Coded stream ON:   {}x{} {:.4s} buf={}x{}x{}kB\n",
+        "Coded stream ON:   {}x{} {:.4s} {} buf(s) x {} plane(s) x {}kB\n",
         (int) coded_format.fmt.pix_mp.width,
         (int) coded_format.fmt.pix_mp.height,
         (char const*) &coded_format.fmt.pix_mp.pixelformat,
@@ -229,7 +229,7 @@ void setup_decoder(int const fd, int width, int height) {
     }
 
     fmt::print(
-        "Decoded stream ON: {}x{} {:.4s} buf={}x{}x{}kB\n",
+        "Decoded stream ON: {}x{} {:.4s} {} buf(s) x {} plane(s) x {}kB\n",
         (int) decoded_format.fmt.pix_mp.width,
         (int) decoded_format.fmt.pix_mp.height,
         (char const*) &decoded_format.fmt.pix_mp.pixelformat,
