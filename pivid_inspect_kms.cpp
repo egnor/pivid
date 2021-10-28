@@ -15,7 +15,7 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-DEFINE_bool(verbose, false, "Print detailed properties");
+DEFINE_bool(print_properties, false, "Print detailed properties");
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
@@ -203,7 +203,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_verbose) print_gpu_object_properties(fd, id);
+        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
         drmModeFreePlane(plane);
     }
     fmt::print("\n");
@@ -241,7 +241,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_verbose) print_gpu_object_properties(fd, id);
+        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
     fmt::print("\n");
@@ -287,7 +287,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_verbose) print_gpu_object_properties(fd, id);
+        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
     fmt::print("\n");
@@ -349,7 +349,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_verbose) print_gpu_object_properties(fd, id);
+        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
         drmModeFreeConnector(conn);
     }
     fmt::print("\n");

@@ -14,8 +14,6 @@
 #include <gflags/gflags.h>
 #include <libv4l2.h>
 
-DEFINE_bool(verbose, false, "Print detailed properties");
-
 // Print driver name and capability bits from VIDIOC_QUERYCAP results.
 void print_videodev_driver(int const fd) {
     v4l2_capability cap = {};
@@ -194,38 +192,36 @@ void inspect_videodev(std::string const& path) {
             }
             if (desc != fourcc) fmt::print(" ({})", desc);
 
-            if (FLAGS_verbose) {
-                v4l2_frmsizeenum size = {};
-                size.pixel_format = format.pixelformat;
-                while (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) >= 0) {
-                    if (size.index % 6 == 0) fmt::print("\n       ");
-                    if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
-                        auto const& dim = size.discrete;
-                        fmt::print(" {}x{}", dim.width, dim.height);
-                    } else {
-                        auto const& dim = size.stepwise;
+            v4l2_frmsizeenum size = {};
+            size.pixel_format = format.pixelformat;
+            while (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) >= 0) {
+                if (size.index % 6 == 0) fmt::print("\n       ");
+                if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+                    auto const& dim = size.discrete;
+                    fmt::print(" {}x{}", dim.width, dim.height);
+                } else {
+                    auto const& dim = size.stepwise;
+                    fmt::print(
+                        " {}x{} - {}x{}",
+                        dim.min_width, dim.min_height,
+                        dim.max_width, dim.max_height
+                    );
+                    if (dim.step_width != 1 || dim.step_height != 1) {
                         fmt::print(
-                            " {}x{} - {}x{}",
-                            dim.min_width, dim.min_height,
-                            dim.max_width, dim.max_height
+                            " ±{}x{}", dim.step_width, dim.step_height
                         );
-                        if (dim.step_width != 1 || dim.step_height != 1) {
-                            fmt::print(
-                                " ±{}x{}", dim.step_width, dim.step_height
-                            );
-                        }
                     }
-
-                    ++size.index;
                 }
+                ++size.index;
             }
+
             fmt::print("\n");
         }
         if (format.index > 0) fmt::print("\n");
     }
 
     v4l2_input input = {};
-    for (; v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input) >= 0; ++input.index) {
+    for (; !v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input); ++input.index) {
         if (input.index == 0) fmt::print("Inputs:\n");
         fmt::print("    Inp #{}", input.index);
         switch (input.type) {
@@ -241,7 +237,7 @@ void inspect_videodev(std::string const& path) {
     if (input.index > 0) fmt::print("\n");
 
     v4l2_output output = {};
-    for (; v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output) >= 0; ++output.index) {
+    for (; !v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output); ++output.index) {
         if (output.index == 0) fmt::print("Outputs:\n");
         fmt::print("    Out #{}", output.index);
         switch (output.type) {
@@ -256,75 +252,73 @@ void inspect_videodev(std::string const& path) {
     }
     if (output.index > 0) fmt::print("\n");
 
-    if (FLAGS_verbose) {
-        v4l2_query_ext_ctrl ctrl = {};
-        ctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
-        int found = 0;
-        for (
-            ;
-            v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl) >= 0;
-            ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND
-        ) {
-            if (!found++) fmt::print("Controls:\n");
-            fmt::print("    Ctrl 0x{:x}", ctrl.id);
-            switch (ctrl.type) {
+    v4l2_query_ext_ctrl ctrl = {};
+    ctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
+    int found = 0;
+    for (
+        ;
+        v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl) >= 0;
+        ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND
+    ) {
+        if (!found++) fmt::print("Controls:\n");
+        fmt::print("    Ctrl 0x{:x}", ctrl.id);
+        switch (ctrl.type) {
 #define T(X) case V4L2_CTRL_TYPE_##X: fmt::print(" {:<7}", #X); break
-                T(INTEGER);
-                T(BOOLEAN);
-                T(MENU);
-                T(BUTTON);
-                T(INTEGER64);
-                T(CTRL_CLASS);
-                T(STRING);
-                T(BITMASK);
-                T(INTEGER_MENU);
-                T(U8);
-                T(U16);
-                T(U32);
-                T(AREA);
+            T(INTEGER);
+            T(BOOLEAN);
+            T(MENU);
+            T(BUTTON);
+            T(INTEGER64);
+            T(CTRL_CLASS);
+            T(STRING);
+            T(BITMASK);
+            T(INTEGER_MENU);
+            T(U8);
+            T(U16);
+            T(U32);
+            T(AREA);
 #undef T
-                default: fmt::print(" ?{}?", ctrl.type); break;
-            }
+            default: fmt::print(" ?{}?", ctrl.type); break;
+        }
 
-            if (ctrl.minimum || ctrl.maximum) {
-                fmt::print(" {:>4}-{:<4}", ctrl.minimum, ctrl.maximum);
-                if (ctrl.step > 1) fmt::print(" ±{}", ctrl.step);
-            }
-            for (uint32_t bit = 1; bit > 0; bit <<= 1) {
-                if (!(ctrl.flags & bit)) continue;
-                switch (bit) {
+        if (ctrl.minimum || ctrl.maximum) {
+            fmt::print(" {:>4}-{:<4}", ctrl.minimum, ctrl.maximum);
+            if (ctrl.step > 1) fmt::print(" ±{}", ctrl.step);
+        }
+        for (uint32_t bit = 1; bit > 0; bit <<= 1) {
+            if (!(ctrl.flags & bit)) continue;
+            switch (bit) {
 #define F(X) case V4L2_CTRL_FLAG_##X: fmt::print(" {}", #X); break
-                    F(DISABLED);
-                    F(GRABBED);
-                    F(READ_ONLY);
-                    F(UPDATE);
-                    F(INACTIVE);
-                    F(SLIDER);
-                    F(WRITE_ONLY);
-                    F(VOLATILE);
-                    F(HAS_PAYLOAD);
-                    F(EXECUTE_ON_WRITE);
-                    F(MODIFY_LAYOUT);
+                F(DISABLED);
+                F(GRABBED);
+                F(READ_ONLY);
+                F(UPDATE);
+                F(INACTIVE);
+                F(SLIDER);
+                F(WRITE_ONLY);
+                F(VOLATILE);
+                F(HAS_PAYLOAD);
+                F(EXECUTE_ON_WRITE);
+                F(MODIFY_LAYOUT);
 #undef F
-                }
-            }
-            fmt::print(" ({})\n", ctrl.name);
-
-            if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
-                v4l2_querymenu item = {};
-                item.id = ctrl.id;
-                for (
-                    ; v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index
-                ) {
-                    fmt::print(
-                        "        {}: {}\n",
-                        int(item.index), (char const*) item.name
-                    );
-                }
             }
         }
-        if (found > 0) fmt::print("\n");
+        fmt::print(" ({})\n", ctrl.name);
+
+        if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
+            v4l2_querymenu item = {};
+            item.id = ctrl.id;
+            for (
+                ; v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index
+            ) {
+                fmt::print(
+                    "        {}: {}\n",
+                    int(item.index), (char const*) item.name
+                );
+            }
+        }
     }
+    if (found > 0) fmt::print("\n");
 
     v4l2_close(fd);
 }
