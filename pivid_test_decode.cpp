@@ -3,12 +3,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include <cctype>
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <memory>
 #include <thread>  // just for sleep_for(), don't panic
@@ -24,7 +26,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 }
 
-DEFINE_int32(coded_buffers, 16, "Buffered frames for decoder input");
+DEFINE_int32(encoded_buffers, 16, "Buffered frames for decoder input");
 DEFINE_int32(decoded_buffers, 16, "Buffered frames for decoder output");
 
 struct MappedBuffer {
@@ -130,7 +132,7 @@ void open_decoder(int* fd) {
 void stop_decoder(int const fd) {
     int const coded_type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     if (v4l2_ioctl(fd, VIDIOC_STREAMOFF, &coded_type)) {
-        fmt::print("*** Stopping coded stream: {}\n", strerror(errno));
+        fmt::print("*** Stopping encoded stream: {}\n", strerror(errno));
         exit(1);
     }
 
@@ -138,10 +140,10 @@ void stop_decoder(int const fd) {
     coded_reqbuf.type = coded_type;
     coded_reqbuf.memory = V4L2_MEMORY_MMAP;
     if (v4l2_ioctl(fd, VIDIOC_REQBUFS, &coded_reqbuf)) {
-        fmt::print("*** Releasing coded buffers: {}\n", strerror(errno));
+        fmt::print("*** Releasing encoded buffers: {}\n", strerror(errno));
         exit(1);
     }
-    fmt::print("Coded stream OFF (buffers released)\n");
+    fmt::print("OFF: encoded stream (buffers released)\n");
 
     int const decoded_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     if (v4l2_ioctl(fd, VIDIOC_STREAMOFF, &decoded_type)) {
@@ -156,128 +158,32 @@ void stop_decoder(int const fd) {
         fmt::print("*** Releasing decoded buffers: {}\n", strerror(errno));
         exit(1);
     }
-    fmt::print("Decoded stream OFF (buffers released)\n");
+    fmt::print("OFF: decoded stream (buffers released)\n");
 }
 
-void setup_decoder(int const fd, int width, int height) {
-    // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html
-
-    //
-    // "OUTPUT" (app-to-device, i.e. decoder *input*) setup
-    //
-
-    v4l2_format coded_format = {};
-    coded_format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-    coded_format.fmt.pix_mp.width = width;
-    coded_format.fmt.pix_mp.height = height;
-    coded_format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
-    coded_format.fmt.pix_mp.num_planes = 1;
-    if (v4l2_ioctl(fd, VIDIOC_S_FMT, &coded_format)) {
-        fmt::print("*** Setting coded format: {}\n", strerror(errno));
-        exit(1);
-    }
-
-    v4l2_requestbuffers coded_reqbuf = {};
-    coded_reqbuf.count = FLAGS_coded_buffers;
-    coded_reqbuf.type = coded_format.type;
-    coded_reqbuf.memory = V4L2_MEMORY_MMAP;
-    if (v4l2_ioctl(fd, VIDIOC_REQBUFS, &coded_reqbuf)) {
-        fmt::print("*** Creating coded buffers: {}\n", strerror(errno));
-        exit(1);
-    }
-
-    if (v4l2_ioctl(fd, VIDIOC_STREAMON, &coded_format.type)) {
-        fmt::print("*** Starting coded stream: {}\n", strerror(errno));
-        exit(1);
-    }
-
-    fmt::print(
-        "Coded stream ON:   {}x{} {:.4s} {} buf(s) x {} plane(s) x {}kB\n",
-        (int) coded_format.fmt.pix_mp.width,
-        (int) coded_format.fmt.pix_mp.height,
-        (char const*) &coded_format.fmt.pix_mp.pixelformat,
-        coded_reqbuf.count,
-        coded_format.fmt.pix_mp.num_planes,
-        coded_format.fmt.pix_mp.plane_fmt[0].sizeimage / 1024
-    );
-
-    // Not sending stream data for setup -- hopefully not needed?
-
-    //
-    // "CAPTURE" (device-to-app, i.e. decoder *output*) setup
-    //
-
-    v4l2_format decoded_format = {};
-    decoded_format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    if (v4l2_ioctl(fd, VIDIOC_G_FMT, &decoded_format)) {
-        fmt::print("*** Getting decoded format: {}\n", strerror(errno));
-        exit(1);
-    }
-
-    v4l2_requestbuffers decoded_reqbuf = {};
-    decoded_reqbuf.count = FLAGS_decoded_buffers;
-    decoded_reqbuf.type = decoded_format.type;
-    decoded_reqbuf.memory = V4L2_MEMORY_MMAP;
-    if (v4l2_ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
-        fmt::print("*** Creating decoded buffers: {}\n", strerror(errno));
-        exit(1);
-    }
-
-    if (v4l2_ioctl(fd, VIDIOC_STREAMON, &decoded_format.type)) {
-        fmt::print("*** Starting decoded stream: {}\n", strerror(errno));
-        exit(1);
-    }
-
-    fmt::print(
-        "Decoded stream ON: {}x{} {:.4s} {} buf(s) x {} plane(s) x {}kB\n",
-        (int) decoded_format.fmt.pix_mp.width,
-        (int) decoded_format.fmt.pix_mp.height,
-        (char const*) &decoded_format.fmt.pix_mp.pixelformat,
-        decoded_reqbuf.count,
-        decoded_format.fmt.pix_mp.num_planes,
-        decoded_format.fmt.pix_mp.plane_fmt[0].sizeimage / 1024
-    );
-
-    for (int const target : {0x0, 0x1, 0x2, 0x3, 0x100, 0x101, 0x102, 0x103}) {
-        v4l2_selection selection = {};
-        selection.type = decoded_format.type;
-        selection.target = target;
-        if (!v4l2_ioctl(fd, VIDIOC_G_SELECTION, &selection)) {
-            switch (target) {
-#define T(X) case V4L2_SEL_TGT_##X: fmt::print("    {:15}", #X); break
-                T(CROP);
-                T(CROP_DEFAULT);
-                T(CROP_BOUNDS);
-                T(NATIVE_SIZE);
-                T(COMPOSE);
-                T(COMPOSE_DEFAULT);
-                T(COMPOSE_BOUNDS);
-                T(COMPOSE_PADDED);
-#undef T
-                default: fmt::print("    ?0x{:x}?", target); break;
-            }
-            fmt::print(
-                " ({},{})+({}x{})\n",
-                selection.r.left, selection.r.top,
-                selection.r.width, selection.r.height
-            );
-        }
+std::string describe(v4l2_buf_type type) {
+    switch (type) {
+        case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE: return "dec";
+        case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE: return "enc";
+        default: return fmt::format("?type={}?", type);
     }
 }
 
 std::string describe(v4l2_buffer const& buf) {
-    std::string out;
-    switch (buf.type) {
-#define T(X, y) case V4L2_BUF_TYPE_##X: out += fmt::format("{}", y); break
-        T(VIDEO_CAPTURE_MPLANE, "decoded");
-        T(VIDEO_OUTPUT_MPLANE, "coded");
-#undef T
-        default: out += fmt::format("?type={}?", buf.type); break;
-    }
-    out += fmt::format(
-        " buffer #{} {}/{}kB", buf.index,
+    std::string out = fmt::format(
+        "{} buf #{:<2d} t={:03d}.{:03d} {:4d}/{:4d}kB",
+        describe((v4l2_buf_type) buf.type), buf.index,
+        buf.timestamp.tv_sec, buf.timestamp.tv_usec / 1000,
         buf.m.planes[0].bytesused / 1024, buf.m.planes[0].length / 1024
     );
+    switch (buf.memory) {
+#define M(X) case V4L2_MEMORY_##X: out += fmt::format(" {}", #X); break
+        M(MMAP);
+        M(USERPTR);
+        M(DMABUF);
+#undef M
+        default: out += fmt::format(" ?mem={}", buf.memory); break;
+    }
     for (uint32_t bit = 1; bit; bit <<= 1) {
         if (buf.flags & bit) {
             switch (bit) {
@@ -306,15 +212,127 @@ std::string describe(v4l2_buffer const& buf) {
             }
         }
     }
-    switch (buf.memory) {
-#define M(X) case V4L2_MEMORY_##X: out += fmt::format(" {}", #X); break
-        M(MMAP);
-        M(USERPTR);
-        M(DMABUF);
-#undef M
-        default: out += fmt::format(" ?mem={}", buf.memory); break;
-    }
     return out;
+}
+
+std::string describe(v4l2_format const& format, int num_buffers) {
+    std::string out = fmt::format(
+        "{} {}x{} {:.4s} {} x (",
+        describe((v4l2_buf_type) format.type),
+        (int) format.fmt.pix_mp.width,
+        (int) format.fmt.pix_mp.height,
+        (char const*) &format.fmt.pix_mp.pixelformat,
+        num_buffers
+    );
+    for (int pi = 0; pi < format.fmt.pix_mp.num_planes; ++pi) {
+        out += fmt::format(
+            "{}{}kB", (pi ? " + " : ""),
+            format.fmt.pix_mp.plane_fmt[pi].sizeimage / 1024
+        );
+    }
+    return out + fmt::format(") buf(s)");
+}
+
+void setup_decoder(int const fd, int width, int height) {
+    // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-decoder.html
+
+    //
+    // Event subscriptions
+    //
+
+    v4l2_event_subscription subscribe = {};
+    subscribe.type = V4L2_EVENT_SOURCE_CHANGE;
+    subscribe.id = V4L2_EVENT_SRC_CH_RESOLUTION;
+    if (v4l2_ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, &subscribe)) {
+        fmt::print("*** Subscribing to events: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    //
+    // "OUTPUT" (app-to-device, i.e. decoder *input*) setup
+    //
+
+    v4l2_format coded_format = {};
+    coded_format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+    coded_format.fmt.pix_mp.width = width;
+    coded_format.fmt.pix_mp.height = height;
+    coded_format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
+    coded_format.fmt.pix_mp.num_planes = 1;
+    if (v4l2_ioctl(fd, VIDIOC_S_FMT, &coded_format)) {
+        fmt::print("*** Setting encoded format: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    v4l2_requestbuffers coded_reqbuf = {};
+    coded_reqbuf.count = FLAGS_encoded_buffers;
+    coded_reqbuf.type = coded_format.type;
+    coded_reqbuf.memory = V4L2_MEMORY_MMAP;
+    if (v4l2_ioctl(fd, VIDIOC_REQBUFS, &coded_reqbuf)) {
+        fmt::print("*** Creating encoded buffers: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    if (v4l2_ioctl(fd, VIDIOC_STREAMON, &coded_format.type)) {
+        fmt::print("*** Starting encoded stream: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    fmt::print("ON: {}\n", describe(coded_format, coded_reqbuf.count));
+
+    // Not sending stream data for setup -- hopefully not needed?
+
+    //
+    // "CAPTURE" (device-to-app, i.e. decoder *output*) setup
+    //
+
+    v4l2_format decoded_format = {};
+    decoded_format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    if (v4l2_ioctl(fd, VIDIOC_G_FMT, &decoded_format)) {
+        fmt::print("*** Getting decoded format: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    v4l2_requestbuffers decoded_reqbuf = {};
+    decoded_reqbuf.count = FLAGS_decoded_buffers;
+    decoded_reqbuf.type = decoded_format.type;
+    decoded_reqbuf.memory = V4L2_MEMORY_MMAP;
+    if (v4l2_ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
+        fmt::print("*** Creating decoded buffers: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    if (v4l2_ioctl(fd, VIDIOC_STREAMON, &decoded_format.type)) {
+        fmt::print("*** Starting decoded stream: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    fmt::print("ON: {}\n", describe(decoded_format, decoded_reqbuf.count));
+
+    for (int const target : {0x0, 0x1, 0x2, 0x3, 0x100, 0x101, 0x102, 0x103}) {
+        v4l2_selection selection = {};
+        selection.type = decoded_format.type;
+        selection.target = target;
+        if (!v4l2_ioctl(fd, VIDIOC_G_SELECTION, &selection)) {
+            switch (target) {
+#define T(X) case V4L2_SEL_TGT_##X: fmt::print("    {:15}", #X); break
+                T(CROP);
+                T(CROP_DEFAULT);
+                T(CROP_BOUNDS);
+                T(NATIVE_SIZE);
+                T(COMPOSE);
+                T(COMPOSE_DEFAULT);
+                T(COMPOSE_BOUNDS);
+                T(COMPOSE_PADDED);
+#undef T
+                default: fmt::print("    ?0x{:x}?", target); break;
+            }
+            fmt::print(
+                " ({},{})+({}x{})\n",
+                selection.r.left, selection.r.top,
+                selection.r.width, selection.r.height
+            );
+        }
+    }
 }
 
 std::vector<std::unique_ptr<MappedBuffer>> map_decoder_buffers(
@@ -362,12 +380,12 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
     auto const coded_buffers = map_decoder_buffers(fd, coded_buf_type);
     auto const decoded_buffers = map_decoder_buffers(fd, decoded_buf_type);
     fmt::print(
-        "Buffers mapped: coded={}x{}kB, decoded={}x{}kB\n",
+        "Buffers mapped: encoded={}x{}kB, decoded={}x{}kB\n",
         coded_buffers.size(), coded_buffers[0]->size / 1024,
         decoded_buffers.size(), decoded_buffers[0]->size / 1024
     );
 
-    std::vector<MappedBuffer*> coded_free, decoded_free;
+    std::deque<MappedBuffer*> coded_free, decoded_free;
     for (auto const &b : coded_buffers) coded_free.push_back(b.get());
     for (auto const &b : decoded_buffers) decoded_free.push_back(b.get());
 
@@ -377,7 +395,7 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
         packet_ok = (packet.stream_index == stream->index);
     }
     if (!packet_ok) {
-        fmt::print("*** No coded packets in stream #{}\n", stream->index);
+        fmt::print("*** No encoded packets in stream #{}\n", stream->index);
         exit(1);
     }
 
@@ -397,7 +415,18 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
     }
     fmt::print("Sent START\n");
 
+    double const time_base = av_q2d(stream->time_base);
     while (!drained) {
+        // Receive events.
+        v4l2_event event = {};
+        while (!v4l2_ioctl(fd, VIDIOC_DQEVENT, &event)) {
+            fmt::print("--- Event: {}\n", event.type);
+        }
+        if (errno != ENOENT) {
+            fmt::print("*** Receiving event: {}\n", strerror(errno));
+            exit(1);
+        }
+
         // Reclaim coded buffers once consumed by the decoder.
         received.type = coded_buf_type;
         while (!v4l2_ioctl(fd, VIDIOC_DQBUF, &received)) {
@@ -409,14 +438,14 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
             coded_free.push_back(coded_buffers[received.index].get());
         }
         if (errno != EAGAIN) {
-            fmt::print("*** Reclaiming coded buffer: {}\n", strerror(errno));
+            fmt::print("*** Reclaiming encoded buffer: {}\n", strerror(errno));
             exit(1);
         }
 
         // Push coded data into the decoder.
         while (!coded_free.empty() && packet_ok) {
-            auto* coded = coded_free.back();
-            coded_free.pop_back();
+            auto* coded = coded_free.front();
+            coded_free.pop_front();
             coded->plane.bytesused = 0;
 
             do {
@@ -426,6 +455,15 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
                         packet.size / 1024, coded->size / 1024
                     );
                     exit(1);
+                }
+
+                if (packet.pts == AV_NOPTS_VALUE) {
+                    coded->buffer.timestamp = {};
+                } else {
+                    double const time = packet.pts * time_base;
+                    uint32_t const sec = time;
+                    coded->buffer.timestamp.tv_sec = sec;
+                    coded->buffer.timestamp.tv_usec = (time - sec) * 1000000;
                 }
 
                 memcpy(
@@ -443,10 +481,10 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
             );
 
             if (v4l2_ioctl(fd, VIDIOC_QBUF, &coded->buffer)) {
-                fmt::print("*** Sending coded buffer: {}\n", strerror(errno));
+                fmt::print("*** Sending encoded buffer: {}\n", strerror(errno));
                 exit(1);
             }
-            fmt::print("Sent {}\n", describe(coded->buffer));
+            fmt::print("Sent      {}\n", describe(coded->buffer));
 
             if (!packet_ok) {
                 v4l2_decoder_cmd command = {};
@@ -461,13 +499,13 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
 
         // Send empty decoded buffers to be filled by the decoder.
         while (!decoded_free.empty()) {
-            auto* decoded = decoded_free.back();
-            decoded_free.pop_back();
+            auto* decoded = decoded_free.front();
+            decoded_free.pop_front();
             if (v4l2_ioctl(fd, VIDIOC_QBUF, &decoded->buffer)) {
-                fmt::print("*** Cycling buffer: {}\n", strerror(errno));
+                fmt::print("*** Recycling buffer: {}\n", strerror(errno));
                 exit(1);
             }
-            fmt::print("Cycled {}\n", describe(decoded->buffer));
+            fmt::print("Recycled  {}\n", describe(decoded->buffer));
         }
 
         // Receive decoded data and return the buffers.
@@ -480,7 +518,7 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
 
             drained = (received.flags & V4L2_BUF_FLAG_LAST);
             auto* decoded = decoded_buffers[received.index].get();
-            fmt::print("Received {}\n", describe(received));
+            fmt::print("Received  {}\n", describe(received));
             //
             //
             //
@@ -493,6 +531,7 @@ void run_decoder(AVFormatContext* context, AVStream* stream, int const fd) {
         }
 
         // Poll after a 10ms delay -- TODO use poll() instead
+        fflush(stdout);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
