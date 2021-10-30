@@ -546,6 +546,9 @@ void decoder_run(InputMedia const& input, int const fd) {
         ) {
             auto* recycle = decoded_free.front();
             decoded_free.pop_front();
+            recycle->plane.bytesused = 0;
+            recycle->buffer.flags |= V4L2_BUF_FLAG_NO_CACHE_CLEAN;
+            recycle->buffer.flags |= V4L2_BUF_FLAG_NO_CACHE_INVALIDATE;
             if (v4l2_ioctl(fd, VIDIOC_QBUF, &recycle->buffer)) {
                 if (errno == EINVAL) {
                     decoded_buffer_invalid = true;  // Maybe source change.
