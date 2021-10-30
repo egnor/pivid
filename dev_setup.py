@@ -13,12 +13,13 @@ venv_bin = venv_dir / "bin"
 print("=== System packages (sudo apt install ...) ===")
 check_call([
     "sudo", "apt", "install",
-    "build-essential",
-    "direnv",
-    "libdrm-dev",
-    "libdrm-tests",
-    "libv4l-dev",
-    "v4l-utils",
+    "build-essential",  # conan requires build tools to be systemwide
+    "cmake",            # needed by fmt build in conan (hermeticity bug)
+    "direnv",           # only useful if installed systemwide
+    "libdrm-dev",       # TODO package for conan?
+    "libdrm-tests",     # TODO package for conan?
+    "libv4l-dev",       # TODO package for conan?
+    "v4l-utils",        # TODO package for conan? (not required but handy)
 ])
 
 print()
@@ -30,13 +31,13 @@ check_call(["direnv", "allow", source_dir])
 
 print()
 print(f"=== Python packages (pip install ...) ===")
-check_call([venv_bin / "pip", "install", "conan"])
+check_call([venv_bin / "pip", "install", "conan", "meson", "ninja"])
 
 print()
-print(f"=== Conan packages (conan install ...) ===")
+print(f"=== Conan (C++) packages (conan install ...) ===")
 os.environ["CONAN_V2_MODE"] = "1"
 conan_bin = venv_bin / "conan"
-conan_profile = venv_dir / "conan_profile.txt"
+conan_profile = build_dir / "conan_profile.txt"
 check_call([conan_bin, "config", "init"])
 check_call([conan_bin, "profile", "new", "--force", "--detect", conan_profile])
 check_call([
@@ -44,9 +45,10 @@ check_call([
     "update", "settings.compiler.libcxx=libstdc++11",
     conan_profile
 ])
+
 check_call([
     conan_bin, "install",
-    f"--install-folder={build_dir}/conan_install",
+    f"--install-folder={build_dir}",
     "--update",
     "--build=outdated",
     f"--profile={conan_profile}",
@@ -54,8 +56,13 @@ check_call([
 ])
 
 print()
-print(f"=== Meson setup (meson build) ===")
-check_call([venv_bin / "meson", build_dir])
+print(f"=== Configure build (Meson/Ninja via Conan) ===")
+check_call([
+    conan_bin, "build",
+    f"--build-folder={build_dir}",
+    "--configure",  # Only configure, not build (yet)
+    source_dir
+])
 
 print()
 print(f"::: Setup complete, build with: ninja -C build :::")

@@ -1,4 +1,4 @@
-project('video_play', 'cpp',
+project('video_play', 'cpp', version: '0.0',
     default_options: [
         'warning_level=3',
         'cpp_std=c++17',
