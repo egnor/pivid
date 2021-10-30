@@ -11,6 +11,13 @@ from subprocess import check_call, check_output
 # - Use pip / pypi (pypi.org) for Python dependencies (like conan, meson, etc)
 # - Reluctantly use system packages (apt) for things not covered above
 
+source_dir = Path(__file__).resolve().parent
+build_dir = source_dir / "build"
+venv_dir = build_dir / "python_venv"
+venv_bin = venv_dir / "bin"
+conan_bin = venv_bin / "conan"
+conan_profile = build_dir / "conan_profile.txt"
+
 print("=== System packages (sudo apt install ...) ===")
 check_call([
     "sudo", "apt", "install",
@@ -37,8 +44,6 @@ check_call([venv_bin / "pip", "install", "conan", "meson", "ninja"])
 print()
 print(f"=== Conan (C++) packages (conan install ...) ===")
 os.environ["CONAN_V2_MODE"] = "1"
-conan_bin = venv_bin / "conan"
-conan_profile = build_dir / "conan_profile.txt"
 check_call([conan_bin, "config", "init"])
 check_call([conan_bin, "profile", "new", "--force", "--detect", conan_profile])
 check_call([
