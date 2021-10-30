@@ -458,6 +458,10 @@ void decoder_run(InputMedia const& input, int const fd) {
     received.length = 1;
     received.m.planes = &received_plane;
 
+    int frame_count = 0;
+    time_t frame_sec = 0;
+    auto const start_t = std::chrono::steady_clock::now();
+
     bool decoded_format_changed = false;
     bool decoded_done = false;
     while (
@@ -568,8 +572,18 @@ void decoder_run(InputMedia const& input, int const fd) {
                 fmt::print("Received  {}\n", describe(received));
             }
             if (received.flags & V4L2_BUF_FLAG_LAST) {
-                fmt::print("--- Got LAST flag, decoded stream is drained\n");
+                fmt::print("--- LAST flag on decoded stream (drained)\n");
                 decoded_done = true;
+            }
+
+            ++frame_count;
+            if (received.timestamp.tv_sec > frame_sec) {
+                frame_sec = received.timestamp.tv_sec;
+                double const elapsed_t = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - start_t).count();
+                fmt::print(
+                    "::: {} frames / {:.1f}s elapsed = {:.2f} fps\n",
+                    frame_count, elapsed_t, frame_count / elapsed_t);
             }
 
             //
@@ -579,7 +593,7 @@ void decoder_run(InputMedia const& input, int const fd) {
             decoded_free.push_back(decoded);
         }
         if (errno == EPIPE) {
-            fmt::print("--- Decoded stream EPIPE, assume stream is drained\n");
+            fmt::print("--- EPIPE from decoded stream (assume drained)\n");
             decoded_done = true;  // No buffer to mark with V4L2_BUF_FLAG_LAST?
         } else if (errno != EAGAIN) {
             fmt::print("*** Receiving decoded buffer: {}\n", strerror(errno));
@@ -591,11 +605,11 @@ void decoder_run(InputMedia const& input, int const fd) {
         v4l2_event event = {};
         while (!v4l2_ioctl(fd, VIDIOC_DQEVENT, &event)) {
             if (event.type == V4L2_EVENT_SOURCE_CHANGE) {
-                fmt::print("--- Got SOURCE_CHANGE, handling after drain\n");
+                fmt::print("--- SOURCE_CHANGE event (will reconfigure)\n");
                 decoded_format_changed = true;
             } else if (event.type == V4L2_EVENT_EOS) {
                 // Don't take action on this (legacy) event, but log it FYI.
-                fmt::print("--- Got EOS, encoded data is fully processed\n");
+                fmt::print("--- EOS event (encoded data is processed FYI)\n");
             } else {
                 fmt::print("*** Unknown event ?type={}?\n", event.type);
             }
@@ -613,7 +627,7 @@ void decoder_run(InputMedia const& input, int const fd) {
         }
 
         if (decoded_done && decoded_format_changed) {
-            fmt::print("--- Decoded stream drained, handling SOURCE_CHANGE\n");
+            fmt::print("--- Reconfiguring after SOURCE_CHANGE\n");
             decoded_done = decoded_format_changed = false;  // Restart
             decoded_free.clear();
             decoder_setup_decoded_stream(fd, &decoded_buffers);
