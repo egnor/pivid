@@ -2,7 +2,7 @@
 Experimental video code for Linux / Raspberry Pi
 
 ## Building
-1. Run `./dev_setup.py`. (Works On My Machine™, YMMV -- use Docker eventually?)
+1. Run `./dev_setup.py`. (Works On My Machine™, YMMV)
 2. Run `ninja -C build` to run the actual build (this is the only part to repeat after edits).
 5. Run binaries from `build` (like `build/pivid_test_decode`).
 

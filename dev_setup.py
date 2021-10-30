@@ -5,10 +5,11 @@ import venv
 from pathlib import Path
 from subprocess import check_call, check_output
 
-source_dir = Path(__file__).resolve().parent
-build_dir = source_dir / "build"
-venv_dir = build_dir / "python_venv"
-venv_bin = venv_dir / "bin"
+# GENERAL BUILD / DEPENDENCY STRATEGY
+# - Use Meson (mesonbuild.com) / Ninja (ninja-build.org) to build the C++ code
+# - Use Conan (conan.io) to install C++ dependencies (ffmpeg, etc)
+# - Use pip / pypi (pypi.org) for Python dependencies (like conan, meson, etc)
+# - Reluctantly use system packages (apt) for things not covered above
 
 print("=== System packages (sudo apt install ...) ===")
 check_call([
