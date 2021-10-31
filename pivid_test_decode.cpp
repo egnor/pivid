@@ -47,6 +47,19 @@ struct InputMedia {
     void operator=(InputMedia const&) = delete;
 };
 
+struct OutputContext {
+    std::string prefix;
+    AVCodec const* codec = nullptr;
+    AVCodecContext* context = nullptr;
+    AVPacket* packet = nullptr;
+
+    OutputContext() {}
+    ~OutputContext() {
+        if (packet) av_packet_free(&packet);
+        if (context) avcodec_free_context(&context);
+    }
+};
+
 struct MappedBuffer {
     v4l2_buffer buffer = {};
     v4l2_plane plane = {};
@@ -60,7 +73,33 @@ struct MappedBuffer {
     void operator=(MappedBuffer const&) = delete;
 };
 
-// Open media file with libavformat and find H.264 stream
+// Updates input.packet with the next packet from filtered input.
+// At EOF, the packet will be empty (!input.packet->buf).
+void input_next_packet(InputMedia const& input) {
+    for (;;) {
+        av_packet_unref(input.packet);
+        int const filt_err = av_bsf_receive_packet(input.filter, input.packet);
+        if (filt_err >= 0 || filt_err == AVERROR_EOF) return;
+        if (filt_err != AVERROR(EAGAIN)) {
+            fmt::print("*** Input filter: {}\n", strerror(errno));
+            exit(1);
+        }
+
+        do {
+            av_packet_unref(input.packet);
+            int const codec_err = av_read_frame(input.avc, input.packet);
+            if (codec_err == AVERROR_EOF) return;
+            if (codec_err < 0) {
+                fmt::print("*** Reading input: {}\n", strerror(errno));
+                exit(1);
+            }
+        } while (input.packet->stream_index != input.stream->index);
+
+        av_bsf_send_packet(input.filter, input.packet);
+    }
+}
+
+// Opens media file with libavformat and finds H.264 stream
 std::unique_ptr<InputMedia> open_input(const std::string& url) {
     auto input = std::make_unique<InputMedia>();
     if (avformat_open_input(&input->avc, url.c_str(), nullptr, nullptr) < 0) {
@@ -114,33 +153,8 @@ std::unique_ptr<InputMedia> open_input(const std::string& url) {
     }
 
     input->packet = av_packet_alloc();
+    input_next_packet(*input);
     return input;
-}
-
-// Updates input.packet with the next packet from filtered input.
-// At EOF, the packet will be empty (!input.packet->buf).
-void input_next_packet(InputMedia const& input) {
-    for (;;) {
-        av_packet_unref(input.packet);
-        int const filt_err = av_bsf_receive_packet(input.filter, input.packet);
-        if (filt_err >= 0 || filt_err == AVERROR_EOF) return;
-        if (filt_err != AVERROR(EAGAIN)) {
-            fmt::print("*** Input filter: {}\n", strerror(errno));
-            exit(1);
-        }
-
-        do {
-            av_packet_unref(input.packet);
-            int const codec_err = av_read_frame(input.avc, input.packet);
-            if (codec_err == AVERROR_EOF) return;
-            if (codec_err < 0) {
-                fmt::print("*** Reading input: {}\n", strerror(errno));
-                exit(1);
-            }
-        } while (input.packet->stream_index != input.stream->index);
-
-        av_bsf_send_packet(input.filter, input.packet);
-    }
 }
 
 // Scan V4L2 devices and find H.264 decoder
@@ -358,7 +372,6 @@ void decoder_setup_encoded_stream(
     }
 
     *buffers = decoder_mmap_buffers(fd, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
-
     fmt::print("ON: {}\n", describe(encoded_format, encoded_reqbuf.count));
 }
 
@@ -401,7 +414,6 @@ void decoder_setup_decoded_stream(
     }
 
     *buffers = decoder_mmap_buffers(fd, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
-
     fmt::print("ON: {}\n", describe(decoded_format, decoded_reqbuf.count));
 
     for (int const target : {0x0, 0x1, 0x2, 0x3, 0x100, 0x101, 0x102, 0x103}) {
@@ -432,15 +444,10 @@ void decoder_setup_decoded_stream(
 }
 
 void decoder_run(InputMedia const& input, int const fd) {
-    input_next_packet(input);
     if (!input.packet->buf) {
         fmt::print("*** No packets in input stream #{}\n", input.stream->index);
         exit(1);
     }
-
-    auto const encoded_buf_type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-    auto const decoded_buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    auto const time_base = av_q2d(input.stream->time_base);
 
     std::vector<std::unique_ptr<MappedBuffer>> encoded_buffers;
     std::vector<std::unique_ptr<MappedBuffer>> decoded_buffers;
@@ -451,6 +458,10 @@ void decoder_run(InputMedia const& input, int const fd) {
     std::deque<MappedBuffer*> encoded_free, decoded_free;
     for (auto const &b : encoded_buffers) encoded_free.push_back(b.get());
     for (auto const &b : decoded_buffers) decoded_free.push_back(b.get());
+
+    auto const encoded_buf_type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+    auto const decoded_buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    auto const time_base = av_q2d(input.stream->time_base);
 
     v4l2_plane received_plane = {};
     v4l2_buffer received = {};
@@ -585,7 +596,7 @@ void decoder_run(InputMedia const& input, int const fd) {
                 double const elapsed_t = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - start_t).count();
                 fmt::print(
-                    "::: {} frames / {:.1f}s elapsed = {:.2f} fps\n",
+                    "::: {}fr decoded / {:.1f}s elapsed = {:.2f} fps\n",
                     frame_count, elapsed_t, frame_count / elapsed_t);
             }
 
@@ -644,24 +655,21 @@ void decoder_run(InputMedia const& input, int const fd) {
     }
 }
 
-void decode_media(const std::string& filename) {
-    auto const input = open_input(filename);
+DEFINE_string(input, "", "Media file or URL to decode");
+
+int main(int argc, char** argv) {
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    if (FLAGS_input.empty()) {
+        fmt::print("*** Usage: pivid_test_decode --input=<mediafile>\n");
+        exit(1);
+    }
+
+    auto const input = open_input(FLAGS_input);
     int const decoder_fd = open_decoder();
     decoder_setup_events(decoder_fd);
     decoder_run(*input, decoder_fd);
     v4l2_close(decoder_fd);
-}
 
-DEFINE_string(media, "", "Media file or URL to decode");
-
-int main(int argc, char** argv) {
-    gflags::ParseCommandLineFlags(&argc, &argv, true);
-    if (FLAGS_media.empty()) {
-        fmt::print("*** Usage: pivid_test_decode --media=<mediafile>\n");
-        exit(1);
-    }
-
-    decode_media(FLAGS_media);
     fmt::print("Closed and complete!\n");
     return 0;
 }
