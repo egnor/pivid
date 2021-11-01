@@ -364,10 +364,9 @@ void decoder_setup_encoded_stream(
         exit(1);
     }
 
+    // Do not set width/height, the decoder will read size from the stream.
     v4l2_format encoded_format = {};
     encoded_format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-    // encoded_format.fmt.pix_mp.width = width;
-    // encoded_format.fmt.pix_mp.height = height;
     encoded_format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
     encoded_format.fmt.pix_mp.num_planes = 1;
     if (v4l2_ioctl(fd, VIDIOC_S_FMT, &encoded_format)) {
@@ -402,7 +401,8 @@ void decoder_setup_encoded_stream(
 void decoder_setup_decoded_stream(
     int const fd,
     std::vector<std::unique_ptr<MappedBuffer>>* const buffers,
-    v4l2_format* const format
+    v4l2_format* const format,
+    v4l2_rect* const rect
 ) {
     buffers->clear();  // Unmap existing buffers, if any.
 
@@ -445,6 +445,7 @@ void decoder_setup_decoded_stream(
         selection.type = format->type;
         selection.target = target;
         if (!v4l2_ioctl(fd, VIDIOC_G_SELECTION, &selection)) {
+            if (target == V4L2_SEL_TGT_COMPOSE) *rect = selection.r;
             switch (target) {
 #define T(X) case V4L2_SEL_TGT_##X: fmt::print("    {:15}", #X); break
                 T(CROP);
@@ -470,50 +471,51 @@ void decoder_setup_decoded_stream(
 // Write a decoded video frame to disk
 void save_frame(
     OutputEncoder* const out,
-    v4l2_format const& v4l2_format,
+    v4l2_format const& format,
+    v4l2_rect const& rect,
     MappedBuffer const& map,
     int frame_index
 ) {
-    if (v4l2_format.type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-        fmt::print("*** Bad decoded format type: {}\n", v4l2_format.type);
+    if (format.type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+        fmt::print("*** Bad decoded format type: {}\n", format.type);
         exit(1);
     }
 
-    auto const av_pix_fmt = AV_PIX_FMT_YUVJ420P;  // JPEG color space
-    auto const& pix = v4l2_format.fmt.pix_mp;
-    if (pix.pixelformat != V4L2_PIX_FMT_YUV420) {
+    auto const jpeg_pix_fmt = AV_PIX_FMT_YUVJ420P;  // JPEG color space
+    auto const& buffer_format = format.fmt.pix_mp;
+    if (buffer_format.pixelformat != V4L2_PIX_FMT_YUV420) {
         fmt::print(
             "*** Bad decoded pixel format: {:.4s}\n",
-            (char const*) &pix.pixelformat
+            (char const*) &buffer_format.pixelformat
         );
         exit(1);
     }
 
     if (
         !out->context ||
-        out->context->pix_fmt != av_pix_fmt ||
-        out->context->width != (int) pix.width ||
-        out->context->height != (int) pix.height
+        out->context->pix_fmt != jpeg_pix_fmt ||
+        out->context->width != (int) rect.width ||
+        out->context->height != (int) rect.height
     ) {
-        auto const* av_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
-        if (!av_codec) {
+        auto const* jpeg_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+        if (!jpeg_codec) {
             fmt::print("*** No MJPEG encoder found\n");
             exit(1);
         }
 
         avcodec_free_context(&out->context);
-        out->context = avcodec_alloc_context3(av_codec);
+        out->context = avcodec_alloc_context3(jpeg_codec);
         if (!out->context) {
             fmt::print("*** Allocating JPEG encoder: {}\n", strerror(errno));
             exit(1);
         }
 
-        out->context->pix_fmt = av_pix_fmt;
-        out->context->width = pix.width;
-        out->context->height = pix.height;
+        out->context->pix_fmt = jpeg_pix_fmt;
+        out->context->width = rect.width;
+        out->context->height = rect.height;
         out->context->time_base = {1, 30};  // Arbitrary but required.
         avcheck(
-            avcodec_open2(out->context, av_codec, nullptr),
+            avcodec_open2(out->context, jpeg_codec, nullptr),
             "Initializing JPEG encoder"
         );
 
@@ -533,18 +535,21 @@ void save_frame(
         }
     }
 
-    out->frame->format = out->context->pix_fmt;
-    out->frame->width = out->context->width;
-    out->frame->height = out->context->height;
+    auto* const f = out->frame;
+    f->format = jpeg_pix_fmt;
+    f->width = rect.width;
+    f->height = rect.height;
 
     // Y/U/V is concatenated in V4L2, but avcodec needs separate planes.
-    auto const h = out->frame->height;
-    out->frame->data[0] = (uint8_t*) map.mmap;
-    out->frame->linesize[0] = out->context->width;
-    out->frame->data[1] = out->frame->data[0] + out->frame->linesize[0] * h;
-    out->frame->linesize[1] = out->context->width / 2;
-    out->frame->data[2] = out->frame->data[1] + out->frame->linesize[1] * h / 2;
-    out->frame->linesize[2] = out->context->width / 2;
+    uint8_t* const y = (uint8_t*) map.mmap;
+    uint8_t* const u = y + buffer_format.width * buffer_format.height;
+    uint8_t* const v = u + buffer_format.width * buffer_format.height / 4;
+    f->linesize[0] = buffer_format.width;
+    f->linesize[1] = buffer_format.width / 2;
+    f->linesize[2] = buffer_format.width / 2;
+    f->data[0] = y + rect.left + rect.top * f->linesize[0];
+    f->data[1] = u + rect.left / 2 + rect.top / 2 * f->linesize[1];
+    f->data[2] = v + rect.left / 2 + rect.top / 2 * f->linesize[2];
     avcheck(
         avcodec_send_frame(out->context, out->frame),
         "Sending frame to JPEG encoder"
@@ -602,6 +607,7 @@ void decoder_run(
     auto const decoded_buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     auto const time_base = av_q2d(input.stream->time_base);
     v4l2_format decoded_format = {};
+    v4l2_rect decoded_rect = {};
 
     int frame_count = 0;
     time_t frame_sec = 0;
@@ -741,7 +747,7 @@ void decoder_run(
                 decoded_done = true;
             }
 
-            save_frame(output, decoded_format, *map, frame_count);
+            save_frame(output, decoded_format, decoded_rect, *map, frame_count);
             decoded_free.push_back(map);
 
             ++frame_count;
@@ -781,7 +787,9 @@ void decoder_run(
             );
             decoded_done = decoded_changed = false;  // Restart
             decoded_free.clear();
-            decoder_setup_decoded_stream(fd, &decoded_maps, &decoded_format);
+            decoder_setup_decoded_stream(
+                fd, &decoded_maps, &decoded_format, &decoded_rect
+            );
             for (auto const &m : decoded_maps) decoded_free.push_back(m.get());
         }
 
