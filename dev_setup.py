@@ -6,7 +6,7 @@ from pathlib import Path
 from subprocess import check_call, check_output
 
 # GENERAL BUILD / DEPENDENCY STRATEGY
-# - Use Meson (mesonbuild.com) / Ninja (ninja-build.org) to build the C++ code
+# - Use Meson (mesonbuild.com) and Ninja (ninja-build.org) to build C++
 # - Use Conan (conan.io) to install C++ dependencies (ffmpeg, etc)
 # - Use pip / pypi (pypi.org) for Python dependencies (like conan, meson, etc)
 # - Reluctantly use system packages (apt) for things not covered above
