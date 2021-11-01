@@ -123,16 +123,20 @@ void list_frames(AVFormatContext* const avc) {
     while (av_read_frame(avc, &packet) >= 0) {
         auto const* stream = avc->streams[packet.stream_index];
         fmt::print(
-            "S{} ({})",
+            "S{} ({}) {:4d}kB",
             packet.stream_index,
-            avcodec_get_name(stream->codecpar->codec_id)
+            avcodec_get_name(stream->codecpar->codec_id),
+            packet.size / 1024
         );
+
+        if (packet.pos >= 0)
+            fmt::print(" @{:<8d}", packet.pos);
+
         double const time_base = av_q2d(stream->time_base);
-        fmt::print(" {:4d}kB", packet.size / 1024);
-        if (packet.duration != 0)
-            fmt::print(" {:.3f}s", packet.duration * time_base);
         if (packet.pts != AV_NOPTS_VALUE)
-            fmt::print(" show@{:.3f}s", packet.pts * time_base);
+            fmt::print(" pres@{:.3f}s", packet.pts * time_base);
+        if (packet.duration != 0)
+            fmt::print(" len={:.3f}s", packet.duration * time_base);
         if (packet.dts != AV_NOPTS_VALUE)
             fmt::print(" deco@{:.3f}s", packet.dts * time_base);
 
