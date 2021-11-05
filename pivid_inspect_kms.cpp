@@ -10,12 +10,14 @@
 #include <filesystem>
 #include <vector>
 
+#include <absl/flags/flag.h>
+#include <absl/flags/parse.h>
+#include <absl/flags/usage.h>
 #include <fmt/core.h>
-#include <gflags/gflags.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-DEFINE_bool(print_properties, false, "Print detailed properties");
+ABSL_FLAG(bool, print_properties, false, "Print detailed properties");
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
@@ -68,9 +70,11 @@ void scan_gpus() {
     }
 }
 
-// Print key/value properties about a KMS "object" ID,
-// using the generic KMS property-value interface.
-void print_gpu_object_properties(int const fd, uint32_t const id) {
+// If --print_properties is set, prints key/value properties about a
+// KMS "object" ID, using the generic KMS property-value interface.
+void maybe_print_properties(int const fd, uint32_t const id) {
+    if (!absl::GetFlag(FLAGS_print_properties)) return;
+
     auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
     if (!props) return;
 
@@ -203,7 +207,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
+        maybe_print_properties(fd, id);
         drmModeFreePlane(plane);
     }
     fmt::print("\n");
@@ -241,7 +245,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
+        maybe_print_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
     fmt::print("\n");
@@ -287,7 +291,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
+        maybe_print_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
     fmt::print("\n");
@@ -349,7 +353,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (FLAGS_print_properties) print_gpu_object_properties(fd, id);
+        maybe_print_properties(fd, id);
         drmModeFreeConnector(conn);
     }
     fmt::print("\n");
@@ -358,12 +362,13 @@ void inspect_gpu(std::string const& path) {
     close(fd);
 }
 
-DEFINE_string(dev, "", "DRM/KMS device (in /dev/dri) to inspect");
+ABSL_FLAG(std::string, dev, "", "DRM/KMS device (in /dev/dri) to inspect");
 
 int main(int argc, char** argv) {
-    gflags::ParseCommandLineFlags(&argc, &argv, true);
-    if (!FLAGS_dev.empty()) {
-        inspect_gpu(FLAGS_dev);
+    absl::SetProgramUsageMessage("Inspect kernel display (DRM/KMS) devices");
+    absl::ParseCommandLine(argc, argv);
+    if (!absl::GetFlag(FLAGS_dev).empty()) {
+        inspect_gpu(absl::GetFlag(FLAGS_dev));
     } else {
         scan_gpus();
     }

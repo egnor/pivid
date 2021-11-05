@@ -6,8 +6,10 @@
 
 #include <map>
 
+#include <absl/flags/flag.h>
+#include <absl/flags/parse.h>
+#include <absl/flags/usage.h>
 #include <fmt/core.h>
-#include <gflags/gflags.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -227,30 +229,34 @@ void dump_stream(
     fclose(out);
 }
 
-DEFINE_string(media, "", "Media file or URL to inspect");
+ABSL_FLAG(std::string, media, "", "Media file or URL to inspect");
 
-DEFINE_bool(list_frames, false, "Print individual frames");
+ABSL_FLAG(bool, list_frames, false, "Print individual frames");
 
-DEFINE_string(dump_streams, "", "Dump raw streams to individual files");
+ABSL_FLAG(std::string, dump_streams, "", "Prefix to dump raw streams to");
 
 int main(int argc, char** argv) {
-    gflags::ParseCommandLineFlags(&argc, &argv, true);
-    if (FLAGS_media.empty()) {
-        fmt::print("*** Usage: pivid_inspect_avformat --media=<mediafile>\n");
+    absl::SetProgramUsageMessage("Use libavformat to inspect a media file");
+    absl::ParseCommandLine(argc, argv);
+    auto const& media_file = absl::GetFlag(FLAGS_media);
+    if (media_file.empty()) {
+        fmt::print("*** No --media=<mediafile> given\n");
         exit(1);
     }
 
     AVFormatContext* avc = nullptr;
-    if (avformat_open_input(&avc, FLAGS_media.c_str(), nullptr, nullptr) < 0) {
-        fmt::print("*** {}: {}\n", FLAGS_media, strerror(errno));
+    if (avformat_open_input(&avc, media_file.c_str(), nullptr, nullptr) < 0) {
+        fmt::print("*** {}: {}\n", media_file, strerror(errno));
         exit(1);
     }
 
     inspect_media(avc);
-    if (FLAGS_list_frames) list_frames(avc);
-    if (!FLAGS_dump_streams.empty()) {
+    if (absl::GetFlag(FLAGS_list_frames)) list_frames(avc);
+
+    auto const& stream_prefix = absl::GetFlag(FLAGS_dump_streams);
+    if (!stream_prefix.empty()) {
         for (uint32_t si = 0; si < avc->nb_streams; ++si) {
-            dump_stream(avc, avc->streams[si], FLAGS_dump_streams);
+            dump_stream(avc, avc->streams[si], stream_prefix);
         }
         fmt::print("\n");
     }

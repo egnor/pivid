@@ -4,20 +4,22 @@
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <vector>
 
+#include <absl/flags/flag.h>
+#include <absl/flags/parse.h>
+#include <absl/flags/usage.h>
 #include <fmt/core.h>
-#include <gflags/gflags.h>
-#include <libv4l2.h>
 
 // Print driver name and capability bits from VIDIOC_QUERYCAP results.
 void print_videodev_driver(int const fd) {
     v4l2_capability cap = {};
-    if (v4l2_ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
+    if (ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
         fmt::print("*** Error querying device\n");
         exit(1);
     }
@@ -82,7 +84,7 @@ void scan_videodevs() {
 
     std::sort(dev_files.begin(), dev_files.end());
     for (auto const &path : dev_files) {
-        int const fd = v4l2_open(path.c_str(), O_RDWR);
+        int const fd = open(path.c_str(), O_RDWR);
         if (fd < 0) {
             fmt::print("*** {}: {}\n", path, strerror(errno));
             continue;
@@ -91,7 +93,7 @@ void scan_videodevs() {
         fmt::print("{}\n    ", path);
         print_videodev_driver(fd);
         fmt::print("\n");
-        v4l2_close(fd);
+        close(fd);
     }
 
     if (dev_files.empty()) {
@@ -113,10 +115,6 @@ void inspect_videodev(std::string const& path) {
         fmt::print("*** {}: {}\n", path, strerror(errno));
         exit(1);
     }
-    if (v4l2_fd_open(fd, V4L2_DISABLE_CONVERSION) != fd) {
-        fmt::print("*** V4L2 ({}): {}\n", path, strerror(errno));
-        exit(1);
-    }
 
     fmt::print("Driver: ");
     print_videodev_driver(fd);
@@ -126,7 +124,7 @@ void inspect_videodev(std::string const& path) {
         v4l2_fmtdesc format = {};
         for (
             format.type = type;
-            v4l2_ioctl(fd, VIDIOC_ENUM_FMT, &format) >= 0;
+            ioctl(fd, VIDIOC_ENUM_FMT, &format) >= 0;
             ++format.index
         ) {
             if (format.index == 0) {
@@ -150,7 +148,7 @@ void inspect_videodev(std::string const& path) {
                 buffers.count = 0;  // Query capbilities only
                 buffers.type = format.type;
                 buffers.memory = V4L2_MEMORY_MMAP;
-                if (!v4l2_ioctl(fd, VIDIOC_REQBUFS, &buffers)) {
+                if (!ioctl(fd, VIDIOC_REQBUFS, &buffers)) {
                     for (uint32_t bit = 1; bit > 0; bit <<= 1) {
                         if (!(buffers.capabilities & bit)) continue;
                         switch (bit) {
@@ -194,7 +192,7 @@ void inspect_videodev(std::string const& path) {
 
             v4l2_frmsizeenum size = {};
             size.pixel_format = format.pixelformat;
-            while (v4l2_ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) >= 0) {
+            while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) >= 0) {
                 if (size.index % 6 == 0) fmt::print("\n       ");
                 if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
                     auto const& dim = size.discrete;
@@ -221,7 +219,7 @@ void inspect_videodev(std::string const& path) {
     }
 
     v4l2_input input = {};
-    for (; !v4l2_ioctl(fd, VIDIOC_ENUMINPUT, &input); ++input.index) {
+    for (; !ioctl(fd, VIDIOC_ENUMINPUT, &input); ++input.index) {
         if (input.index == 0) fmt::print("Inputs:\n");
         fmt::print("    Inp #{}", input.index);
         switch (input.type) {
@@ -237,7 +235,7 @@ void inspect_videodev(std::string const& path) {
     if (input.index > 0) fmt::print("\n");
 
     v4l2_output output = {};
-    for (; !v4l2_ioctl(fd, VIDIOC_ENUMOUTPUT, &output); ++output.index) {
+    for (; !ioctl(fd, VIDIOC_ENUMOUTPUT, &output); ++output.index) {
         if (output.index == 0) fmt::print("Outputs:\n");
         fmt::print("    Out #{}", output.index);
         switch (output.type) {
@@ -257,7 +255,7 @@ void inspect_videodev(std::string const& path) {
     int found = 0;
     for (
         ;
-        v4l2_ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl) >= 0;
+        ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl) >= 0;
         ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND
     ) {
         if (!found++) fmt::print("Controls:\n");
@@ -309,7 +307,7 @@ void inspect_videodev(std::string const& path) {
             v4l2_querymenu item = {};
             item.id = ctrl.id;
             for (
-                ; v4l2_ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index
+                ; ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index
             ) {
                 fmt::print(
                     "        {}: {}\n",
@@ -320,15 +318,16 @@ void inspect_videodev(std::string const& path) {
     }
     if (found > 0) fmt::print("\n");
 
-    v4l2_close(fd);
+    close(fd);
 }
 
-DEFINE_string(dev, "", "Video device (in /dev/v4l) to inspect");
+ABSL_FLAG(std::string, dev, "", "Video device (in /dev/v4l) to inspect");
 
 int main(int argc, char** argv) {
-    gflags::ParseCommandLineFlags(&argc, &argv, true);
-    if (!FLAGS_dev.empty()) {
-        inspect_videodev(FLAGS_dev);
+    absl::SetProgramUsageMessage("Inspect kernel video (V4L2) devices");
+    absl::ParseCommandLine(argc, argv);
+    if (!absl::GetFlag(FLAGS_dev).empty()) {
+        inspect_videodev(absl::GetFlag(FLAGS_dev));
     } else {
         scan_videodevs();
     }
