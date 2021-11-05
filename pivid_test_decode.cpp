@@ -16,10 +16,10 @@
 #include <thread>  // just for sleep_for(), don't panic
 #include <vector>
 
+#include <absl/strings/str_format.h>
 #include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
 #include <absl/flags/usage.h>
-#include <fmt/core.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -80,7 +80,7 @@ void avcheck(int averr, std::string const& text) {
     if (averr < 0) {
         char buf[AV_ERROR_MAX_STRING_SIZE];
         av_make_error_string(buf, sizeof(buf), averr);
-        fmt::print("*** {}: {}\n", text, buf);
+        absl::PrintF("*** %s: %s\n", text, buf);
         exit(1);
     }
 }
@@ -115,7 +115,7 @@ std::unique_ptr<InputMedia> open_input(const std::string& url) {
 
     avcheck(avformat_find_stream_info(in->context, nullptr), "Stream info");
 
-    fmt::print("Media file: {}\n", url);
+    absl::PrintF("Media file: %s\n", url);
 
     for (uint32_t si = 0; si < in->context->nb_streams; ++si) {
         auto* maybe = in->context->streams[si];
@@ -126,12 +126,12 @@ std::unique_ptr<InputMedia> open_input(const std::string& url) {
     }
 
     if (!in->stream) {
-        fmt::print("*** {}: No H.264 stream found\n", url);
+        absl::PrintF("*** %s: No H.264 stream found\n", url);
         exit(1);
     }
 
-    fmt::print(
-        "H.264 stream (#{}): {}x{} {:.1f}fps\n",
+    absl::PrintF(
+        "H.264 stream (#%d): %dx%d %.1ffps\n",
         in->stream->index,
         in->stream->codecpar->width, in->stream->codecpar->height,
         av_q2d(in->stream->avg_frame_rate)
@@ -139,7 +139,7 @@ std::unique_ptr<InputMedia> open_input(const std::string& url) {
 
     auto const* const filter_type = av_bsf_get_by_name("h264_mp4toannexb");
     if (!filter_type) {
-        fmt::print("*** No \"h264_mp4toannexb\" bitstream filter available\n");
+        absl::PrintF("*** No \"h264_mp4toannexb\" bitstream filter available\n");
         exit(1);
     }
 
@@ -169,7 +169,7 @@ int open_decoder() {
         auto const& native = entry.path().native();
         int const fd = open(native.c_str(), O_RDWR | O_NONBLOCK);
         if (fd < 0) {
-            fmt::print("*** {}: {}\n", native, strerror(errno));
+            absl::PrintF("*** %s: %s\n", native, strerror(errno));
             continue;
         }
 
@@ -178,7 +178,7 @@ int open_decoder() {
         v4l2_fmtdesc format = {};
         v4l2_capability cap = {};
         if (ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
-            fmt::print("*** Querying ({})\n", native, strerror(errno));
+            absl::PrintF("*** Querying (%s): %s\n", native, strerror(errno));
         } else if (
             (cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE) &&
             (cap.capabilities & V4L2_CAP_STREAMING)
@@ -189,7 +189,7 @@ int open_decoder() {
                 ++format.index
             ) {
                if (format.pixelformat == V4L2_PIX_FMT_H264) {
-                   fmt::print("H.264 decoder: {}\n", native);
+                   absl::PrintF("H.264 decoder: %s\n", native);
                    return fd;
                }
             }
@@ -198,7 +198,7 @@ int open_decoder() {
         close(fd);
     }
 
-    fmt::print("*** No V4L2 H.264 decoder device found\n");
+    absl::PrintF("*** No V4L2 H.264 decoder device found\n");
     exit(1);
 }
 
@@ -206,7 +206,7 @@ std::string describe(v4l2_buf_type type) {
     switch (type) {
         case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE: return "dec";
         case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE: return "enc";
-        default: return fmt::format("?type={}?", type);
+        default: return absl::StrFormat("?type=%d?", type);
     }
 }
 
@@ -224,29 +224,29 @@ std::string describe(v4l2_field const field) {
         F(INTERLACED_TB);
         F(INTERLACED_BT);
 #undef F
-        default: return fmt::format("?field={}?", field);
+        default: return absl::StrFormat("?field=%d?", field);
     }
 }
 
 std::string describe(v4l2_buffer const& buf) {
-    std::string out = fmt::format(
-        "{} buf #{:<2d} t={:03d}.{:03d} {:4d}/{:4d}kB",
+    std::string out = absl::StrFormat(
+        "%s buf #%-2d t=%03d.%03d %4d/%4dkB",
         describe((v4l2_buf_type) buf.type), buf.index,
         buf.timestamp.tv_sec, buf.timestamp.tv_usec / 1000,
         buf.m.planes[0].bytesused / 1024, buf.m.planes[0].length / 1024
     );
     switch (buf.memory) {
-#define M(X) case V4L2_MEMORY_##X: out += fmt::format(" {}", #X); break
+#define M(X) case V4L2_MEMORY_##X: out += absl::StrFormat(" %s", #X); break
         M(MMAP);
         M(USERPTR);
         M(DMABUF);
 #undef M
-        default: out += fmt::format(" ?mem={}", buf.memory); break;
+        default: out += absl::StrFormat(" ?mem=%d?", buf.memory); break;
     }
     for (uint32_t bit = 1; bit; bit <<= 1) {
         if (buf.flags & bit) {
             switch (bit) {
-#define F(X) case V4L2_BUF_FLAG_##X: out += fmt::format(" {}", #X); break
+#define F(X) case V4L2_BUF_FLAG_##X: out += absl::StrFormat(" %s", #X); break
                 F(MAPPED);
                 F(QUEUED);
                 F(DONE);
@@ -267,33 +267,33 @@ std::string describe(v4l2_buffer const& buf) {
                 F(TSTAMP_SRC_MASK);
                 F(TSTAMP_SRC_SOE);
 #undef F
-                default: out += fmt::format(" ?flag=0x{:x}?", bit); break;
+                default: out += absl::StrFormat(" ?flag=0x%x?", bit); break;
             }
         }
     }
-    return out + fmt::format(" {}", describe((v4l2_field) buf.field));
+    return out + absl::StrFormat(" %s", describe((v4l2_field) buf.field));
 }
 
 std::string describe(v4l2_format const& format, int num_buffers) {
     std::string out = describe((v4l2_buf_type) format.type);
     auto const& pix = format.fmt.pix_mp;
     if (pix.width || pix.height) {
-        out += fmt::format(" {}x{}", pix.width, pix.height);
+        out += absl::StrFormat(" %dx%d", pix.width, pix.height);
     }
-    out += fmt::format(
-        " {:.4s} {}",
+    out += absl::StrFormat(
+        " %.4s %s",
         (char const*) &pix.pixelformat,
         describe((v4l2_field) pix.field)
     );
 
-    if (num_buffers) out += fmt::format(" {} x", num_buffers);
+    if (num_buffers) out += absl::StrFormat(" %d x", num_buffers);
     out += " [";
     for (int pi = 0; pi < pix.num_planes; ++pi) {
-        out += fmt::format(
-            "{}{}kB", (pi ? " | " : ""), pix.plane_fmt[pi].sizeimage / 1024
+        out += absl::StrFormat(
+            "%s%dkB", (pi ? " | " : ""), pix.plane_fmt[pi].sizeimage / 1024
         );
         if (pix.plane_fmt[pi].bytesperline) {
-            out += fmt::format(" {}/l", pix.plane_fmt[pi].bytesperline);
+            out += absl::StrFormat(" %d/l", pix.plane_fmt[pi].bytesperline);
         }
     }
     return out + "]";
@@ -317,7 +317,7 @@ std::vector<std::unique_ptr<MappedBuffer>> decoder_mmap_buffers(
         query.m.planes = &query_plane;
         if (ioctl(fd, VIDIOC_QUERYBUF, &query)) {
             if (bi > 0 && errno == EINVAL) break;
-            fmt::print("*** Query {}: {}\n", describe(query), strerror(errno));
+            absl::PrintF("*** Query %s: %s\n", describe(query), strerror(errno));
             exit(1);
         }
 
@@ -327,7 +327,7 @@ std::vector<std::unique_ptr<MappedBuffer>> decoder_mmap_buffers(
             query.m.planes[0].m.mem_offset
         );
         if (map->mmap == MAP_FAILED) {
-           fmt::print("*** Memory mapping: {}\n", strerror(errno));
+           absl::PrintF("*** Memory mapping: %s\n", strerror(errno));
            exit(1);
         }
         maps.push_back(std::move(map));
@@ -339,13 +339,13 @@ void decoder_setup_events(int const fd) {
     v4l2_event_subscription subscribe = {};
     subscribe.type = V4L2_EVENT_SOURCE_CHANGE;
     if (ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, &subscribe)) {
-        fmt::print("*** Subscribing to SOURCE_CHANGE: {}\n", strerror(errno));
+        absl::PrintF("*** Subscribing to SOURCE_CHANGE: %s\n", strerror(errno));
         exit(1);
     }
 
     subscribe.type = V4L2_EVENT_EOS;
     if (ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, &subscribe)) {
-        fmt::print("*** Subscribing to EOS: {}\n", strerror(errno));
+        absl::PrintF("*** Subscribing to EOS: %s\n", strerror(errno));
         exit(1);
     }
 }
@@ -356,7 +356,7 @@ void decoder_setup_encoded_stream(
     std::vector<std::unique_ptr<MappedBuffer>>* const buffers
 ) {
     if (!buffers->empty()) {
-        fmt::print("*** Encoded stream buffers reconfigured?!?!\n");
+        absl::PrintF("*** Encoded stream buffers reconfigured?!?!\n");
         exit(1);
     }
 
@@ -366,7 +366,7 @@ void decoder_setup_encoded_stream(
     encoded_format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
     encoded_format.fmt.pix_mp.num_planes = 1;
     if (ioctl(fd, VIDIOC_S_FMT, &encoded_format)) {
-        fmt::print("*** Setting encoded format: {}\n", strerror(errno));
+        absl::PrintF("*** Setting encoded format: %s\n", strerror(errno));
         exit(1);
     }
 
@@ -374,23 +374,23 @@ void decoder_setup_encoded_stream(
     encoded_reqbuf.type = encoded_format.type;
     encoded_reqbuf.memory = V4L2_MEMORY_MMAP;
     if (ioctl(fd, VIDIOC_REQBUFS, &encoded_reqbuf)) {
-        fmt::print("*** Freeing encoded buffers: {}\n", strerror(errno));
+        absl::PrintF("*** Freeing encoded buffers: %s\n", strerror(errno));
         exit(1);
     }
 
     encoded_reqbuf.count = absl::GetFlag(FLAGS_encoded_buffers);
     if (ioctl(fd, VIDIOC_REQBUFS, &encoded_reqbuf)) {
-        fmt::print("*** Creating encoded buffers: {}\n", strerror(errno));
+        absl::PrintF("*** Creating encoded buffers: %s\n", strerror(errno));
         exit(1);
     }
 
     if (ioctl(fd, VIDIOC_STREAMON, &encoded_format.type)) {
-        fmt::print("*** Starting encoded stream: {}\n", strerror(errno));
+        absl::PrintF("*** Starting encoded stream: %s\n", strerror(errno));
         exit(1);
     }
 
     *buffers = decoder_mmap_buffers(fd, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
-    fmt::print("ON: {}\n", describe(encoded_format, encoded_reqbuf.count));
+    absl::PrintF("ON: %s\n", describe(encoded_format, encoded_reqbuf.count));
 }
 
 // "CAPTURE" (device-to-app, i.e. decoder *output*) setup
@@ -405,12 +405,12 @@ void decoder_setup_decoded_stream(
     *format = {};
     format->type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     if (ioctl(fd, VIDIOC_G_FMT, format)) {
-        fmt::print("*** Getting decoded format: {}\n", strerror(errno));
+        absl::PrintF("*** Getting decoded format: %s\n", strerror(errno));
         exit(1);
     }
 
     if (ioctl(fd, VIDIOC_STREAMOFF, &format->type)) {
-        fmt::print("*** Stopping decoded stream: {}\n", strerror(errno));
+        absl::PrintF("*** Stopping decoded stream: %s\n", strerror(errno));
         exit(1);
     }
 
@@ -418,23 +418,23 @@ void decoder_setup_decoded_stream(
     decoded_reqbuf.type = format->type;
     decoded_reqbuf.memory = V4L2_MEMORY_MMAP;
     if (ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
-        fmt::print("*** Freeing decoded buffers: {}\n", strerror(errno));
+        absl::PrintF("*** Freeing decoded buffers: %s\n", strerror(errno));
         exit(1);
     }
 
     decoded_reqbuf.count = absl::GetFlag(FLAGS_decoded_buffers);
     if (ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
-        fmt::print("*** Creating decoded buffers: {}\n", strerror(errno));
+        absl::PrintF("*** Creating decoded buffers: %s\n", strerror(errno));
         exit(1);
     }
 
     if (ioctl(fd, VIDIOC_STREAMON, &format->type)) {
-        fmt::print("*** Starting decoded stream: {}\n", strerror(errno));
+        absl::PrintF("*** Starting decoded stream: %s\n", strerror(errno));
         exit(1);
     }
 
     *buffers = decoder_mmap_buffers(fd, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
-    fmt::print("ON: {}\n", describe(*format, decoded_reqbuf.count));
+    absl::PrintF("ON: %s\n", describe(*format, decoded_reqbuf.count));
 
     for (int const target : {0x0, 0x1, 0x2, 0x3, 0x100, 0x101, 0x102, 0x103}) {
         v4l2_selection selection = {};
@@ -443,7 +443,7 @@ void decoder_setup_decoded_stream(
         if (!ioctl(fd, VIDIOC_G_SELECTION, &selection)) {
             if (target == V4L2_SEL_TGT_COMPOSE) *rect = selection.r;
             switch (target) {
-#define T(X) case V4L2_SEL_TGT_##X: fmt::print("    {:15}", #X); break
+#define T(X) case V4L2_SEL_TGT_##X: absl::PrintF("    %15s", #X); break
                 T(CROP);
                 T(CROP_DEFAULT);
                 T(CROP_BOUNDS);
@@ -453,10 +453,10 @@ void decoder_setup_decoded_stream(
                 T(COMPOSE_BOUNDS);
                 T(COMPOSE_PADDED);
 #undef T
-                default: fmt::print("    ?0x{:x}?", target); break;
+                default: absl::PrintF("    ?0x%x?", target); break;
             }
-            fmt::print(
-                " ({},{})+({}x{})\n",
+            absl::PrintF(
+                " (%d,%d)+(%dx%d)\n",
                 selection.r.left, selection.r.top,
                 selection.r.width, selection.r.height
             );
@@ -473,15 +473,15 @@ void save_frame(
     int frame_index
 ) {
     if (format.type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-        fmt::print("*** Bad decoded format type: {}\n", format.type);
+        absl::PrintF("*** Bad decoded format type: %d\n", format.type);
         exit(1);
     }
 
     auto const jpeg_pix_fmt = AV_PIX_FMT_YUVJ420P;  // JPEG color space
     auto const& buffer_format = format.fmt.pix_mp;
     if (buffer_format.pixelformat != V4L2_PIX_FMT_YUV420) {
-        fmt::print(
-            "*** Bad decoded pixel format: {:.4s}\n",
+        absl::PrintF(
+            "*** Bad decoded pixel format: %.4s\n",
             (char const*) &buffer_format.pixelformat
         );
         exit(1);
@@ -495,14 +495,14 @@ void save_frame(
     ) {
         auto const* jpeg_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
         if (!jpeg_codec) {
-            fmt::print("*** No MJPEG encoder found\n");
+            absl::PrintF("*** No MJPEG encoder found\n");
             exit(1);
         }
 
         avcodec_free_context(&out->context);
         out->context = avcodec_alloc_context3(jpeg_codec);
         if (!out->context) {
-            fmt::print("*** Allocating JPEG encoder: {}\n", strerror(errno));
+            absl::PrintF("*** Allocating JPEG encoder: %s\n", strerror(errno));
             exit(1);
         }
 
@@ -515,8 +515,8 @@ void save_frame(
             "Initializing JPEG encoder"
         );
 
-        fmt::print(
-            "JPEG encoder: {} ({}) {}x{}\n",
+        absl::PrintF(
+            "JPEG encoder: %s (%s) %dx%d\n",
             avcodec_get_name(out->context->codec->id),
             av_get_pix_fmt_name(out->context->pix_fmt),
             out->context->width, out->context->height
@@ -526,7 +526,7 @@ void save_frame(
     if (!out->frame) {
         out->frame = av_frame_alloc();
         if (!out->frame) {
-            fmt::print("*** Allocating frame: {}\n", strerror(errno));
+            absl::PrintF("*** Allocating frame: %s\n", strerror(errno));
             exit(1);
         }
     }
@@ -554,7 +554,7 @@ void save_frame(
     if (!out->packet) {
         out->packet = av_packet_alloc();
         if (!out->packet) {
-            fmt::print("*** Allocating packet: {}\n", strerror(errno));
+            absl::PrintF("*** Allocating packet: %s\n", strerror(errno));
             exit(1);
         }
     }
@@ -564,15 +564,15 @@ void save_frame(
         "Receiving JPEG from encoder"
     );
 
-    auto const path = fmt::format("{}.{:04d}.jpeg", out->prefix, frame_index);
+    auto const path = absl::StrFormat("%s.%04d.jpeg", out->prefix, frame_index);
     int const fd = open(path.c_str(), O_WRONLY | O_CREAT, 0666);
     if (fd < 0) {
-        fmt::print("*** {}: {}\n", path, strerror(errno));
+        absl::PrintF("*** %s: %s\n", path, strerror(errno));
         exit(1);
     }
 
     if (write(fd, out->packet->data, out->packet->size) < 0) {
-        fmt::print("*** {}: {}\n", path, strerror(errno));
+        absl::PrintF("*** %s: %s\n", path, strerror(errno));
         exit(1);
     }
 
@@ -585,7 +585,7 @@ void decoder_run(
     OutputEncoder* output
 ) {
     if (!input.packet->buf) {
-        fmt::print("*** No packets in input stream #{}\n", input.stream->index);
+        absl::PrintF("*** No packets in input stream #%d\n", input.stream->index);
         exit(1);
     }
 
@@ -624,16 +624,16 @@ void decoder_run(
 
         while (!ioctl(fd, VIDIOC_DQBUF, &dqbuf)) {
             if (dqbuf.index > encoded_maps.size()) {
-                fmt::print("*** Bad reclaimed index: #{}\n", dqbuf.index);
+                absl::PrintF("*** Bad reclaimed index: #%d\n", dqbuf.index);
                 exit(1);
             }
             if (absl::GetFlag(FLAGS_print_io)) {
-                fmt::print("Reclaimed {}\n", describe(dqbuf));
+                absl::PrintF("Reclaimed %s\n", describe(dqbuf));
             }
             encoded_free.push_back(encoded_maps[dqbuf.index].get());
         }
         if (errno != EAGAIN) {
-            fmt::print("*** Reclaiming encoded buffer: {}\n", strerror(errno));
+            absl::PrintF("*** Reclaiming encoded buffer: %s\n", strerror(errno));
             exit(1);
         }
 
@@ -642,8 +642,8 @@ void decoder_run(
             auto* map = encoded_free.front();
             encoded_free.pop_front();
             if (input.packet->size > (int) map->size) {
-                fmt::print(
-                    "*** Coded packet ({}kB) too big for buffer ({}kB)\n",
+                absl::PrintF(
+                    "*** Coded packet (%dkB) too big for buffer (%dkB)\n",
                     input.packet->size / 1024, map->size / 1024
                 );
                 exit(1);
@@ -667,11 +667,11 @@ void decoder_run(
 
             memcpy(map->mmap, input.packet->data, input.packet->size);
             if (ioctl(fd, VIDIOC_QBUF, &qbuf)) {
-                fmt::print("*** Sending encoded buffer: {}\n", strerror(errno));
+                absl::PrintF("*** Sending encoded buffer: %s\n", strerror(errno));
                 exit(1);
             }
             if (absl::GetFlag(FLAGS_print_io)) {
-                fmt::print("Sent      {}\n", describe(qbuf));
+                absl::PrintF("Sent      %s\n", describe(qbuf));
             }
 
             input_next_packet(input);
@@ -679,10 +679,10 @@ void decoder_run(
                 v4l2_decoder_cmd command = {};
                 command.cmd = V4L2_DEC_CMD_STOP;
                 if (ioctl(fd, VIDIOC_DECODER_CMD, &command)) {
-                    fmt::print("*** Sending STOP: {}\n", strerror(errno));
+                    absl::PrintF("*** Sending STOP: %s\n", strerror(errno));
                     exit(1);
                 }
-                fmt::print("--- Encoded data fully sent => sent STOP\n");
+                absl::PrintF("--- Encoded data fully sent => sent STOP\n");
             }
         }
 
@@ -701,10 +701,10 @@ void decoder_run(
             qbuf.m.planes = &qbuf_plane;
 
             if (ioctl(fd, VIDIOC_QBUF, &qbuf)) {
-                fmt::print("*** Recycling buffer: {}\n", strerror(errno));
+                absl::PrintF("*** Recycling buffer: %s\n", strerror(errno));
                 exit(1);
             } else if (absl::GetFlag(FLAGS_print_io)) {
-                fmt::print("Recycled  {}\n", describe(qbuf));
+                absl::PrintF("Recycled  %s\n", describe(qbuf));
             }
         }
 
@@ -721,25 +721,25 @@ void decoder_run(
             if (ioctl(fd, VIDIOC_DQBUF, &dqbuf)) {
                 if (errno == EAGAIN) break;  // No more buffers.
                 if (errno == EPIPE) {
-                    fmt::print("--- EPIPE => Decoded stream fully drained\n");
+                    absl::PrintF("--- EPIPE => Decoded stream fully drained\n");
                     decoded_done = true;
                     continue;
                 }
-                fmt::print("*** Receiving buffer: {}\n", strerror(errno));
+                absl::PrintF("*** Receiving buffer: %s\n", strerror(errno));
                 exit(1);
             }
 
             if (dqbuf.index > decoded_maps.size()) {
-                fmt::print("*** Bad decoded index: #{}\n", dqbuf.index);
+                absl::PrintF("*** Bad decoded index: #%d\n", dqbuf.index);
                 exit(1);
             }
 
             auto* map = decoded_maps[dqbuf.index].get();
             if (absl::GetFlag(FLAGS_print_io)) {
-                fmt::print("Received  {}\n", describe(dqbuf));
+                absl::PrintF("Received  %s\n", describe(dqbuf));
             }
             if (dqbuf.flags & V4L2_BUF_FLAG_LAST) {
-                fmt::print("--- LAST flag => Decoded stream is drained\n");
+                absl::PrintF("--- LAST flag => Decoded stream is drained\n");
                 decoded_done = true;
             }
 
@@ -751,8 +751,8 @@ void decoder_run(
                 frame_sec = dqbuf.timestamp.tv_sec;
                 double const elapsed_t = std::chrono::duration<double>(
                     std::chrono::steady_clock::now() - start_t).count();
-                fmt::print(
-                    "::: {}fr decoded / {:.1f}s elapsed = {:.2f} fps\n",
+                absl::PrintF(
+                    "::: %dfr decoded / %.1fs elapsed = %.2f fps\n",
                     frame_count, elapsed_t, frame_count / elapsed_t);
             }
         }
@@ -762,22 +762,22 @@ void decoder_run(
         v4l2_event event = {};
         while (!ioctl(fd, VIDIOC_DQEVENT, &event)) {
             if (event.type == V4L2_EVENT_SOURCE_CHANGE) {
-                fmt::print("--- SOURCE_CHANGE event => will reconfigure\n");
+                absl::PrintF("--- SOURCE_CHANGE event => will reconfigure\n");
                 decoded_changed = true;
             } else if (event.type == V4L2_EVENT_EOS) {
-                fmt::print("--- EOS event => encoded data fully processed\n");
+                absl::PrintF("--- EOS event => encoded data fully processed\n");
                 end_of_stream = true;
             } else {
-                fmt::print("*** Unknown event ?type={}?\n", event.type);
+                absl::PrintF("*** Unknown event ?type=%d?\n", event.type);
             }
         }
         if (errno != ENOENT) {
-            fmt::print("*** Receiving event: {}\n", strerror(errno));
+            absl::PrintF("*** Receiving event: %s\n", strerror(errno));
             exit(1);
         }
 
         if (decoded_done && decoded_changed) {
-            fmt::print(
+            absl::PrintF(
                  "--- SOURCE_CHANGE received & decoded stream drained "
                  "=> reconfiguring\n"
             );
@@ -802,7 +802,7 @@ int main(int argc, char** argv) {
     absl::SetProgramUsageMessage("Use V4L2 to decode an H.264 file");
     absl::ParseCommandLine(argc, argv);
     if (absl::GetFlag(FLAGS_input).empty()) {
-        fmt::print("*** No --input=<mediafile> given\n");
+        absl::PrintF("*** No --input=<mediafile> given\n");
         exit(1);
     }
 
@@ -817,6 +817,6 @@ int main(int argc, char** argv) {
 
     decoder_run(*input, decoder_fd, output.get());
     close(decoder_fd);
-    fmt::print("Closed and complete!\n");
+    absl::PrintF("Closed and complete!\n");
     return 0;
 }

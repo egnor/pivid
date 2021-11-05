@@ -9,7 +9,7 @@
 #include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
 #include <absl/flags/usage.h>
-#include <fmt/core.h>
+#include <absl/strings/str_format.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -22,41 +22,41 @@ extern "C" {
 
 void inspect_media(AVFormatContext* const avc) {
     if (avformat_find_stream_info(avc, nullptr) < 0) {
-        fmt::print("*** Stream info ({}): {}\n", avc->url, strerror(errno));
+        absl::PrintF("*** Stream info (%s): %s\n", avc->url, strerror(errno));
     }
 
-    fmt::print("=== {} ===\n", avc->url);
-    fmt::print("Container:");
+    absl::PrintF("=== %s ===\n", avc->url);
+    absl::PrintF("Container:");
     if (avc->duration)
-        fmt::print(" {:.1f}sec", avc->duration * 1.0 / AV_TIME_BASE);
+        absl::PrintF(" %.1fsec", avc->duration * 1.0 / AV_TIME_BASE);
     if (avc->bit_rate)
-        fmt::print(" {}bps", avc->bit_rate);
-    fmt::print(" ({})\n", avc->iformat->long_name);
+        absl::PrintF(" %dbps", avc->bit_rate);
+    absl::PrintF(" (%s)\n", avc->iformat->long_name);
 
     AVDictionaryEntry* entry = nullptr;
     while ((entry = av_dict_get(
         avc->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
     ))) {
-        fmt::print("    {}: {}\n", entry->key, entry->value);
+        absl::PrintF("    %s: %s\n", entry->key, entry->value);
     }
-    fmt::print("\n");
+    absl::PrintF("\n");
 
-    fmt::print("{} stream(s):\n", avc->nb_streams);
+    absl::PrintF("%d stream(s):\n", avc->nb_streams);
     for (uint32_t si = 0; si < avc->nb_streams; ++si) {
         auto const* stream = avc->streams[si];
         double const time_base = av_q2d(stream->time_base);
 
-        fmt::print("    Str #{}", stream->id);
+        absl::PrintF("    Str #%d", stream->id);
         if (stream->duration > 0)
-            fmt::print(" {:.1f}sec", stream->duration * time_base);
+            absl::PrintF(" %.1fsec", stream->duration * time_base);
         if (stream->nb_frames > 0)
-            fmt::print(" {}fr", stream->nb_frames);
+            absl::PrintF(" %dfr", stream->nb_frames);
         if (stream->avg_frame_rate.num > 0)
-            fmt::print(" {:.1f}fps", av_q2d(stream->avg_frame_rate));
+            absl::PrintF(" %.1ffps", av_q2d(stream->avg_frame_rate));
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
             if ((stream->disposition & bit)) {
                 switch (bit) {
-#define D(X) case AV_DISPOSITION_##X: fmt::print(" {}", #X); break
+#define D(X) case AV_DISPOSITION_##X: absl::PrintF(" %s", #X); break
                     D(DEFAULT);
                     D(DUB);
                     D(ORIGINAL);
@@ -75,14 +75,14 @@ void inspect_media(AVFormatContext* const avc) {
                     D(DEPENDENT);
                     D(STILL_IMAGE);
 #undef D
-                    default: fmt::print(" ?disp=0x{:x}?", bit); break;
+                    default: absl::PrintF(" ?disp=0x%x?", bit); break;
                 }
             }
         }
         if (stream->codecpar) {
             auto const* par = stream->codecpar;
             switch (par->codec_type) {
-#define T(X) case AVMEDIA_TYPE_##X: fmt::print(" {}", #X); break
+#define T(X) case AVMEDIA_TYPE_##X: absl::PrintF(" %s", #X); break
                 T(UNKNOWN);
                 T(VIDEO);
                 T(AUDIO);
@@ -90,77 +90,77 @@ void inspect_media(AVFormatContext* const avc) {
                 T(SUBTITLE);
                 T(ATTACHMENT);
 #undef T
-                default: fmt::print(" ?type=%d?", par->codec_type); break;
+                default: absl::PrintF(" ?type=%d?", par->codec_type); break;
             }
-            fmt::print(" ({})", avcodec_get_name(par->codec_id));
+            absl::PrintF(" (%s)", avcodec_get_name(par->codec_id));
             if (par->bit_rate)
-                fmt::print(" {}bps", par->bit_rate);
+                absl::PrintF(" %dbps", par->bit_rate);
             if (par->width || par->height)
-                fmt::print(" {}x{}", par->width, par->height);
+                absl::PrintF(" %dx%d", par->width, par->height);
             if (par->sample_rate)
-                fmt::print(" {}hz", par->sample_rate);
+                absl::PrintF(" %dhz", par->sample_rate);
             if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
                 auto const pixfmt = (AVPixelFormat) par->format;
-                fmt::print(" ({})", av_get_pix_fmt_name(pixfmt));
+                absl::PrintF(" (%s)", av_get_pix_fmt_name(pixfmt));
             }
         }
-        fmt::print("\n");
+        absl::PrintF("\n");
 
         while ((entry = av_dict_get(
             stream->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
         ))) {
-            fmt::print("        {}: {}\n", entry->key, entry->value);
+            absl::PrintF("        %s: %s\n", entry->key, entry->value);
         }
     }
-    fmt::print("\n");
+    absl::PrintF("\n");
 }
 
 void list_frames(AVFormatContext* const avc) {
     AVPacket packet = {};
-    fmt::print("--- Frames ---\n");
+    absl::PrintF("--- Frames ---\n");
     if (avformat_seek_file(avc, -1, 0, 0, 0, 0) < 0) {
-        fmt::print("*** Seek to start ({}): {}\n", avc->url, strerror(errno));
+        absl::PrintF("*** Seek to start (%s): %s\n", avc->url, strerror(errno));
         exit(1);
     }
     while (av_read_frame(avc, &packet) >= 0) {
         auto const* stream = avc->streams[packet.stream_index];
-        fmt::print(
-            "S{} ({}) {:4d}kB",
+        absl::PrintF(
+            "S%d (%s) %4dkB",
             packet.stream_index,
             avcodec_get_name(stream->codecpar->codec_id),
             packet.size / 1024
         );
 
         if (packet.pos >= 0)
-            fmt::print(" @{:<8d}", packet.pos);
+            absl::PrintF(" @%-8d", packet.pos);
 
         double const time_base = av_q2d(stream->time_base);
         if (packet.pts != AV_NOPTS_VALUE)
-            fmt::print(" pres@{:.3f}s", packet.pts * time_base);
+            absl::PrintF(" pres@%.3fs", packet.pts * time_base);
         if (packet.duration != 0)
-            fmt::print(" len={:.3f}s", packet.duration * time_base);
+            absl::PrintF(" len=%.3fs", packet.duration * time_base);
         if (packet.dts != AV_NOPTS_VALUE)
-            fmt::print(" deco@{:.3f}s", packet.dts * time_base);
+            absl::PrintF(" deco@%.3fs", packet.dts * time_base);
 
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
             if ((packet.flags & bit)) {
                 switch (bit) {
-#define F(X) case AV_PKT_FLAG_##X: fmt::print(" {}", #X); break
+#define F(X) case AV_PKT_FLAG_##X: absl::PrintF(" %s", #X); break
                     F(KEY);
                     F(CORRUPT);
                     F(DISCARD);
                     F(TRUSTED);
                     F(DISPOSABLE);
 #undef F
-                    default: fmt::print(" ?0x{:x}?", bit); break;
+                    default: absl::PrintF(" ?0x%x?", bit); break;
                 }
             }
         }
 
-        if (packet.side_data_elems) fmt::print(" /");
+        if (packet.side_data_elems) absl::PrintF(" /");
         for (int si = 0; si < packet.side_data_elems; ++si) {
             switch (packet.side_data[si].type) {
-#define S(X) case AV_PKT_DATA_##X: fmt::print(" {}", #X); break
+#define S(X) case AV_PKT_DATA_##X: absl::PrintF(" %s", #X); break
                 S(PALETTE);
                 S(NEW_EXTRADATA);
                 S(PARAM_CHANGE);
@@ -189,34 +189,34 @@ void list_frames(AVFormatContext* const avc) {
                 S(ENCRYPTION_INFO);
                 S(AFD);
 #undef S
-                default: fmt::print(" ?side%d?", packet.side_data[si].type);
+                default: absl::PrintF(" ?side%d?", packet.side_data[si].type);
             }
         }
 
-        fmt::print("\n");
+        absl::PrintF("\n");
         av_packet_unref(&packet);
     }
-    fmt::print("\n");
+    absl::PrintF("\n");
 }
 
 void dump_stream(
     AVFormatContext* const avc, AVStream* const stream,
     std::string const& prefix
 ) {
-    auto const filename = fmt::format(
-        "{}.{}.{}", prefix, stream->index,
+    auto const filename = absl::StrFormat(
+        "%s.%d.%s", prefix, stream->index,
         avcodec_get_name(stream->codecpar->codec_id)
     );
 
-    fmt::print("Dumping stream #{} => {} ...\n", stream->index, filename);
+    absl::PrintF("Dumping stream #%d => %s ...\n", stream->index, filename);
     FILE* const out = fopen(filename.c_str(), "wb");
     if (out == nullptr) {
-        fmt::print("*** {}: {}\n", filename, strerror(errno));
+        absl::PrintF("*** %s: %s\n", filename, strerror(errno));
         exit(1);
     }
 
     if (avformat_seek_file(avc, stream->index, 0, 0, 0, 0) < 0) {
-        fmt::print("*** Seek to start ({}): {}\n", avc->url, strerror(errno));
+        absl::PrintF("*** Seek to start (%s): %s\n", avc->url, strerror(errno));
         exit(1);
     }
 
@@ -240,13 +240,13 @@ int main(int argc, char** argv) {
     absl::ParseCommandLine(argc, argv);
     auto const& media_file = absl::GetFlag(FLAGS_media);
     if (media_file.empty()) {
-        fmt::print("*** No --media=<mediafile> given\n");
+        absl::PrintF("*** No --media=<mediafile> given\n");
         exit(1);
     }
 
     AVFormatContext* avc = nullptr;
     if (avformat_open_input(&avc, media_file.c_str(), nullptr, nullptr) < 0) {
-        fmt::print("*** {}: {}\n", media_file, strerror(errno));
+        absl::PrintF("*** %s: %s\n", media_file, strerror(errno));
         exit(1);
     }
 
@@ -258,7 +258,7 @@ int main(int argc, char** argv) {
         for (uint32_t si = 0; si < avc->nb_streams; ++si) {
             dump_stream(avc, avc->streams[si], stream_prefix);
         }
-        fmt::print("\n");
+        absl::PrintF("\n");
     }
 
     avformat_close_input(&avc);

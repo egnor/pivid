@@ -5,7 +5,7 @@ class PividConan(conans.ConanFile):
     name, version = "pivid", "0.0"
 
     settings = "os", "compiler", "build_type", "arch"  # boilerplate
-    requires = "ffmpeg/4.4", "fmt/8.0.1", "abseil/20210324.2"
+    requires = "ffmpeg/4.4", "abseil/20210324.2"
     generators = "pkg_config"  # Used by the Meson build helper (below)
 
     default_options = {

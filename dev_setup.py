@@ -21,7 +21,7 @@ conan_install = build_dir / "conan-install"
 
 print("=== System packages (sudo apt install ...) ===")
 # TODO: eliminate system dependency on libdrm-dev
-apt_packages = ["build-essential", "cmake", "direnv", "libdrm-dev", "python3"]
+apt_packages = ["build-essential", "direnv", "libdrm-dev", "python3"]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
 installed = installed.decode().split()
 if not all(p in installed for p in apt_packages):
