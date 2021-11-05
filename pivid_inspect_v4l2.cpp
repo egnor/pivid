@@ -14,19 +14,19 @@
 #include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
 #include <absl/flags/usage.h>
-#include <absl/strings/str_format.h>
+#include <fmt/core.h>
 
 // Print driver name and capability bits from VIDIOC_QUERYCAP results.
 void print_videodev_driver(int const fd) {
     v4l2_capability cap = {};
     if (ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
-        absl::PrintF("*** Error querying device\n");
+        fmt::print("*** Error querying device\n");
         exit(1);
     }
 
     uint32_t const v = cap.version;
-    absl::PrintF(
-        "%s v%d.%d.%d:",
+    fmt::print(
+        "{} v{}.{}.{}:",
         (char const*) cap.driver, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
     );
 
@@ -35,7 +35,7 @@ void print_videodev_driver(int const fd) {
     for (uint32_t bit = 1; bit > 0; bit <<= 1) {
         if (!(caps & bit)) continue;
         switch (bit) {
-#define C(X) case V4L2_CAP_##X: absl::PrintF(" %s", #X); break
+#define C(X) case V4L2_CAP_##X: fmt::print(" {}", #X); break
             C(VIDEO_CAPTURE);
             C(VIDEO_CAPTURE_MPLANE);
             C(VIDEO_OUTPUT);
@@ -66,14 +66,14 @@ void print_videodev_driver(int const fd) {
             C(TOUCH);
             C(IO_MC);
 #undef C
-            default: absl::PrintF(" ?0x%x?", bit); break;
+            default: fmt::print(" ?0x{:x}?", bit); break;
         }
     }
 }
 
 // Scan all V4L2 video devices and print a line for each.
 void scan_videodevs() {
-    absl::PrintF("=== Scanning V4L video I/O devices ===\n");
+    fmt::print("=== Scanning V4L video I/O devices ===\n");
     std::filesystem::path const dev_dir = "/dev";
     std::vector<std::string> dev_files;
     for (auto const& entry : std::filesystem::directory_iterator(dev_dir)) {
@@ -86,21 +86,21 @@ void scan_videodevs() {
     for (auto const &path : dev_files) {
         int const fd = open(path.c_str(), O_RDWR);
         if (fd < 0) {
-            absl::PrintF("*** %s: %s\n", path, strerror(errno));
+            fmt::print("*** {}: {}\n", path, strerror(errno));
             continue;
         }
 
-        absl::PrintF("%s\n    ", path);
+        fmt::print("{}\n    ", path);
         print_videodev_driver(fd);
-        absl::PrintF("\n");
+        fmt::print("\n");
         close(fd);
     }
 
     if (dev_files.empty()) {
-        absl::PrintF("*** No V4L devices found\n");
+        fmt::print("*** No V4L devices found\n");
     } else {
-        absl::PrintF(
-            "--- %d V4L device(s); inspect with --dev=<dev>\n",
+        fmt::print(
+            "--- {} V4L device(s); inspect with --dev=<dev>\n",
             dev_files.size()
         );
     }
@@ -108,17 +108,17 @@ void scan_videodevs() {
 
 // Print information about a V4L2 video device.
 void inspect_videodev(std::string const& path) {
-    absl::PrintF("=== %s ===\n", path);
+    fmt::print("=== {} ===\n", path);
 
     int const fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
-        absl::PrintF("*** %s: %s\n", path, strerror(errno));
+        fmt::print("*** {}: {}\n", path, strerror(errno));
         exit(1);
     }
 
-    absl::PrintF("Driver: ");
+    fmt::print("Driver: ");
     print_videodev_driver(fd);
-    absl::PrintF("\n\n");
+    fmt::print("\n\n");
 
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {
         v4l2_fmtdesc format = {};
@@ -129,7 +129,7 @@ void inspect_videodev(std::string const& path) {
         ) {
             if (format.index == 0) {
                 switch (format.type) {
-#define T(X) case V4L2_BUF_TYPE_##X: absl::PrintF("%s", #X); break
+#define T(X) case V4L2_BUF_TYPE_##X: fmt::print("{}", #X); break
                     T(VIDEO_CAPTURE);
                     T(VIDEO_CAPTURE_MPLANE);
                     T(VIDEO_OUTPUT);
@@ -140,9 +140,9 @@ void inspect_videodev(std::string const& path) {
                     T(META_CAPTURE);
                     T(META_OUTPUT);
 #undef T
-                    default: absl::PrintF("?%d?", format.type); break;
+                    default: fmt::print("?{}?", format.type); break;
                 }
-                absl::PrintF(":");
+                fmt::print(":");
 
                 v4l2_requestbuffers buffers = {};
                 buffers.count = 0;  // Query capbilities only
@@ -152,7 +152,7 @@ void inspect_videodev(std::string const& path) {
                     for (uint32_t bit = 1; bit > 0; bit <<= 1) {
                         if (!(buffers.capabilities & bit)) continue;
                         switch (bit) {
-#define C(X) case V4L2_BUF_CAP_SUPPORTS_##X: absl::PrintF(" %s", #X); break
+#define C(X) case V4L2_BUF_CAP_SUPPORTS_##X: fmt::print(" {}", #X); break
                             C(MMAP);
                             C(USERPTR);
                             C(DMABUF);
@@ -161,20 +161,20 @@ void inspect_videodev(std::string const& path) {
                             C(M2M_HOLD_CAPTURE_BUF);
                             C(MMAP_CACHE_HINTS);
 #undef C
-                            default: absl::PrintF(" ?0x%x?", bit); break;
+                            default: fmt::print(" ?0x{:x}?", bit); break;
                         }
                     }
                 }
-                absl::PrintF("\n");
+                fmt::print("\n");
             }
 
             std::string const fourcc((char const*) &format.pixelformat, 4);
             std::string const desc((char const*) format.description);
-            absl::PrintF("    %s", fourcc);
+            fmt::print("    {}", fourcc);
             for (uint32_t bit = 1; bit > 0; bit <<= 1) {
                 if (!(format.flags & bit)) continue;
                 switch (bit) {
-#define F(X) case V4L2_FMT_FLAG_##X: absl::PrintF(" %s", #X); break
+#define F(X) case V4L2_FMT_FLAG_##X: fmt::print(" {}", #X); break
                    F(COMPRESSED);
                    F(EMULATED);
                    F(CONTINUOUS_BYTESTREAM);
@@ -185,70 +185,70 @@ void inspect_videodev(std::string const& path) {
                    F(CSC_YCBCR_ENC);
                    F(CSC_QUANTIZATION);
 #undef F
-                   default: absl::PrintF(" ?0x%x?", bit); break;
+                   default: fmt::print(" ?0x{:x}?", bit); break;
                 }
             }
-            if (desc != fourcc) absl::PrintF(" (%s)", desc);
+            if (desc != fourcc) fmt::print(" ({})", desc);
 
             v4l2_frmsizeenum size = {};
             size.pixel_format = format.pixelformat;
             while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &size) >= 0) {
-                if (size.index % 6 == 0) absl::PrintF("\n       ");
+                if (size.index % 6 == 0) fmt::print("\n       ");
                 if (size.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
                     auto const& dim = size.discrete;
-                    absl::PrintF(" %dx%d", dim.width, dim.height);
+                    fmt::print(" {}x{}", dim.width, dim.height);
                 } else {
                     auto const& dim = size.stepwise;
-                    absl::PrintF(
-                        " %dx%d - %dx%d",
+                    fmt::print(
+                        " {}x{} - {}x{}",
                         dim.min_width, dim.min_height,
                         dim.max_width, dim.max_height
                     );
                     if (dim.step_width != 1 || dim.step_height != 1) {
-                        absl::PrintF(
-                            " ±%dx%d", dim.step_width, dim.step_height
+                        fmt::print(
+                            " ±{}x{}", dim.step_width, dim.step_height
                         );
                     }
                 }
                 ++size.index;
             }
 
-            absl::PrintF("\n");
+            fmt::print("\n");
         }
-        if (format.index > 0) absl::PrintF("\n");
+        if (format.index > 0) fmt::print("\n");
     }
 
     v4l2_input input = {};
     for (; !ioctl(fd, VIDIOC_ENUMINPUT, &input); ++input.index) {
-        if (input.index == 0) absl::PrintF("Inputs:\n");
-        absl::PrintF("    Inp #%d", input.index);
+        if (input.index == 0) fmt::print("Inputs:\n");
+        fmt::print("    Inp #{}", input.index);
         switch (input.type) {
-#define I(X, y) case V4L2_INPUT_TYPE_##X: absl::PrintF(" %s%s", #X, y); break
+#define I(X, y) case V4L2_INPUT_TYPE_##X: fmt::print(" {}{}", #X, y); break
             I(TUNER, "");
             I(CAMERA, "/video");
             I(TOUCH, "");
 #undef I
-            default: absl::PrintF(" ?{}?", input.type); break;
+            default: fmt::print(" ?{}?", input.type); break;
         }
-        absl::PrintF(" (%s)\n", (char const*) input.name);
+        fmt::print(" ({})\n", (char const*) input.name);
     }
-    if (input.index > 0) absl::PrintF("\n");
+    if (input.index > 0) fmt::print("\n");
 
     v4l2_output output = {};
     for (; !ioctl(fd, VIDIOC_ENUMOUTPUT, &output); ++output.index) {
-        if (output.index == 0) absl::PrintF("Outputs:\n");
-        absl::PrintF("    Out #%d", output.index);
+        if (output.index == 0) fmt::print("Outputs:\n");
+        fmt::print("    Out #{}", output.index);
         switch (output.type) {
-#define O(X, y) case V4L2_OUTPUT_TYPE_##X: absl::PrintF(" %s%s", #X, y); break
+#define O(X, y) case V4L2_OUTPUT_TYPE_##X: fmt::print(" {}{}", #X, y); break
             O(MODULATOR, "");
             O(ANALOG, "/video");
             O(ANALOGVGAOVERLAY, "/overlay");
 #undef O
-            default: absl::PrintF(" ?%d?", output.type); break;
+            default: fmt::print(" ?{}?", output.type); break;
         }
-        absl::PrintF(" (%s)\n", (char const*) output.name);
+        fmt::print(" ({})\n", (char const*) output.name);
     }
-    if (output.index > 0) absl::PrintF("\n");
+    if (output.index > 0) fmt::print("\n");
 
     v4l2_query_ext_ctrl ctrl = {};
     ctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND;
@@ -258,10 +258,10 @@ void inspect_videodev(std::string const& path) {
         ioctl(fd, VIDIOC_QUERY_EXT_CTRL, &ctrl) >= 0;
         ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL | V4L2_CTRL_FLAG_NEXT_COMPOUND
     ) {
-        if (!found++) absl::PrintF("Controls:\n");
-        absl::PrintF("    Ctrl 0x%x", ctrl.id);
+        if (!found++) fmt::print("Controls:\n");
+        fmt::print("    Ctrl 0x{:x}", ctrl.id);
         switch (ctrl.type) {
-#define T(X) case V4L2_CTRL_TYPE_##X: absl::PrintF(" %<7s", #X); break
+#define T(X) case V4L2_CTRL_TYPE_##X: fmt::print(" {:<7}", #X); break
             T(INTEGER);
             T(BOOLEAN);
             T(MENU);
@@ -276,17 +276,17 @@ void inspect_videodev(std::string const& path) {
             T(U32);
             T(AREA);
 #undef T
-            default: absl::PrintF(" ?%d?", ctrl.type); break;
+            default: fmt::print(" ?{}?", ctrl.type); break;
         }
 
         if (ctrl.minimum || ctrl.maximum) {
-            absl::PrintF(" %5d-%-4d", ctrl.minimum, ctrl.maximum);
-            if (ctrl.step > 1) absl::PrintF(" ±%d", ctrl.step);
+            fmt::print(" {:>4}-{:<4}", ctrl.minimum, ctrl.maximum);
+            if (ctrl.step > 1) fmt::print(" ±{}", ctrl.step);
         }
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
             if (!(ctrl.flags & bit)) continue;
             switch (bit) {
-#define F(X) case V4L2_CTRL_FLAG_##X: absl::PrintF(" %s", #X); break
+#define F(X) case V4L2_CTRL_FLAG_##X: fmt::print(" {}", #X); break
                 F(DISABLED);
                 F(GRABBED);
                 F(READ_ONLY);
@@ -301,20 +301,20 @@ void inspect_videodev(std::string const& path) {
 #undef F
             }
         }
-        absl::PrintF(" (%s)\n", ctrl.name);
+        fmt::print(" ({})\n", ctrl.name);
 
         if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
             v4l2_querymenu item = {};
             item.id = ctrl.id;
             for (; ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index) {
-                absl::PrintF(
-                    "        %d: %s\n",
+                fmt::print(
+                    "        {}: {}\n",
                     int(item.index), (char const*) item.name
                 );
             }
         }
     }
-    if (found > 0) absl::PrintF("\n");
+    if (found > 0) fmt::print("\n");
     close(fd);
 }
 

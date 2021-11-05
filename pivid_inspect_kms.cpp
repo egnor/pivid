@@ -13,7 +13,7 @@
 #include <absl/flags/flag.h>
 #include <absl/flags/parse.h>
 #include <absl/flags/usage.h>
-#include <absl/strings/str_format.h>
+#include <fmt/core.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
@@ -21,7 +21,7 @@ ABSL_FLAG(bool, print_properties, false, "Print detailed properties");
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
-    absl::PrintF("=== Scanning DRM/KMS GPU devices ===\n");
+    fmt::print("=== Scanning DRM/KMS GPU devices ===\n");
     std::filesystem::path const dri_dir = "/dev/dri";
     std::vector<std::string> dev_files;
     for (auto const& entry : std::filesystem::directory_iterator(dri_dir)) {
@@ -34,26 +34,26 @@ void scan_gpus() {
     for (auto const& path : dev_files) {
         int const fd = open(path.c_str(), O_RDWR);
         if (fd < 0) {
-            absl::PrintF("*** %s: %s\n", path, strerror(errno));
+            fmt::print("*** {}: {}\n", path, strerror(errno));
             continue;
         }
 
         auto* const ver = drmGetVersion(fd);
         if (!ver) {
-            absl::PrintF("*** Reading version (%s): %s\n", path, strerror(errno));
+            fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
         } else {
-            absl::PrintF("%s", path);
+            fmt::print("{}", path);
 
             // See https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html
             drmSetVersion api_version = {1, 4, -1, -1};
             drmSetInterfaceVersion(fd, &api_version);
             auto* const busid = drmGetBusid(fd);
             if (busid) {
-                if (*busid) absl::PrintF(" (%s)", busid);
+                if (*busid) fmt::print(" ({})", busid);
                 drmFreeBusid(busid);
             }
 
-            absl::PrintF("\n    %s v%s: %s\n", ver->name, ver->date, ver->desc);
+            fmt::print("\n    {} v{}: {}\n", ver->name, ver->date, ver->desc);
             drmFreeVersion(ver);
         }
 
@@ -61,10 +61,10 @@ void scan_gpus() {
     }
 
     if (dev_files.empty()) {
-        absl::PrintF("*** No DRM/KMS devices found\n");
+        fmt::print("*** No DRM/KMS devices found\n");
     } else {
-        absl::PrintF(
-            "--- %d DRM/KMS device(s); inspect with --dev=<dev>\n",
+        fmt::print(
+            "--- {} DRM/KMS device(s); inspect with --dev=<dev>\n",
             dev_files.size()
         );
     }
@@ -81,25 +81,25 @@ void maybe_print_properties(int const fd, uint32_t const id) {
     for (uint32_t pi = 0; pi < props->count_props; ++pi) {
         auto* const meta = drmModeGetProperty(fd, props->props[pi]);
         if (!meta) {
-            absl::PrintF("*** Prop #%d: %s\n", props->props[pi], strerror(errno));
+            fmt::print("*** Prop #{}: {}\n", props->props[pi], strerror(errno));
             exit(1);
         }
 
         std::string const name = meta->name;
         auto const value = props->prop_values[pi];
-        absl::PrintF("        Prop #%d %s =", props->props[pi], name);
+        fmt::print("        Prop #{} {} =", props->props[pi], name);
         if (meta->flags & DRM_MODE_PROP_BLOB) {
-            absl::PrintF(" <blob>");
+            fmt::print(" <blob>");
         } else {
-            absl::PrintF(" %d", value);
+            fmt::print(" {}", value);
             for (int ei = 0; ei < meta->count_enums; ++ei) {
                 if (meta->enums[ei].value == value) {
-                    absl::PrintF(" (%s)", meta->enums[ei].name);
+                    fmt::print(" ({})", meta->enums[ei].name);
                     break;
                 }
             }
         }
-        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) absl::PrintF(" [ro]");
+        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print(" [ro]");
 
         if (name == "IN_FORMATS" && (meta->flags & DRM_MODE_PROP_BLOB)) {
             auto* const formats = drmModeGetPropertyBlob(fd, value);
@@ -107,15 +107,15 @@ void maybe_print_properties(int const fd, uint32_t const id) {
             auto const header = (drm_format_modifier_blob const*) data;
             if (header->version == FORMAT_BLOB_CURRENT) {
                 for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
-                    if (fi % 12 == 0) absl::PrintF("\n           ");
+                    if (fi % 12 == 0) fmt::print("\n           ");
                     auto const* fourcc = data + header->formats_offset + fi * 4;
-                    absl::PrintF(" %.4s", fourcc);
+                    fmt::print(" {:.4s}", fourcc);
                 }
             }
             drmModeFreePropertyBlob(formats);
         }
 
-        absl::PrintF("\n");
+        fmt::print("\n");
         drmModeFreeProperty(meta);
     }
 
@@ -124,11 +124,11 @@ void maybe_print_properties(int const fd, uint32_t const id) {
 
 // Print information about the DRM/KMS resources associated with a video card.
 void inspect_gpu(std::string const& path) {
-    absl::PrintF("=== %s ===\n", path);
+    fmt::print("=== {} ===\n", path);
 
     int const fd = open(path.c_str(), O_RDWR);
     if (fd < 0) {
-        absl::PrintF("*** %s: %s\n", path, strerror(errno));
+        fmt::print("*** {}: {}\n", path, strerror(errno));
         exit(1);
     }
 
@@ -139,17 +139,17 @@ void inspect_gpu(std::string const& path) {
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {
-        absl::PrintF("*** Reading resources (%s): %s\n", path, strerror(errno));
+        fmt::print("*** Reading resources ({}): {}\n", path, strerror(errno));
         exit(1);
     }
 
     auto* const ver = drmGetVersion(fd);
     if (!ver) {
-        absl::PrintF("*** Reading version (%s): %s\n", path, strerror(errno));
+        fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
         exit(1);
     }
-    absl::PrintF(
-        "Driver: %s v%s (%dx%d max)\n\n",
+    fmt::print(
+        "Driver: {} v{} ({}x{} max)\n\n",
         ver->name, ver->date, res->max_width, res->max_height
     );
 
@@ -159,32 +159,32 @@ void inspect_gpu(std::string const& path) {
 
     auto* const planes = drmModeGetPlaneResources(fd);
     if (!planes) {
-        absl::PrintF("*** Plane resources (%s): %s\n", path, strerror(errno));
+        fmt::print("*** Plane resources ({}): {}\n", path, strerror(errno));
         exit(1);
     }
 
-    absl::PrintF("%d image planes:\n", planes->count_planes);
+    fmt::print("{} image planes:\n", planes->count_planes);
     for (uint32_t p = 0; p < planes->count_planes; ++p) {
         auto const id = planes->planes[p];
         auto* const plane = drmModeGetPlane(fd, id);
         if (!plane) {
-            absl::PrintF("*** Plane #%d (%s): %s\n", id, path, strerror(errno));
+            fmt::print("*** Plane #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
-        absl::PrintF("    Plane #%-3d [CRTC", id);
+        fmt::print("    Plane #{:<3} [CRTC", id);
         for (int ci = 0; ci < res->count_crtcs; ++ci) {
             if (plane->possible_crtcs & (1 << ci))
-                absl::PrintF(
-                    " #%d%s", res->crtcs[ci],
+                fmt::print(
+                    " #{}{}", res->crtcs[ci],
                     res->crtcs[ci] == plane->crtc_id ? "*" : ""
                 );
         }
-        absl::PrintF("]");
+        fmt::print("]");
 
         if (plane->fb_id) {
-            absl::PrintF(
-                " [FB #%d* (%d,%d)=>(%d,%d)]", plane->fb_id,
+            fmt::print(
+                " [FB #{}* ({},{})=>({},{})]", plane->fb_id,
                 plane->x, plane->y, plane->crtc_x, plane->crtc_y
            );
         }
@@ -198,7 +198,7 @@ void inspect_gpu(std::string const& path) {
                 if (std::string(meta->name) == "type") {
                     for (int ei = 0; ei < meta->count_enums; ++ei) {
                         if (meta->enums[ei].value == props->prop_values[pi])
-                            absl::PrintF(" %s", meta->enums[ei].name);
+                            fmt::print(" {}", meta->enums[ei].name);
                     }
                 }
                 drmModeFreeProperty(meta);
@@ -206,77 +206,77 @@ void inspect_gpu(std::string const& path) {
             drmModeFreeObjectProperties(props);
         }
 
-        absl::PrintF("\n");
+        fmt::print("\n");
         maybe_print_properties(fd, id);
         drmModeFreePlane(plane);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
     drmModeFreePlaneResources(planes);
 
     //
     // CRT controllers
     //
 
-    absl::PrintF("%d CRT/scanout controllers:\n", res->count_crtcs);
+    fmt::print("{} CRT/scanout controllers:\n", res->count_crtcs);
     for (int ci = 0; ci < res->count_crtcs; ++ci) {
         auto const id = res->crtcs[ci];
         auto* const crtc = drmModeGetCrtc(fd, id);
         if (!crtc) {
-            absl::PrintF("*** CRTC #%d (%s): %s\n", id, path, strerror(errno));
+            fmt::print("*** CRTC #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
         if (crtc->buffer_id != 0) {
-            absl::PrintF(
-                "  * CRTC #%-3d [FB #%d* (%d,%d)+(%dx%d)]",
+            fmt::print(
+                "  * CRTC #{:<3} [FB #{}* ({},{})+({}x{})]",
                 id, crtc->buffer_id,
                 crtc->x, crtc->y, crtc->width, crtc->height
             );
         } else {
-            absl::PrintF("    CRTC #%-3d", id);
+            fmt::print("    CRTC #{:<3}", id);
         }
 
         if (crtc->mode_valid) {
-            absl::PrintF(
-                " => %dx%d @%dHz",
+            fmt::print(
+                " => {}x{} @{}Hz",
                 crtc->mode.hdisplay, crtc->mode.vdisplay,
                 crtc->mode.vrefresh
             );
         }
 
-        absl::PrintF("\n");
+        fmt::print("\n");
         maybe_print_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
 
     //
     // Encoders
     //
 
-    absl::PrintF("%d signal encoders:\n", res->count_encoders);
+    fmt::print("{} signal encoders:\n", res->count_encoders);
     for (int ei = 0; ei < res->count_encoders; ++ei) {
         auto const id = res->encoders[ei];
         auto* const enc = drmModeGetEncoder(fd, id);
         if (!enc) {
-            absl::PrintF("*** Encoder #%d (%s): %s\n", id, path, strerror(errno));
+            fmt::print("*** Encoder #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
-        absl::PrintF(
-            "  %c Enc #%-3d [CRTC", enc->crtc_id != 0 ? '*' : ' ', id
+        fmt::print(
+            "  {} Enc #{:<3} [CRTC", enc->crtc_id != 0 ? '*' : ' ', id
         );
         for (int c = 0; c < res->count_crtcs; ++c) {
             if (enc->possible_crtcs & (1 << c))
-                absl::PrintF(
-                    " #%d%s", res->crtcs[c],
+                fmt::print(
+                    " #{}{}", res->crtcs[c],
                     res->crtcs[c] == enc->crtc_id ? "*" : ""
                 );
         }
-        absl::PrintF("]");
+        fmt::print("]");
 
         switch (enc->encoder_type) {
-#define E(X) case DRM_MODE_ENCODER_##X: absl::PrintF(" %s", #X); break
+#define E(X) case DRM_MODE_ENCODER_##X: fmt::print(" {}", #X); break
             E(NONE);
             E(DAC);
             E(TMDS);
@@ -287,44 +287,44 @@ void inspect_gpu(std::string const& path) {
             E(DPMST);
             E(DPI);
 #undef E
-            default: absl::PrintF(" ?%d?", enc->encoder_type); break;
+            default: fmt::print(" ?{}?", enc->encoder_type); break;
         }
 
-        absl::PrintF("\n");
+        fmt::print("\n");
         maybe_print_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
 
     //
     // Connectors
     //
 
-    absl::PrintF("%d video connectors:\n", res->count_connectors);
+    fmt::print("{} video connectors:\n", res->count_connectors);
     for (int ci = 0; ci < res->count_connectors; ++ci) {
         auto const id = res->connectors[ci];
         auto* const conn = drmModeGetConnector(fd, id);
         if (!conn) {
-            absl::PrintF("*** Conn #%d (%s): %s\n", id, path, strerror(errno));
+            fmt::print("*** Conn #{} ({}): {}\n", id, path, strerror(errno));
             exit(1);
         }
 
-        absl::PrintF(
-            "  %c Conn #%-3d",
+        fmt::print(
+            "  {} Conn #{:<3}",
             conn->connection == DRM_MODE_CONNECTED ? '*' : ' ', id
         );
 
-        absl::PrintF(" [Enc");
+        fmt::print(" [Enc");
         for (int e = 0; e < conn->count_encoders; ++e) {
-            absl::PrintF(
-                " #%d%s", conn->encoders[e],
+            fmt::print(
+                " #{}{}", conn->encoders[e],
                 conn->encoders[e] == conn->encoder_id ? "*" : ""
             );
         }
-        absl::PrintF("]");
+        fmt::print("]");
 
         switch (conn->connector_type) {
-#define C(X) case DRM_MODE_CONNECTOR_##X: absl::PrintF(" %s", #X); break
+#define C(X) case DRM_MODE_CONNECTOR_##X: fmt::print(" {}", #X); break
             C(Unknown);
             C(VGA);
             C(DVII);
@@ -344,19 +344,19 @@ void inspect_gpu(std::string const& path) {
             C(DSI);
             C(WRITEBACK);
 #undef C
-            default: absl::PrintF(" ?%d?", conn->connector_type); break;
+            default: fmt::print(" ?{}?", conn->connector_type); break;
         }
 
-        absl::PrintF("-%d", conn->connector_type_id);
+        fmt::print("-{}", conn->connector_type_id);
         if (conn->mmWidth || conn->mmHeight) {
-            absl::PrintF(" (%dx%dmm)", conn->mmWidth, conn->mmHeight);
+            fmt::print(" ({}x{}mm)", conn->mmWidth, conn->mmHeight);
         }
 
-        absl::PrintF("\n");
+        fmt::print("\n");
         maybe_print_properties(fd, id);
         drmModeFreeConnector(conn);
     }
-    absl::PrintF("\n");
+    fmt::print("\n");
     drmFreeVersion(ver);
     drmModeFreeResources(res);
     close(fd);
