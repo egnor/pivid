@@ -306,9 +306,7 @@ void inspect_videodev(std::string const& path) {
         if (ctrl.type == V4L2_CTRL_TYPE_MENU) {
             v4l2_querymenu item = {};
             item.id = ctrl.id;
-            for (
-                ; ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index
-            ) {
+            for (; ioctl(fd, VIDIOC_QUERYMENU, &item) >= 0; ++item.index) {
                 fmt::print(
                     "        {}: {}\n",
                     int(item.index), (char const*) item.name
@@ -317,7 +315,6 @@ void inspect_videodev(std::string const& path) {
         }
     }
     if (found > 0) fmt::print("\n");
-
     close(fd);
 }
 
