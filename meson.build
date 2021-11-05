@@ -14,6 +14,7 @@ util_deps = [
     dependency('absl_flags'),
     dependency('absl_flags_parse'),
     dependency('fmt'),
+    cpp.find_library('atomic'),
     cpp.find_library('stdc++fs'),
 ]
 
@@ -21,7 +22,6 @@ libav_deps = [
     dependency('libavcodec'),
     dependency('libavformat'),
     dependency('libavutil'),
-    cpp.find_library('atomic'),
 ]
 
 libdrm_dep = dependency('libdrm')
