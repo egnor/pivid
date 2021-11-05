@@ -54,10 +54,11 @@ check_call([
 
 check_call([
     conan_bin, "install",
+    f"--profile={conan_profile}",
+    # "--settings=build_type=Debug",
     f"--install-folder={build_dir}",
     "--update",
     "--build=outdated",
-    f"--profile={conan_profile}",
     source_dir
 ])
 

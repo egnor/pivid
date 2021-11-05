@@ -1,4 +1,5 @@
 import conans
+import os.path
 
 class PividConan(conans.ConanFile):
     name, version = "pivid", "0.0"
@@ -21,5 +22,6 @@ class PividConan(conans.ConanFile):
 
     def build(self):
         meson = conans.Meson(self)  # Uses the "pkg_config" generator (above)
-        meson.configure()
+        dat = os.path.join(self.build_folder, "meson-private", "coredata.dat")
+        meson.configure(args=["--reconfigure"] if os.path.isfile(dat) else [])
         meson.build()

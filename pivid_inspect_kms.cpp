@@ -135,7 +135,7 @@ void inspect_gpu(std::string const& path) {
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {
-        fmt::print("*** Reading resources ({)}: {}\n", path, strerror(errno));
+        fmt::print("*** Reading resources ({}): {}\n", path, strerror(errno));
         exit(1);
     }
 
