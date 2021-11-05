@@ -11,9 +11,9 @@
 #include <filesystem>
 #include <vector>
 
-#include <absl/flags/flag.h>
-#include <absl/flags/parse.h>
-#include <absl/flags/usage.h>
+#include <CLI/App.hpp>
+#include <CLI/Config.hpp>
+#include <CLI/Formatter.hpp>
 #include <fmt/core.h>
 
 // Print driver name and capability bits from VIDIOC_QUERYCAP results.
@@ -318,13 +318,15 @@ void inspect_videodev(std::string const& path) {
     close(fd);
 }
 
-ABSL_FLAG(std::string, dev, "", "Video device (in /dev/v4l) to inspect");
-
 int main(int argc, char** argv) {
-    absl::SetProgramUsageMessage("Inspect kernel video (V4L2) devices");
-    absl::ParseCommandLine(argc, argv);
-    if (!absl::GetFlag(FLAGS_dev).empty()) {
-        inspect_videodev(absl::GetFlag(FLAGS_dev));
+    std::string dev;
+
+    CLI::App app("Inspect kernel video (V4L2) devices");
+    app.add_option("--dev", dev, "Video device (in /dev/v4l) to inspect");
+    CLI11_PARSE(app, argc, argv);
+
+    if (!dev.empty()) {
+        inspect_videodev(dev);
     } else {
         scan_videodevs();
     }

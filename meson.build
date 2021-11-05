@@ -11,8 +11,7 @@ cpp = meson.get_compiler('cpp')
 add_project_arguments(['-Wno-non-virtual-dtor'], language: 'cpp')
 
 util_deps = [
-    dependency('absl_flags'),
-    dependency('absl_flags_parse'),
+    dependency('CLI11'),
     dependency('fmt'),
     cpp.find_library('atomic'),
     cpp.find_library('stdc++fs'),

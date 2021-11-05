@@ -10,14 +10,14 @@
 #include <filesystem>
 #include <vector>
 
-#include <absl/flags/flag.h>
-#include <absl/flags/parse.h>
-#include <absl/flags/usage.h>
+#include <CLI/App.hpp>
+#include <CLI/Config.hpp>
+#include <CLI/Formatter.hpp>
 #include <fmt/core.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-ABSL_FLAG(bool, print_properties, false, "Print detailed properties");
+bool print_properties = false;  // Set by flag in main()
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
@@ -73,7 +73,7 @@ void scan_gpus() {
 // If --print_properties is set, prints key/value properties about a
 // KMS "object" ID, using the generic KMS property-value interface.
 void maybe_print_properties(int const fd, uint32_t const id) {
-    if (!absl::GetFlag(FLAGS_print_properties)) return;
+    if (!print_properties) return;
 
     auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
     if (!props) return;
@@ -362,13 +362,15 @@ void inspect_gpu(std::string const& path) {
     close(fd);
 }
 
-ABSL_FLAG(std::string, dev, "", "DRM/KMS device (in /dev/dri) to inspect");
-
 int main(int argc, char** argv) {
-    absl::SetProgramUsageMessage("Inspect kernel display (DRM/KMS) devices");
-    absl::ParseCommandLine(argc, argv);
-    if (!absl::GetFlag(FLAGS_dev).empty()) {
-        inspect_gpu(absl::GetFlag(FLAGS_dev));
+    std::string dev;
+
+    CLI::App app("Inspect kernel display (DRM/KMS) devices");
+    app.add_option("--dev", dev, "DRM/KMS device (in /dev/dri) to inspect");
+    CLI11_PARSE(app, argc, argv);
+
+    if (!dev.empty()) {
+        inspect_gpu(dev);
     } else {
         scan_gpus();
     }

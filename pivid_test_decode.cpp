@@ -16,9 +16,9 @@
 #include <thread>  // just for sleep_for(), don't panic
 #include <vector>
 
-#include <absl/flags/flag.h>
-#include <absl/flags/parse.h>
-#include <absl/flags/usage.h>
+#include <CLI/App.hpp>
+#include <CLI/Config.hpp>
+#include <CLI/Formatter.hpp>
 #include <fmt/core.h>
 
 extern "C" {
@@ -29,9 +29,10 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-ABSL_FLAG(int, encoded_buffers, 16, "Buffered frames for decoder input");
-ABSL_FLAG(int, decoded_buffers, 16, "Buffered frames for decoder output");
-ABSL_FLAG(bool, print_io, false, "Print individual buffer operations");
+// Parameters set by flags in main()
+int encoded_buffers = 16;
+int decoded_buffers = 16;
+bool print_io = false;
 
 struct InputMedia {
     AVFormatContext* context = nullptr;
@@ -378,7 +379,7 @@ void decoder_setup_encoded_stream(
         exit(1);
     }
 
-    encoded_reqbuf.count = absl::GetFlag(FLAGS_encoded_buffers);
+    encoded_reqbuf.count = encoded_buffers;
     if (ioctl(fd, VIDIOC_REQBUFS, &encoded_reqbuf)) {
         fmt::print("*** Creating encoded buffers: {}\n", strerror(errno));
         exit(1);
@@ -422,7 +423,7 @@ void decoder_setup_decoded_stream(
         exit(1);
     }
 
-    decoded_reqbuf.count = absl::GetFlag(FLAGS_decoded_buffers);
+    decoded_reqbuf.count = decoded_buffers;
     if (ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
         fmt::print("*** Creating decoded buffers: {}\n", strerror(errno));
         exit(1);
@@ -629,7 +630,7 @@ void decoder_run(
                 fmt::print("*** Bad reclaimed index: #{}\n", dqbuf.index);
                 exit(1);
             }
-            if (absl::GetFlag(FLAGS_print_io)) {
+            if (print_io) {
                 fmt::print("Reclaimed {}\n", describe(dqbuf));
             }
             encoded_free.push_back(encoded_maps[dqbuf.index].get());
@@ -672,7 +673,7 @@ void decoder_run(
                 fmt::print("*** Sending encoded buffer: {}\n", strerror(errno));
                 exit(1);
             }
-            if (absl::GetFlag(FLAGS_print_io)) {
+            if (print_io) {
                 fmt::print("Sent      {}\n", describe(qbuf));
             }
 
@@ -705,7 +706,7 @@ void decoder_run(
             if (ioctl(fd, VIDIOC_QBUF, &qbuf)) {
                 fmt::print("*** Recycling buffer: {}\n", strerror(errno));
                 exit(1);
-            } else if (absl::GetFlag(FLAGS_print_io)) {
+            } else if (print_io) {
                 fmt::print("Recycled  {}\n", describe(qbuf));
             }
         }
@@ -737,7 +738,7 @@ void decoder_run(
             }
 
             auto* map = decoded_maps[dqbuf.index].get();
-            if (absl::GetFlag(FLAGS_print_io)) {
+            if (print_io) {
                 fmt::print("Received  {}\n", describe(dqbuf));
             }
             if (dqbuf.flags & V4L2_BUF_FLAG_LAST) {
@@ -797,24 +798,25 @@ void decoder_run(
     }
 }
 
-ABSL_FLAG(std::string, input, "", "Media file or URL to decode");
-ABSL_FLAG(std::string, frame_prefix, "", "Prefix of frame images to write");
-
 int main(int argc, char** argv) {
-    absl::SetProgramUsageMessage("Use V4L2 to decode an H.264 file");
-    absl::ParseCommandLine(argc, argv);
-    if (absl::GetFlag(FLAGS_input).empty()) {
-        fmt::print("*** No --input=<mediafile> given\n");
-        exit(1);
-    }
+    std::string input_file;
+    std::string prefix;
 
-    auto const input = open_input(absl::GetFlag(FLAGS_input));
+    CLI::App app("Use V4L2 to decode an H.264 video file");
+    app.add_option("--input", input_file, "Media file or URL")->required();
+    app.add_option("--frame_prefix", prefix, "Prefix of frame images to write");
+    app.add_option("--encoded_buffers", encoded_buffers, "Input buffer depth");
+    app.add_option("--decoded_buffers", decoded_buffers, "Output buffer depth");
+    app.add_option("--print_io", print_io, "Print buffer operations");
+    CLI11_PARSE(app, argc, argv);
+
+    auto const input = open_input(input_file);
     int const decoder_fd = open_decoder();
 
     std::unique_ptr<OutputEncoder> output;
-    if (!absl::GetFlag(FLAGS_frame_prefix).empty()) {
+    if (!prefix.empty()) {
         output = std::make_unique<OutputEncoder>();
-        output->prefix = absl::GetFlag(FLAGS_frame_prefix);
+        output->prefix = prefix;
     }
 
     decoder_run(*input, decoder_fd, output.get());
