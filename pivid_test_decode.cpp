@@ -472,6 +472,8 @@ void save_frame(
     MappedBuffer const& map,
     int frame_index
 ) {
+    if (!out) return;
+
     if (format.type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
         absl::PrintF("*** Bad decoded format type: %d\n", format.type);
         exit(1);
