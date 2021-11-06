@@ -18,8 +18,8 @@ If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 
 ### Graphics output: DRM and KMS
 * [Wikipedia: Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) - a good overview
-* ["From pre-history to beyond the global thermonuclear war"](200~https://ppaalanen.blogspot.com/2014/06/from-pre-history-to-beyond-global.html) - old but good blog post on Linux graphics history
-* [Atomic mode setting design overview](https://lwn.net/Articles/653071/) - old but good LWN article on the preferred KMS API
+* [Blog post: "From pre-history to beyond the global thermonuclear war"](https://ppaalanen.blogspot.com/2014/06/from-pre-history-to-beyond-global.html) - Linux graphics history
+* [LWN article: Atomic mode setting design overview](https://lwn.net/Articles/653071/) - the current KMS API
 * [Man page: Direct Rendering Manager - Kernel Mode-Setting](https://manpages.debian.org/testing/libdrm-dev/drm-kms.7.en.html) - incomplete but helpful
 * [Man page: Direct Rendering Manager - Memory Management](https://manpages.debian.org/testing/libdrm-dev/drm-memory.7.en.html) - incomplete but helpful
 * [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - basic notes on the kernel/user interface
@@ -27,7 +27,7 @@ If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 * [kernel source: include/uapi/drm/drm.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm.h) and [drm_mode.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm_mode.h) - kernel/user headers
 * [ST Micro: DRM/KMS Overview](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview) - decent general docs from a chip vendor
 * [ST Micro: How to trace and debug the framework](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview#How_to_trace_and_debug_the_framework) - an especially useful section
-* [NVIDIA Jetson Linux API: Direct Rendering Manager](https://docs.nvidia.com/jetson/l4t-multimedia/group__direct__rendering__manager.html) - DRM API reference, sometimes NVIDIA-specific
+* [NVIDIA Jetson Linux API: Direct Rendering Manager](https://docs.nvidia.com/jetson/l4t-multimedia/group__direct__rendering__manager.html) - API reference, a bit NVIDIA-specific
 * [libdrm](https://gitlab.freedesktop.org/mesa/drm) - library wrapper; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite "xf86")
 * [libgbm](https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/gbm) - GPU allocation helper library; see [gbm.h](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/gbm/main/gbm.h)
 * [modetest](https://cgit.freedesktop.org/drm/libdrm/tree/tests/modetest/modetest.c) - command line tool (in the [libdrm-tests](https://packages.debian.org/sid/main/libdrm-tests) Debian package)
