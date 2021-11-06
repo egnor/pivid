@@ -20,6 +20,9 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
+#include <libdrm/drm_fourcc.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -29,49 +32,72 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-// Parameters set by flags in main()
-int encoded_buffers = 16;
-int decoded_buffers = 16;
-bool print_io = false;
+// Set by flags in main()
+bool print_io_flag = false;
 
-struct InputMedia {
+struct InputFromFile {
     AVFormatContext* context = nullptr;
     AVStream* stream = nullptr;
     AVBSFContext* filter = nullptr;
     AVPacket* packet = nullptr;
 
-    InputMedia() {}
-    ~InputMedia() {
+    InputFromFile() {}
+    ~InputFromFile() {
         if (packet) av_packet_free(&packet);
         // if (filter) av_bsf_free(&filter);  // Seems to cause double-free??
         if (context) avformat_close_input(&context);
     }
 
-    InputMedia(InputMedia const&) = delete;
-    void operator=(InputMedia const&) = delete;
+    InputFromFile(InputFromFile const&) = delete;
+    void operator=(InputFromFile const&) = delete;
 };
 
-struct OutputEncoder {
+struct JpegOutput {
     std::string prefix;
     AVCodecContext* context = nullptr;
     AVFrame* frame = nullptr;
     AVPacket* packet = nullptr;
+    int count = 0;
 
-    OutputEncoder() {}
-    ~OutputEncoder() {
+    JpegOutput() {}
+    ~JpegOutput() {
         if (packet) av_packet_unref(packet);
         if (frame) av_frame_free(&frame);
         if (context) avcodec_free_context(&context);
     }
+
+    JpegOutput(JpegOutput const&) = delete;
+    void operator=(JpegOutput const&) = delete;
+};
+
+struct ScreenOutput {
+    std::string device;
+    uint32_t connector_id = 0;
+    uint32_t crtc_id = 0;
+    int fd = -1;
+
+    ScreenOutput() {}
+    ~ScreenOutput() {
+        if (fd >= 0) close(fd);
+    }
+
+    ScreenOutput(ScreenOutput const&) = delete;
+    void operator=(ScreenOutput const&) = delete;
 };
 
 struct MappedBuffer {
     int index = 0;
     void *mmap = MAP_FAILED;
     size_t size = 0;
+    int dmabuf_fd = -1;
+    uint32_t drm_handle = 0;
+    uint32_t drm_framebuffer = 0;
 
     MappedBuffer() {}
-    ~MappedBuffer() { if (mmap != MAP_FAILED) munmap(mmap, size); }
+    ~MappedBuffer() {
+        if (mmap != MAP_FAILED) munmap(mmap, size);
+        if (dmabuf_fd >= 0) close(dmabuf_fd);
+    }
 
     MappedBuffer(MappedBuffer const&) = delete;
     void operator=(MappedBuffer const&) = delete;
@@ -88,7 +114,7 @@ void avcheck(int averr, std::string const& text) {
 
 // Updates input.packet with the next packet from filtered input.
 // At EOF, the packet will be empty (!input.packet->buf).
-void input_next_packet(InputMedia const& input) {
+void input_next_packet(InputFromFile const& input) {
     for (;;) {
         av_packet_unref(input.packet);
         int const filt_err = av_bsf_receive_packet(input.filter, input.packet);
@@ -107,8 +133,8 @@ void input_next_packet(InputMedia const& input) {
 }
 
 // Opens media file with libavformat and finds H.264 stream
-std::unique_ptr<InputMedia> open_input(const std::string& url) {
-    auto in = std::make_unique<InputMedia>();
+std::unique_ptr<InputFromFile> open_input(const std::string& url) {
+    auto in = std::make_unique<InputFromFile>();
     avcheck(
         avformat_open_input(&in->context, url.c_str(), nullptr, nullptr),
         url
@@ -328,9 +354,19 @@ std::vector<std::unique_ptr<MappedBuffer>> decoder_mmap_buffers(
             query.m.planes[0].m.mem_offset
         );
         if (map->mmap == MAP_FAILED) {
-           fmt::print("*** Memory mapping: {}\n", strerror(errno));
+           fmt::print("*** Memory mapping buffer: {}\n", strerror(errno));
            exit(1);
         }
+
+        v4l2_exportbuffer expbuf = {};
+        expbuf.type = type;
+        expbuf.index = bi;
+        expbuf.plane = 0;
+        if (ioctl(fd, VIDIOC_EXPBUF, &expbuf)) {
+            fmt::print("*** Exporting buffer from V4L2: {}\n", strerror(errno));
+            exit(1);
+        }
+        map->dmabuf_fd = expbuf.fd;
         maps.push_back(std::move(map));
     }
     return maps;
@@ -379,7 +415,7 @@ void decoder_setup_encoded_stream(
         exit(1);
     }
 
-    encoded_reqbuf.count = encoded_buffers;
+    encoded_reqbuf.count = 16;
     if (ioctl(fd, VIDIOC_REQBUFS, &encoded_reqbuf)) {
         fmt::print("*** Creating encoded buffers: {}\n", strerror(errno));
         exit(1);
@@ -423,7 +459,7 @@ void decoder_setup_decoded_stream(
         exit(1);
     }
 
-    decoded_reqbuf.count = decoded_buffers;
+    decoded_reqbuf.count = 16;
     if (ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
         fmt::print("*** Creating decoded buffers: {}\n", strerror(errno));
         exit(1);
@@ -466,26 +502,23 @@ void decoder_setup_decoded_stream(
 }
 
 // Write a decoded video frame to disk
-void save_frame(
-    OutputEncoder* const out,
+void save_jpeg(
+    JpegOutput* const out,
     v4l2_format const& format,
     v4l2_rect const& rect,
-    MappedBuffer const& map,
-    int frame_index
+    MappedBuffer const& map
 ) {
-    if (!out) return;
-
     if (format.type != V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
         fmt::print("*** Bad decoded format type: {}\n", format.type);
         exit(1);
     }
 
     auto const jpeg_pix_fmt = AV_PIX_FMT_YUVJ420P;  // JPEG color space
-    auto const& buffer_format = format.fmt.pix_mp;
-    if (buffer_format.pixelformat != V4L2_PIX_FMT_YUV420) {
+    auto const& mp_format = format.fmt.pix_mp;
+    if (mp_format.pixelformat != V4L2_PIX_FMT_YUV420) {
         fmt::print(
-            "*** Bad decoded pixel format: {:.4s}\n",
-            (char const*) &buffer_format.pixelformat
+            "*** Unexpected decoded pixel format: {:.4s}\n",
+            (char const*) &mp_format.pixelformat
         );
         exit(1);
     }
@@ -539,13 +572,13 @@ void save_frame(
     f->width = rect.width;
     f->height = rect.height;
 
-    // Y/U/V is concatenated in V4L2, but avcodec needs separate planes.
+    // Y/U/V is concatenated in V4L2, but avcodec uses separate planes.
     uint8_t* const y = (uint8_t*) map.mmap;
-    uint8_t* const u = y + buffer_format.width * buffer_format.height;
-    uint8_t* const v = u + buffer_format.width * buffer_format.height / 4;
-    f->linesize[0] = buffer_format.width;
-    f->linesize[1] = buffer_format.width / 2;
-    f->linesize[2] = buffer_format.width / 2;
+    uint8_t* const u = y + mp_format.width * mp_format.height;
+    uint8_t* const v = u + mp_format.width * mp_format.height / 4;
+    f->linesize[0] = mp_format.width;
+    f->linesize[1] = mp_format.width / 2;
+    f->linesize[2] = mp_format.width / 2;
     f->data[0] = y + rect.left + rect.top * f->linesize[0];
     f->data[1] = u + rect.left / 2 + rect.top / 2 * f->linesize[1];
     f->data[2] = v + rect.left / 2 + rect.top / 2 * f->linesize[2];
@@ -567,7 +600,7 @@ void save_frame(
         "Receiving JPEG from encoder"
     );
 
-    auto const path = fmt::format("{}.{:04d}.jpeg", out->prefix, frame_index);
+    auto const path = fmt::format("{}.{:04d}.jpeg", out->prefix, out->count++);
     int const fd = open(path.c_str(), O_WRONLY | O_CREAT, 0666);
     if (fd < 0) {
         fmt::print("*** {}: {}\n", path, strerror(errno));
@@ -582,10 +615,143 @@ void save_frame(
     close(fd);
 }
 
+void setup_screen(
+    ScreenOutput* const out,
+    v4l2_format const& format,
+    v4l2_rect const& rect
+)
+{
+    out->fd = open(out->device.c_str(), O_RDWR);
+    if (out->fd < 0) {
+        fmt::print("*** {}: {}\n", out->device, strerror(errno));
+        exit(1);
+    }
+
+    if (drmSetMaster(out->fd)) {
+        fmt::print("*** Claiming ({}): {}\n", out->device, strerror(errno));
+    }
+
+    drmSetClientCap(out->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+    auto* const res = drmModeGetResources(out->fd);
+    if (!res) {
+        fmt::print("*** Reading ({}): {}\n", out->device, strerror(errno));
+        exit(1);
+    }
+
+    auto* const conn = drmModeGetConnector(out->fd, out->connector_id);
+    if (!conn) {
+        fmt::print("*** Screen #{}: {}\n", out->connector_id, strerror(errno));
+        exit(1);
+    }
+
+    auto* const enc = drmModeGetEncoder(out->fd, conn->encoders[0]);
+    if (!enc) {
+        fmt::print("*** Encoder #{}: {}\n", conn->encoders[0], strerror(errno));
+        exit(1);
+    }
+    if (!enc->possible_crtcs) {
+        fmt::print("*** Encoder #{}: No CRTCs\n");
+        exit(1);
+    }
+
+    int crtc_index = 0;
+    while (!(enc->possible_crtcs & (1u << crtc_index))) ++crtc_index;
+    out->crtc_id = res->crtcs[crtc_index];
+    auto* const crtc = drmModeGetCrtc(out->fd, out->crtc_id);
+    if (!crtc) {
+        fmt::print("*** CRTC #{}: {}\n", out->crtc_id, strerror(errno));
+        exit(1);
+    }
+
+    // TODO: set mode?
+    (void) format;
+    (void) rect;
+
+    drmModeFreeCrtc(crtc);
+    drmModeFreeEncoder(enc);
+    drmModeFreeConnector(conn);
+    drmModeFreeResources(res);
+}
+
+void setup_screen_buffer(
+    ScreenOutput* const out,
+    v4l2_format const& format,
+    v4l2_rect const& rect,
+    MappedBuffer* map
+) {
+    if (drmPrimeFDToHandle(out->fd, map->dmabuf_fd, &map->drm_handle)) {
+        fmt::print("*** Importing buffer to DRM: {}\n", strerror(errno));
+    }
+
+    auto const& mp_format = format.fmt.pix_mp;
+    if (mp_format.pixelformat != V4L2_PIX_FMT_YUV420) {
+        fmt::print(
+            "*** Unexpected decoded pixel format: {:.4s}\n",
+            (char const*) &mp_format.pixelformat
+        );
+        exit(1);
+    }
+
+    // Y/U/V is concatenated in V4L2, but DRM uses separate planes.
+    uint32_t const y = 0;
+    uint32_t const u = y + mp_format.width * mp_format.height;
+    uint32_t const v = u + mp_format.width * mp_format.height / 4;
+
+    uint32_t const drm_handles[4] = {
+        map->drm_handle,
+        map->drm_handle,
+        map->drm_handle,
+        0  // Unused
+    };
+    uint32_t const pitches[4] = {
+        mp_format.width,
+        mp_format.width / 2,
+        mp_format.width / 2,
+        0  // Unused
+    };
+    uint32_t const offsets[4] = {
+        y + rect.left + rect.top * pitches[0],
+        u + rect.left / 2 + rect.top / 2 * pitches[1],
+        v + rect.left / 2 + rect.top / 2 * pitches[2],
+        0  // Unused
+    };
+
+    if (drmModeAddFB2(
+        out->fd, rect.width, rect.height, DRM_FORMAT_YUV420,
+        drm_handles, pitches, offsets, &map->drm_framebuffer, 0
+    )) {
+        fmt::print("*** Creating DRM framebuffer: {}\n", strerror(errno));
+        exit(1);
+    }
+}
+
+// Show a decoded video frame on screen
+void show_screen(
+    ScreenOutput* const out,
+    v4l2_format const& format,
+    v4l2_rect const& rect,
+    MappedBuffer* map
+) {
+    if (out->fd < 0) setup_screen(out, format, rect);
+    if (!map->drm_framebuffer) setup_screen_buffer(out, format, rect, map);
+
+    // TODO don't recycle buffer until it's swapped out!
+
+    fmt::print("crtc {} => fb {} (conn {})\n", out->crtc_id, map->drm_framebuffer, out->connector_id);
+    if (drmModeSetCrtc(
+        out->fd, out->crtc_id, map->drm_framebuffer,
+        0, 0, &out->connector_id, 1, nullptr
+    )) {
+        fmt::print("*** Showing framebuffer: {}\n", strerror(errno));
+        exit(1);
+    }
+}
+
 void decoder_run(
-    InputMedia const& input,
+    InputFromFile const& input,
     int const fd,
-    OutputEncoder* output
+    JpegOutput* jpeg_output,
+    ScreenOutput* screen_output
 ) {
     if (!input.packet->buf) {
         fmt::print("*** No packets in input stream #{}\n", input.stream->index);
@@ -630,7 +796,7 @@ void decoder_run(
                 fmt::print("*** Bad reclaimed index: #{}\n", dqbuf.index);
                 exit(1);
             }
-            if (print_io) {
+            if (print_io_flag) {
                 fmt::print("Reclaimed {}\n", describe(dqbuf));
             }
             encoded_free.push_back(encoded_maps[dqbuf.index].get());
@@ -673,7 +839,7 @@ void decoder_run(
                 fmt::print("*** Sending encoded buffer: {}\n", strerror(errno));
                 exit(1);
             }
-            if (print_io) {
+            if (print_io_flag) {
                 fmt::print("Sent      {}\n", describe(qbuf));
             }
 
@@ -706,7 +872,7 @@ void decoder_run(
             if (ioctl(fd, VIDIOC_QBUF, &qbuf)) {
                 fmt::print("*** Recycling buffer: {}\n", strerror(errno));
                 exit(1);
-            } else if (print_io) {
+            } else if (print_io_flag) {
                 fmt::print("Recycled  {}\n", describe(qbuf));
             }
         }
@@ -738,7 +904,7 @@ void decoder_run(
             }
 
             auto* map = decoded_maps[dqbuf.index].get();
-            if (print_io) {
+            if (print_io_flag) {
                 fmt::print("Received  {}\n", describe(dqbuf));
             }
             if (dqbuf.flags & V4L2_BUF_FLAG_LAST) {
@@ -746,7 +912,14 @@ void decoder_run(
                 decoded_done = true;
             }
 
-            save_frame(output, decoded_format, decoded_rect, *map, frame_count);
+            if (!jpeg_output->prefix.empty()) {
+                save_jpeg(jpeg_output, decoded_format, decoded_rect, *map);
+            }
+
+            if (!screen_output->device.empty()) {
+                show_screen(screen_output, decoded_format, decoded_rect, map);
+            }
+
             decoded_free.push_back(map);
 
             ++frame_count;
@@ -800,26 +973,33 @@ void decoder_run(
 
 int main(int argc, char** argv) {
     std::string input_file;
-    std::string prefix;
+    JpegOutput jpeg_output = {};
+    ScreenOutput screen_output = {};
 
     CLI::App app("Use V4L2 to decode an H.264 video file");
     app.add_option("--input", input_file, "Media file or URL")->required();
-    app.add_option("--frame_prefix", prefix, "Prefix of frame images to write");
-    app.add_option("--encoded_buffers", encoded_buffers, "Input buffer depth");
-    app.add_option("--decoded_buffers", decoded_buffers, "Output buffer depth");
-    app.add_flag("--print_io", print_io, "Print buffer operations");
+    app.add_flag("--print_io", print_io_flag, "Print buffer operations");
+    app.add_option(
+        "--frame_prefix", jpeg_output.prefix, "Save JPEGs with this prefix"
+    );
+    app.add_option(
+        "--screen_device", screen_output.device, "Show on this DRI device"
+    )->excludes("--frame_prefix");
+    app.add_option(
+        "--screen_id", screen_output.connector_id, "DRI connector ID"
+    )->needs("--screen_device");
+
     CLI11_PARSE(app, argc, argv);
+
+    if (!screen_output.device.empty() && !screen_output.connector_id) {
+       fmt::print("*** --screen_device requires --screen_id\n");
+       exit(1);
+    }
 
     auto const input = open_input(input_file);
     int const decoder_fd = open_decoder();
 
-    std::unique_ptr<OutputEncoder> output;
-    if (!prefix.empty()) {
-        output = std::make_unique<OutputEncoder>();
-        output->prefix = prefix;
-    }
-
-    decoder_run(*input, decoder_fd, output.get());
+    decoder_run(*input, decoder_fd, &jpeg_output, &screen_output);
     close(decoder_fd);
     fmt::print("Closed and complete!\n");
     return 0;

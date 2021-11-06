@@ -18,6 +18,8 @@ If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 
 ### Graphics output: DRM and KMS
 * [Wikipedia: Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) - a good overview
+* ["From pre-history to beyond the global thermonuclear war"](200~https://ppaalanen.blogspot.com/2014/06/from-pre-history-to-beyond-global.html) - old but good blog post on Linux graphics history
+* [Atomic mode setting design overview](https://lwn.net/Articles/653071/) - old but good LWN article on the preferred KMS API
 * [Man page: Direct Rendering Manager - Kernel Mode-Setting](https://manpages.debian.org/testing/libdrm-dev/drm-kms.7.en.html) - incomplete but helpful
 * [Man page: Direct Rendering Manager - Memory Management](https://manpages.debian.org/testing/libdrm-dev/drm-memory.7.en.html) - incomplete but helpful
 * [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - kernel/user interface

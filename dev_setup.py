@@ -43,10 +43,14 @@ print()
 print(f"=== Conan (C++) packages (conan install ...) ===")
 os.environ["CONAN_V2_MODE"] = "1"
 check_call([conan_bin, "config", "init"])
+# check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
+# check_call([
+#     conan_bin, "remote", "add", "--force", "bincrafters",
+#     "https://bincrafters.jfrog.io/artifactory/api/conan/public-conan",
+# ])
 check_call([conan_bin, "profile", "new", "--force", "--detect", conan_profile])
 check_call([
-    conan_bin, "profile",
-    "update", "settings.compiler.libcxx=libstdc++11",
+    conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",
     conan_profile
 ])
 

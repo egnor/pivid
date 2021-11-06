@@ -17,7 +17,7 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-bool print_properties = false;  // Set by flag in main()
+bool verbose_flag = false;  // Set by flag in main()
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
@@ -70,11 +70,9 @@ void scan_gpus() {
     }
 }
 
-// If --print_properties is set, prints key/value properties about a
-// KMS "object" ID, using the generic KMS property-value interface.
-void maybe_print_properties(int const fd, uint32_t const id) {
-    if (!print_properties) return;
-
+// Prints key/value properties about a KMS "object" ID,
+// using the generic KMS property-value interface.
+void print_properties(int const fd, uint32_t const id) {
     auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
     if (!props) return;
 
@@ -86,11 +84,12 @@ void maybe_print_properties(int const fd, uint32_t const id) {
         }
 
         std::string const name = meta->name;
+        fmt::print("        ");
+        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
+        fmt::print("{} =", name);
+
         auto const value = props->prop_values[pi];
-        fmt::print("        Prop #{} {} =", props->props[pi], name);
-        if (meta->flags & DRM_MODE_PROP_BLOB) {
-            fmt::print(" <blob>");
-        } else {
+        if (!(meta->flags & DRM_MODE_PROP_BLOB)) {
             fmt::print(" {}", value);
             for (int ei = 0; ei < meta->count_enums; ++ei) {
                 if (meta->enums[ei].value == value) {
@@ -98,12 +97,21 @@ void maybe_print_properties(int const fd, uint32_t const id) {
                     break;
                 }
             }
-        }
-        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print(" [ro]");
-
-        if (name == "IN_FORMATS" && (meta->flags & DRM_MODE_PROP_BLOB)) {
-            auto* const formats = drmModeGetPropertyBlob(fd, value);
-            auto const data = (char const*) formats->data;
+        } else if (name == "MODE_ID") {
+            auto* const blob = drmModeGetPropertyBlob(fd, value);
+            if (blob) {
+                auto const* const mode = (drm_mode_modeinfo const*) blob->data;
+                fmt::print(
+                    " {}x{} @{}Hz",
+                    mode->hdisplay, mode->vdisplay, mode->vrefresh
+                );
+                drmModeFreePropertyBlob(blob);
+            } else {
+                fmt::print(" <none>");
+            }
+        } else if (name == "IN_FORMATS") {
+            auto* const blob = drmModeGetPropertyBlob(fd, value);
+            auto const data = (char const*) blob->data;
             auto const header = (drm_format_modifier_blob const*) data;
             if (header->version == FORMAT_BLOB_CURRENT) {
                 for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
@@ -112,9 +120,10 @@ void maybe_print_properties(int const fd, uint32_t const id) {
                     fmt::print(" {:.4s}", fourcc);
                 }
             }
-            drmModeFreePropertyBlob(formats);
+            drmModeFreePropertyBlob(blob);
+        } else {
+            fmt::print(" <blob>");
         }
-
         fmt::print("\n");
         drmModeFreeProperty(meta);
     }
@@ -133,9 +142,10 @@ void inspect_gpu(std::string const& path) {
     }
 
     // Enable any client capabilities that expose more information.
+    drmSetClientCap(fd, DRM_CLIENT_CAP_ASPECT_RATIO, 1);
+    drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1);
     drmSetClientCap(fd, DRM_CLIENT_CAP_STEREO_3D, 1);
     drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
-    drmSetClientCap(fd, DRM_CLIENT_CAP_ASPECT_RATIO, 1);
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {
@@ -149,9 +159,31 @@ void inspect_gpu(std::string const& path) {
         exit(1);
     }
     fmt::print(
-        "Driver: {} v{} ({}x{} max)\n\n",
+        "Driver: {} v{} ({}x{} max)\n",
         ver->name, ver->date, res->max_width, res->max_height
     );
+    if (verbose_flag) {
+        uint64_t v = 0;
+#define C(X) \
+        if (!drmGetCap(fd, DRM_CAP_##X, &v)) \
+            fmt::print("    {} = {}\n", #X, v)
+        C(DUMB_BUFFER);
+        C(VBLANK_HIGH_CRTC);
+        C(DUMB_PREFERRED_DEPTH);
+        C(DUMB_PREFER_SHADOW);
+        C(PRIME);
+        C(TIMESTAMP_MONOTONIC);
+        C(ASYNC_PAGE_FLIP);
+        C(CURSOR_WIDTH);
+        C(CURSOR_HEIGHT);
+        C(ADDFB2_MODIFIERS);
+        C(PAGE_FLIP_TARGET);
+        C(CRTC_IN_VBLANK_EVENT);
+        C(SYNCOBJ);
+        C(SYNCOBJ_TIMELINE);
+#undef C
+    }
+    fmt::print("\n");
 
     //
     // Planes (framebuffers can't be inspected from another process, sadly)
@@ -207,7 +239,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        maybe_print_properties(fd, id);
+        if (verbose_flag) print_properties(fd, id);
         drmModeFreePlane(plane);
     }
     fmt::print("\n");
@@ -245,7 +277,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        maybe_print_properties(fd, id);
+        if (verbose_flag) print_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
     fmt::print("\n");
@@ -291,7 +323,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        maybe_print_properties(fd, id);
+        if (verbose_flag) print_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
     fmt::print("\n");
@@ -351,9 +383,71 @@ void inspect_gpu(std::string const& path) {
         if (conn->mmWidth || conn->mmHeight) {
             fmt::print(" ({}x{}mm)", conn->mmWidth, conn->mmHeight);
         }
-
         fmt::print("\n");
-        maybe_print_properties(fd, id);
+
+        if (verbose_flag) {
+            print_properties(fd, id);
+            for (int mi = 0; mi < conn->count_modes; ++mi) {
+                auto const& mode = conn->modes[mi];
+                fmt::print(
+                    "        [mode] {:>4}x{:<4} @{}Hz",
+                    mode.hdisplay, mode.vdisplay, mode.vrefresh
+                );
+                for (uint32_t bit = 1; bit; bit <<= 1) {
+                    if (mode.type & bit) {
+                        switch (bit) {
+#define T(X) case DRM_MODE_TYPE_##X: fmt::print(" {}", #X); break
+                            T(BUILTIN);
+                            T(CLOCK_C);
+                            T(CRTC_C);
+                            T(PREFERRED);
+                            T(DEFAULT);
+                            T(USERDEF);
+                            T(DRIVER);
+#undef T
+                            default: fmt::print(" ?type={}?", bit); break;
+                        }
+                    }
+                }
+                for (uint32_t bit = 1; bit; bit <<= 1) {
+                    if (mode.flags & bit) {
+                        switch (bit) {
+#define F(X) case DRM_MODE_FLAG_##X: fmt::print(" {}", #X); break
+                            F(PHSYNC);
+                            F(NHSYNC);
+                            F(PVSYNC);
+                            F(NVSYNC);
+                            F(INTERLACE);
+                            F(DBLSCAN);
+                            F(CSYNC);
+                            F(PCSYNC);
+                            F(NCSYNC);
+                            F(HSKEW);
+                            F(BCAST);
+                            F(PIXMUX);
+                            F(DBLCLK);
+                            F(CLKDIV2);
+                            F(3D_FRAME_PACKING);
+                            F(3D_FIELD_ALTERNATIVE);
+                            F(3D_LINE_ALTERNATIVE);
+                            F(3D_SIDE_BY_SIDE_FULL);
+                            F(3D_L_DEPTH);
+                            F(3D_L_DEPTH_GFX_GFX_DEPTH);
+                            F(3D_TOP_AND_BOTTOM);
+                            F(3D_SIDE_BY_SIDE_HALF);
+                            F(PIC_AR_4_3);
+                            F(PIC_AR_16_9);
+                            F(PIC_AR_64_27);
+                            F(PIC_AR_256_135);
+#undef F
+                            default: fmt::print(" ?0x{:x}?", bit); break;
+                        }
+                    }
+                }
+                fmt::print("\n");
+            }
+        }
+
         drmModeFreeConnector(conn);
     }
     fmt::print("\n");
@@ -367,7 +461,7 @@ int main(int argc, char** argv) {
 
     CLI::App app("Inspect kernel display (DRM/KMS) devices");
     app.add_option("--dev", dev, "DRM/KMS device (in /dev/dri) to inspect");
-    app.add_flag("--print_properties", print_properties, "Print detail");
+    app.add_flag("--verbose", verbose_flag, "Print properties and modes");
     CLI11_PARSE(app, argc, argv);
 
     if (!dev.empty()) {

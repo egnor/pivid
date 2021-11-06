@@ -42,5 +42,5 @@ executable(
 
 executable(
     'pivid_test_decode', 'pivid_test_decode.cpp',
-    dependencies: [util_deps, libav_deps],
+    dependencies: [util_deps, libav_deps, libdrm_dep],
 )
