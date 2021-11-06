@@ -22,11 +22,21 @@ If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 * [Atomic mode setting design overview](https://lwn.net/Articles/653071/) - old but good LWN article on the preferred KMS API
 * [Man page: Direct Rendering Manager - Kernel Mode-Setting](https://manpages.debian.org/testing/libdrm-dev/drm-kms.7.en.html) - incomplete but helpful
 * [Man page: Direct Rendering Manager - Memory Management](https://manpages.debian.org/testing/libdrm-dev/drm-memory.7.en.html) - incomplete but helpful
-* [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - kernel/user interface
+* [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - basic notes on the kernel/user interface
+* [kernel.org: KMS Properties](https://www.kernel.org/doc/html/v5.10/gpu/drm-kms.html#kms-properties) - exhaustive object property list
 * [kernel source: include/uapi/drm/drm.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm.h) and [drm_mode.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm_mode.h) - kernel/user headers
-* [libdrm](https://gitlab.freedesktop.org/mesa/drm) - library wrapper; undocumented but simple; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite the "xf86")
+* [ST Micro: DRM/KMS Overview](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview) - decent general docs from a chip vendor
+* [ST Micro: How to trace and debug the framework](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview#How_to_trace_and_debug_the_framework) - an especially useful section
+* [NVIDIA Jetson Linux API: Direct Rendering Manager](https://docs.nvidia.com/jetson/l4t-multimedia/group__direct__rendering__manager.html) - DRM API reference, sometimes NVIDIA-specific
+* [libdrm](https://gitlab.freedesktop.org/mesa/drm) - library wrapper; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite "xf86")
+* [libgbm](https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/gbm) - GPU allocation helper library; see [gbm.h](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/gbm/main/gbm.h)
 * [modetest](https://cgit.freedesktop.org/drm/libdrm/tree/tests/modetest/modetest.c) - command line tool (in the [libdrm-tests](https://packages.debian.org/sid/main/libdrm-tests) Debian package)
-* [libgbm](https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/gbm) - GPU allocation helper library; undocumented; see [gbm.h](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/gbm/main/gbm.h)
+* [kmscube](https://gitlab.freedesktop.org/mesa/kmscube) - oft-referenced KMS/GL example program
+* [kms++](https://android.googlesource.com/platform/external/libkmsxx/) - C++ KMS wrapper & utilities
+
+Notes on DRM and KMS:
+* These interfaces are almost completely undocumented. Learn by examples.
+* But, many examples use "legacy" interfaces, prefer "atomic" update interfaces.
 
 ### Video decoding: V4L2
 * [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - kernel/user interface
@@ -42,9 +52,9 @@ If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 * [kernel.org: Video for Linux - Streaming I/O (DMA buffer importing)](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dmabuf.html) - using "dma-buf" objects in V4L2
 * [v4l2test](https://github.com/rdkcmf/v4l2test) - test/example of V4L2 H.264 decoding feeding KMS
 
-Of all the bits and pieces here, memory management seems to be the most complex and poorly explained. Here is what I have gleaned:
+Notes on memory management:
 * GPUs have all kinds of memory architectures. The RPi is simple, everything is in system RAM (no dedicated GPU RAM).
-* DRM/KMS requires you to create a "framebuffer" object, giving it a "buffer object" handle (opaque int32).
+* DRM/KMS requires you to create a "framebuffer" object, giving it a "buffer object" ("BO") handle (opaque int32).
 * How a "buffer object" is allocated and managed is dependent on the kernel GPU driver.
 * Most drivers use the "Graphics Execution Manager" (GEM), their buffer object handles are "GEM handles".
 * Most drivers support "dumb buffers", allowing simple creation of a buffer in system RAM.
@@ -52,8 +62,3 @@ Of all the bits and pieces here, memory management seems to be the most complex 
 * The libgbm ("Generic Buffer Manager") library tries to abstract over those driver-specific interfaces.
 * "DRM-PRIME" is a fancy name for ioctl's (see libdrm `drmPrimeHandleToFD` and `drmPrimeFDToHandle`) to convert GEM handles to/from "dma-buf" descriptors.
 * These "dma-buf" descriptors can be used with other systems like V4L2, of course you have to get the data format right.
-
-Open questions:
-* On the RPi (v3d driver), are "dumb buffers" all we need, or should we use the v3d-specific `DRM_V3D_CREATE_BO` ioctl?
-* When using V4L2 (with MMAL underneath) for video decoding, how is hardware access arbitrated between streams?
-* What's the exact dance of frames between V4L2 and KMS, esp when starting/stopping/splicing/blending?
