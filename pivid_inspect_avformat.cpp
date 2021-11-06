@@ -236,8 +236,8 @@ int main(int argc, char** argv) {
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
-    app.add_option("--list_frames", list_frames, "Print individual frames");
     app.add_option("--dump_streams", dump_prefix, "Prefix for raw stream dump");
+    app.add_flag("--list_frames", list_frames, "Print individual frames");
     CLI11_PARSE(app, argc, argv);
 
     AVFormatContext* avc = nullptr;

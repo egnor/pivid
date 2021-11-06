@@ -807,7 +807,7 @@ int main(int argc, char** argv) {
     app.add_option("--frame_prefix", prefix, "Prefix of frame images to write");
     app.add_option("--encoded_buffers", encoded_buffers, "Input buffer depth");
     app.add_option("--decoded_buffers", decoded_buffers, "Output buffer depth");
-    app.add_option("--print_io", print_io, "Print buffer operations");
+    app.add_flag("--print_io", print_io, "Print buffer operations");
     CLI11_PARSE(app, argc, argv);
 
     auto const input = open_input(input_file);

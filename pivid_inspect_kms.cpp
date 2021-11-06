@@ -367,6 +367,7 @@ int main(int argc, char** argv) {
 
     CLI::App app("Inspect kernel display (DRM/KMS) devices");
     app.add_option("--dev", dev, "DRM/KMS device (in /dev/dri) to inspect");
+    app.add_flag("--print_properties", print_properties, "Print detail");
     CLI11_PARSE(app, argc, argv);
 
     if (!dev.empty()) {
