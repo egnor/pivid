@@ -76,8 +76,12 @@ struct ScreenOutput {
     uint32_t crtc_id = 0;
     int fd = -1;
 
+    std::map<std::string, drmModePropertyPtr> prop_name;
+    std::map<int, drmModePropertyPtr> prop_id;
+
     ScreenOutput() {}
     ~ScreenOutput() {
+        for (auto const p : prop_id) drmModeFreeProperty(p.second);
         if (fd >= 0) close(fd);
     }
 
@@ -114,7 +118,7 @@ void avcheck(int averr, std::string const& text) {
 
 // Updates input.packet with the next packet from filtered input.
 // At EOF, the packet will be empty (!input.packet->buf).
-void input_next_packet(InputFromFile const& input) {
+void next_input_packet(InputFromFile const& input) {
     for (;;) {
         av_packet_unref(input.packet);
         int const filt_err = av_bsf_receive_packet(input.filter, input.packet);
@@ -180,7 +184,7 @@ std::unique_ptr<InputFromFile> open_input(const std::string& url) {
     avcheck(av_bsf_init(in->filter), "Initializing MP4-to-AnnexB filter");
 
     in->packet = av_packet_alloc();
-    input_next_packet(*in);
+    next_input_packet(*in);
     return in;
 }
 
@@ -326,7 +330,7 @@ std::string describe(v4l2_format const& format, int num_buffers) {
     return out + "]";
 }
 
-std::vector<std::unique_ptr<MappedBuffer>> decoder_mmap_buffers(
+std::vector<std::unique_ptr<MappedBuffer>> mmap_decoder_buffers(
     int const fd, v4l2_buf_type const type
 ) {
     std::vector<std::unique_ptr<MappedBuffer>> maps;
@@ -372,7 +376,7 @@ std::vector<std::unique_ptr<MappedBuffer>> decoder_mmap_buffers(
     return maps;
 }
 
-void decoder_setup_events(int const fd) {
+void setup_decoder_events(int const fd) {
     v4l2_event_subscription subscribe = {};
     subscribe.type = V4L2_EVENT_SOURCE_CHANGE;
     if (ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, &subscribe)) {
@@ -388,7 +392,7 @@ void decoder_setup_events(int const fd) {
 }
 
 // "OUTPUT" (app-to-device, i.e. decoder *input*) setup
-void decoder_setup_encoded_stream(
+void setup_encoded_stream(
     int const fd, // int const width, int const height,
     std::vector<std::unique_ptr<MappedBuffer>>* const buffers
 ) {
@@ -426,12 +430,12 @@ void decoder_setup_encoded_stream(
         exit(1);
     }
 
-    *buffers = decoder_mmap_buffers(fd, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
+    *buffers = mmap_decoder_buffers(fd, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
     fmt::print("ON: {}\n", describe(encoded_format, encoded_reqbuf.count));
 }
 
 // "CAPTURE" (device-to-app, i.e. decoder *output*) setup
-void decoder_setup_decoded_stream(
+void setup_decoded_stream(
     int const fd,
     std::vector<std::unique_ptr<MappedBuffer>>* const buffers,
     v4l2_format* const format,
@@ -470,7 +474,7 @@ void decoder_setup_decoded_stream(
         exit(1);
     }
 
-    *buffers = decoder_mmap_buffers(fd, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
+    *buffers = mmap_decoder_buffers(fd, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
     fmt::print("ON: {}\n", describe(*format, decoded_reqbuf.count));
 
     for (int const target : {0x0, 0x1, 0x2, 0x3, 0x100, 0x101, 0x102, 0x103}) {
@@ -657,17 +661,13 @@ void setup_screen(
     int crtc_index = 0;
     while (!(enc->possible_crtcs & (1u << crtc_index))) ++crtc_index;
     out->crtc_id = res->crtcs[crtc_index];
-    auto* const crtc = drmModeGetCrtc(out->fd, out->crtc_id);
-    if (!crtc) {
-        fmt::print("*** CRTC #{}: {}\n", out->crtc_id, strerror(errno));
-        exit(1);
-    }
+
+    // TODO walk properties, remember IDs for atomic setting !!
 
     // TODO: set mode?
     (void) format;
     (void) rect;
 
-    drmModeFreeCrtc(crtc);
     drmModeFreeEncoder(enc);
     drmModeFreeConnector(conn);
     drmModeFreeResources(res);
@@ -747,7 +747,7 @@ void show_screen(
     }
 }
 
-void decoder_run(
+void run_decoder(
     InputFromFile const& input,
     int const fd,
     JpegOutput* jpeg_output,
@@ -761,8 +761,8 @@ void decoder_run(
     std::vector<std::unique_ptr<MappedBuffer>> encoded_maps;
     std::vector<std::unique_ptr<MappedBuffer>> decoded_maps;
 
-    decoder_setup_events(fd);
-    decoder_setup_encoded_stream(fd, &encoded_maps);
+    setup_decoder_events(fd);
+    setup_encoded_stream(fd, &encoded_maps);
     // Don't set up decoded stream until SOURCE_CHANGE event.
 
     std::deque<MappedBuffer*> encoded_free, decoded_free;
@@ -843,7 +843,7 @@ void decoder_run(
                 fmt::print("Sent      {}\n", describe(qbuf));
             }
 
-            input_next_packet(input);
+            next_input_packet(input);
             if (!input.packet->buf) {
                 v4l2_decoder_cmd command = {};
                 command.cmd = V4L2_DEC_CMD_STOP;
@@ -959,7 +959,7 @@ void decoder_run(
             );
             decoded_done = decoded_changed = false;  // Restart
             decoded_free.clear();
-            decoder_setup_decoded_stream(
+            setup_decoded_stream(
                 fd, &decoded_maps, &decoded_format, &decoded_rect
             );
             for (auto const &m : decoded_maps) decoded_free.push_back(m.get());
@@ -999,7 +999,7 @@ int main(int argc, char** argv) {
     auto const input = open_input(input_file);
     int const decoder_fd = open_decoder();
 
-    decoder_run(*input, decoder_fd, &jpeg_output, &screen_output);
+    run_decoder(*input, decoder_fd, &jpeg_output, &screen_output);
     close(decoder_fd);
     fmt::print("Closed and complete!\n");
     return 0;
