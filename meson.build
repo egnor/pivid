@@ -8,7 +8,7 @@ project('video_play', 'cpp', version: '0.0',
 )
 
 cpp = meson.get_compiler('cpp')
-add_project_arguments(['-Wno-non-virtual-dtor'], language: 'cpp')
+add_project_arguments(['-Wno-pedantic'], language: 'cpp')
 
 util_deps = [
     dependency('CLI11'),

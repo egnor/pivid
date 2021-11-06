@@ -20,8 +20,7 @@ conan_profile = build_dir / "conan-profile.txt"
 conan_install = build_dir / "conan-install"
 
 print("=== System packages (sudo apt install ...) ===")
-# TODO: eliminate system dependency on libdrm-dev
-apt_packages = ["build-essential", "direnv", "libdrm-dev", "python3"]
+apt_packages = ["build-essential", "direnv", "python3"]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
 installed = installed.decode().split()
 if not all(p in installed for p in apt_packages):
@@ -43,11 +42,11 @@ print()
 print(f"=== Conan (C++) packages (conan install ...) ===")
 os.environ["CONAN_V2_MODE"] = "1"
 check_call([conan_bin, "config", "init"])
-# check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
-# check_call([
-#     conan_bin, "remote", "add", "--force", "bincrafters",
-#     "https://bincrafters.jfrog.io/artifactory/api/conan/public-conan",
-# ])
+check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
+check_call([
+    conan_bin, "remote", "add", "--force", "bincrafters-legacy",
+    "https://bincrafters.jfrog.io/artifactory/api/conan/conan-legacy-bincrafters",
+])
 check_call([conan_bin, "profile", "new", "--force", "--detect", conan_profile])
 check_call([
     conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",

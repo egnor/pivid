@@ -5,8 +5,12 @@ class PividConan(conans.ConanFile):
     name, version = "pivid", "0.0"
 
     settings = "os", "compiler", "build_type", "arch"  # boilerplate
-    requires = "cli11/2.1.1", "ffmpeg/4.4", "fmt/8.0.1"  # "libdrm/2.4.100"
     generators = "pkg_config"  # Used by the Meson build helper (below)
+
+    requires = [
+        "cli11/2.1.1", "ffmpeg/4.4", "fmt/8.0.1",
+        "libdrm/2.4.100@bincrafters/stable",
+    ]
 
     default_options = {
         # Omit as much of ffmpeg as possible to minimize dependency build time
@@ -17,7 +21,16 @@ class PividConan(conans.ConanFile):
                 "lzma", "openh264", "openjpeg", "opus", "programs", "pulse",
                 "vaapi", "vdpau", "vorbis", "xcb", "zlib",
             ]
-        }
+        },
+
+        # Simplify libdrm, we don't need GPU-specific add-ons
+        **{
+            f"libdrm:{opt}": False for opt in [
+                "amdgpu", "etnaviv", "exynos", "freedreno", "freedreno-kgsl",
+                "intel", "libkms", "nouveau", "omap", "radeon", "tegra",
+                "udev", "valgrind", "vc4", "vmwgfx",
+            ]
+        },
     }
 
     def build(self):
