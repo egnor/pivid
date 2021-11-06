@@ -576,7 +576,7 @@ void save_jpeg(
     f->width = rect.width;
     f->height = rect.height;
 
-    // Y/U/V is concatenated in V4L2, but avcodec uses separate planes.
+    // Y/U/V is concatenated by V4L2, but avcodec uses separate planes.
     uint8_t* const y = (uint8_t*) map.mmap;
     uint8_t* const u = y + mp_format.width * mp_format.height;
     uint8_t* const v = u + mp_format.width * mp_format.height / 4;
@@ -619,6 +619,7 @@ void save_jpeg(
     close(fd);
 }
 
+// Initialize KMS for displaying video frames
 void setup_screen(
     ScreenOutput* const out,
     v4l2_format const& format,
@@ -662,6 +663,8 @@ void setup_screen(
     while (!(enc->possible_crtcs & (1u << crtc_index))) ++crtc_index;
     out->crtc_id = res->crtcs[crtc_index];
 
+    // TODO find primary plane for CRTC
+
     // TODO walk properties, remember IDs for atomic setting !!
 
     // TODO: set mode?
@@ -673,6 +676,7 @@ void setup_screen(
     drmModeFreeResources(res);
 }
 
+// Initialize one video buffer (from V4L2) to use as a KMS framebuffer
 void setup_screen_buffer(
     ScreenOutput* const out,
     v4l2_format const& format,
@@ -692,7 +696,7 @@ void setup_screen_buffer(
         exit(1);
     }
 
-    // Y/U/V is concatenated in V4L2, but DRM uses separate planes.
+    // Y/U/V is concatenated by V4L2, but DRM uses separate planes.
     uint32_t const y = 0;
     uint32_t const u = y + mp_format.width * mp_format.height;
     uint32_t const v = u + mp_format.width * mp_format.height / 4;
@@ -737,7 +741,6 @@ void show_screen(
 
     // TODO don't recycle buffer until it's swapped out!
 
-    fmt::print("crtc {} => fb {} (conn {})\n", out->crtc_id, map->drm_framebuffer, out->connector_id);
     if (drmModeSetCrtc(
         out->fd, out->crtc_id, map->drm_framebuffer,
         0, 0, &out->connector_id, 1, nullptr
@@ -984,7 +987,7 @@ int main(int argc, char** argv) {
     );
     app.add_option(
         "--screen_device", screen_output.device, "Show on this DRI device"
-    )->excludes("--frame_prefix");
+    );
     app.add_option(
         "--screen_id", screen_output.connector_id, "DRI connector ID"
     )->needs("--screen_device");
