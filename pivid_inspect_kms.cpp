@@ -100,7 +100,7 @@ void print_properties(int const fd, uint32_t const id) {
         } else if (name == "MODE_ID") {
             auto* const blob = drmModeGetPropertyBlob(fd, value);
             if (blob) {
-                auto const* const mode = (drm_mode_modeinfo const*) blob->data;
+                auto const* const mode = (drmModeModeInfoPtr) blob->data;
                 fmt::print(
                     " {}x{} @{}Hz",
                     mode->hdisplay, mode->vdisplay, mode->vrefresh

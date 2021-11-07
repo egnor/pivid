@@ -72,9 +72,11 @@ struct JpegOutput {
 
 struct ScreenOutput {
     std::string device;
+    int fd = -1;
     uint32_t connector_id = 0;
     uint32_t crtc_id = 0;
-    int fd = -1;
+    uint32_t plane_id = 0;
+    drmModeModeInfo mode = {};
 
     std::map<std::string, drmModePropertyPtr> prop_name;
     std::map<int, drmModePropertyPtr> prop_id;
@@ -505,6 +507,57 @@ void setup_decoded_stream(
     }
 }
 
+void setup_jpeg(
+    JpegOutput* const out,
+    v4l2_rect const& rect
+) {
+    auto const* jpeg_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    if (!jpeg_codec) {
+        fmt::print("*** No MJPEG encoder found\n");
+        exit(1);
+    }
+
+    avcodec_free_context(&out->context);
+    out->context = avcodec_alloc_context3(jpeg_codec);
+    if (!out->context) {
+        fmt::print("*** Allocating JPEG encoder: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    out->context->pix_fmt = AV_PIX_FMT_YUVJ420P;  // "J" is JPEG color space
+    out->context->width = rect.width;
+    out->context->height = rect.height;
+    out->context->time_base = {1, 30};  // Arbitrary but required.
+    avcheck(
+        avcodec_open2(out->context, jpeg_codec, nullptr),
+        "Initializing JPEG encoder"
+    );
+
+    fmt::print(
+        "JPEG encoder: {} ({}) {}x{}\n",
+        avcodec_get_name(out->context->codec->id),
+        av_get_pix_fmt_name(out->context->pix_fmt),
+        out->context->width, out->context->height
+    );
+
+    if (!out->frame) {
+        out->frame = av_frame_alloc();
+        if (!out->frame) {
+            fmt::print("*** Allocating frame: {}\n", strerror(errno));
+            exit(1);
+        }
+    }
+
+    if (!out->packet) {
+        out->packet = av_packet_alloc();
+        if (!out->packet) {
+            fmt::print("*** Allocating packet: {}\n", strerror(errno));
+            exit(1);
+        }
+    }
+}
+
+
 // Write a decoded video frame to disk
 void save_jpeg(
     JpegOutput* const out,
@@ -517,7 +570,6 @@ void save_jpeg(
         exit(1);
     }
 
-    auto const jpeg_pix_fmt = AV_PIX_FMT_YUVJ420P;  // JPEG color space
     auto const& mp_format = format.fmt.pix_mp;
     if (mp_format.pixelformat != V4L2_PIX_FMT_YUV420) {
         fmt::print(
@@ -527,52 +579,12 @@ void save_jpeg(
         exit(1);
     }
 
-    if (
-        !out->context ||
-        out->context->pix_fmt != jpeg_pix_fmt ||
-        out->context->width != (int) rect.width ||
-        out->context->height != (int) rect.height
-    ) {
-        auto const* jpeg_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
-        if (!jpeg_codec) {
-            fmt::print("*** No MJPEG encoder found\n");
-            exit(1);
-        }
-
-        avcodec_free_context(&out->context);
-        out->context = avcodec_alloc_context3(jpeg_codec);
-        if (!out->context) {
-            fmt::print("*** Allocating JPEG encoder: {}\n", strerror(errno));
-            exit(1);
-        }
-
-        out->context->pix_fmt = jpeg_pix_fmt;
-        out->context->width = rect.width;
-        out->context->height = rect.height;
-        out->context->time_base = {1, 30};  // Arbitrary but required.
-        avcheck(
-            avcodec_open2(out->context, jpeg_codec, nullptr),
-            "Initializing JPEG encoder"
-        );
-
-        fmt::print(
-            "JPEG encoder: {} ({}) {}x{}\n",
-            avcodec_get_name(out->context->codec->id),
-            av_get_pix_fmt_name(out->context->pix_fmt),
-            out->context->width, out->context->height
-        );
-    }
-
-    if (!out->frame) {
-        out->frame = av_frame_alloc();
-        if (!out->frame) {
-            fmt::print("*** Allocating frame: {}\n", strerror(errno));
-            exit(1);
-        }
+    if (!out->context) {
+        setup_jpeg(out, rect);
     }
 
     auto* const f = out->frame;
-    f->format = jpeg_pix_fmt;
+    f->format = out->context->pix_fmt;
     f->width = rect.width;
     f->height = rect.height;
 
@@ -590,14 +602,6 @@ void save_jpeg(
         avcodec_send_frame(out->context, out->frame),
         "Sending frame to JPEG encoder"
     );
-
-    if (!out->packet) {
-        out->packet = av_packet_alloc();
-        if (!out->packet) {
-            fmt::print("*** Allocating packet: {}\n", strerror(errno));
-            exit(1);
-        }
-    }
 
     avcheck(
         avcodec_receive_packet(out->context, out->packet),
@@ -624,8 +628,7 @@ void setup_screen(
     ScreenOutput* const out,
     v4l2_format const& format,
     v4l2_rect const& rect
-)
-{
+) {
     out->fd = open(out->device.c_str(), O_RDWR);
     if (out->fd < 0) {
         fmt::print("*** {}: {}\n", out->device, strerror(errno));
@@ -639,7 +642,7 @@ void setup_screen(
     drmSetClientCap(out->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     auto* const res = drmModeGetResources(out->fd);
     if (!res) {
-        fmt::print("*** Reading ({}): {}\n", out->device, strerror(errno));
+        fmt::print("*** Resources ({}): {}\n", out->device, strerror(errno));
         exit(1);
     }
 
@@ -649,13 +652,24 @@ void setup_screen(
         exit(1);
     }
 
+    out->mode = {};
+    for (int mi = 0; mi < conn->count_modes && !out->mode.type; ++mi) {
+        if (conn->modes[mi].type & DRM_MODE_TYPE_PREFERRED) {
+            out->mode = conn->modes[mi];
+        }
+    }
+    if (!out->mode.type) {
+        fmt::print("*** No PREFERRED mode for conn #{}\n", out->connector_id);
+        exit(1);
+    }
+
     auto* const enc = drmModeGetEncoder(out->fd, conn->encoders[0]);
     if (!enc) {
         fmt::print("*** Encoder #{}: {}\n", conn->encoders[0], strerror(errno));
         exit(1);
     }
     if (!enc->possible_crtcs) {
-        fmt::print("*** Encoder #{}: No CRTCs\n");
+        fmt::print("*** Encoder #{}: No CRTCs\n", conn->encoders[0]);
         exit(1);
     }
 
@@ -663,14 +677,46 @@ void setup_screen(
     while (!(enc->possible_crtcs & (1u << crtc_index))) ++crtc_index;
     out->crtc_id = res->crtcs[crtc_index];
 
-    // TODO find primary plane for CRTC
+    auto* const planes = drmModeGetPlaneResources(out->fd);
+    if (!planes) {
+        fmt::print("*** Planes ({}): {}\n", out->device, strerror(errno));
+        exit(1);
+    }
 
-    // TODO walk properties, remember IDs for atomic setting !!
+    out->plane_id = 0;
+    for (uint32_t pi = 0; !out->plane_id && pi < planes->count_planes; ++pi) {
+        auto* plane = drmModeGetPlane(out->fd, planes->planes[pi]);
+        if (!plane) {
+            fmt::print(
+               "*** Plane #{}: {}\n", planes->planes[pi], strerror(errno)
+            );
+            exit(1);
+        }
+        if (plane->possible_crtcs & (1 << crtc_index)) {
+            out->plane_id = plane->plane_id;
+        }
+        drmModeFreePlane(plane);
+    }
+    if (!out->plane_id) {
+        fmt::print("*** No plane compatible with CRTC #{}\n", out->crtc_id);
+        exit(1);
+    }
 
-    // TODO: set mode?
-    (void) format;
-    (void) rect;
+    for (auto id : {out->crtc_id, out->plane_id}) {
+        auto const any_type = DRM_MODE_OBJECT_ANY;
+        auto* const props = drmModeObjectGetProperties(out->fd, id, any_type);
+        for (uint32_t pi = 0; props && pi < props->count_props; ++pi) {
+            if (!out->prop_id.count(props->props[pi])) {
+                auto* const p = drmModeGetProperty(out->fd, props->props[pi]);
+                if (p) {
+                    out->prop_id[p->prop_id] = p;
+                    out->prop_name[p->name] = p;
+                }
+            }
+        }
+    }
 
+    drmModeFreePlaneResources(planes);
     drmModeFreeEncoder(enc);
     drmModeFreeConnector(conn);
     drmModeFreeResources(res);
