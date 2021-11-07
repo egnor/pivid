@@ -86,10 +86,21 @@ void print_properties(int const fd, uint32_t const id) {
         std::string const name = meta->name;
         fmt::print("        ");
         if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
+        if (meta->flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
+        if (meta->flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
         fmt::print("{} =", name);
 
+        // TODO handle RANGE and SIGNED_RANGE if we ever see any
         auto const value = props->prop_values[pi];
-        if (!(meta->flags & DRM_MODE_PROP_BLOB)) {
+        if (meta->flags & DRM_MODE_PROP_BITMASK) {
+            fmt::print(" 0x{:x}{}", value, value ? ":" : "");
+            for (int ei = 0; ei < meta->count_enums; ++ei) {
+                if (value & (1 << meta->enums[ei].value)) {
+                    fmt::print(" {}", meta->enums[ei].name);
+                    break;
+                }
+            }
+        } else if (!(meta->flags & DRM_MODE_PROP_BLOB)) {
             fmt::print(" {}", value);
             for (int ei = 0; ei < meta->count_enums; ++ei) {
                 if (meta->enums[ei].value == value) {

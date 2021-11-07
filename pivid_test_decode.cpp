@@ -34,6 +34,9 @@ extern "C" {
 
 // Set by flags in main()
 bool print_io_flag = false;
+int encoded_buffer_size = 1048576;
+int encoded_buffer_count = 16;
+int decoded_buffer_count = 16;
 
 struct InputFromFile {
     AVFormatContext* context = nullptr;
@@ -76,13 +79,18 @@ struct ScreenOutput {
     uint32_t connector_id = 0;
     uint32_t crtc_id = 0;
     uint32_t plane_id = 0;
-    drmModeModeInfo mode = {};
+
+    drmModeModeInfo mode_info = {};
+    uint32_t mode_blob = 0;
 
     std::map<std::string, drmModePropertyPtr> prop_name;
     std::map<int, drmModePropertyPtr> prop_id;
+    drmModeAtomicReqPtr atomic_req = nullptr;
 
     ScreenOutput() {}
     ~ScreenOutput() {
+        if (atomic_req) drmModeAtomicFree(atomic_req);
+        if (mode_blob) drmModeDestroyPropertyBlob(fd, mode_blob);
         for (auto const p : prop_id) drmModeFreeProperty(p.second);
         if (fd >= 0) close(fd);
     }
@@ -93,7 +101,7 @@ struct ScreenOutput {
 
 struct MappedBuffer {
     int index = 0;
-    void *mmap = MAP_FAILED;
+    void *mmap = nullptr;
     size_t size = 0;
     int dmabuf_fd = -1;
     uint32_t drm_handle = 0;
@@ -101,7 +109,7 @@ struct MappedBuffer {
 
     MappedBuffer() {}
     ~MappedBuffer() {
-        if (mmap != MAP_FAILED) munmap(mmap, size);
+        if (mmap) munmap(mmap, size);
         if (dmabuf_fd >= 0) close(dmabuf_fd);
     }
 
@@ -408,6 +416,7 @@ void setup_encoded_stream(
     encoded_format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     encoded_format.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
     encoded_format.fmt.pix_mp.num_planes = 1;
+    encoded_format.fmt.pix_mp.plane_fmt[0].sizeimage = encoded_buffer_size;
     if (ioctl(fd, VIDIOC_S_FMT, &encoded_format)) {
         fmt::print("*** Setting encoded format: {}\n", strerror(errno));
         exit(1);
@@ -421,7 +430,7 @@ void setup_encoded_stream(
         exit(1);
     }
 
-    encoded_reqbuf.count = 16;
+    encoded_reqbuf.count = encoded_buffer_count;
     if (ioctl(fd, VIDIOC_REQBUFS, &encoded_reqbuf)) {
         fmt::print("*** Creating encoded buffers: {}\n", strerror(errno));
         exit(1);
@@ -465,7 +474,7 @@ void setup_decoded_stream(
         exit(1);
     }
 
-    decoded_reqbuf.count = 16;
+    decoded_reqbuf.count = decoded_buffer_count;
     if (ioctl(fd, VIDIOC_REQBUFS, &decoded_reqbuf)) {
         fmt::print("*** Creating decoded buffers: {}\n", strerror(errno));
         exit(1);
@@ -624,11 +633,7 @@ void save_jpeg(
 }
 
 // Initialize KMS for displaying video frames
-void setup_screen(
-    ScreenOutput* const out,
-    v4l2_format const& format,
-    v4l2_rect const& rect
-) {
+void setup_screen(ScreenOutput* const out) {
     out->fd = open(out->device.c_str(), O_RDWR);
     if (out->fd < 0) {
         fmt::print("*** {}: {}\n", out->device, strerror(errno));
@@ -639,6 +644,7 @@ void setup_screen(
         fmt::print("*** Claiming ({}): {}\n", out->device, strerror(errno));
     }
 
+    drmSetClientCap(out->fd, DRM_CLIENT_CAP_ATOMIC, 1);
     drmSetClientCap(out->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     auto* const res = drmModeGetResources(out->fd);
     if (!res) {
@@ -652,13 +658,20 @@ void setup_screen(
         exit(1);
     }
 
-    out->mode = {};
-    for (int mi = 0; mi < conn->count_modes && !out->mode.type; ++mi) {
+    out->mode_blob = 0;
+    for (int mi = 0; mi < conn->count_modes && !out->mode_blob; ++mi) {
         if (conn->modes[mi].type & DRM_MODE_TYPE_PREFERRED) {
-            out->mode = conn->modes[mi];
+            out->mode_info = conn->modes[mi];
+            if (drmModeCreatePropertyBlob(
+                out->fd, &out->mode_info, sizeof(out->mode_info),
+                &out->mode_blob
+            )) {
+                fmt::print("*** Creating blob: {}\n", strerror(errno));
+                exit(1);
+            }
         }
     }
-    if (!out->mode.type) {
+    if (!out->mode_blob) {
         fmt::print("*** No PREFERRED mode for conn #{}\n", out->connector_id);
         exit(1);
     }
@@ -702,18 +715,24 @@ void setup_screen(
         exit(1);
     }
 
-    for (auto id : {out->crtc_id, out->plane_id}) {
+    for (auto id : {out->connector_id, out->crtc_id, out->plane_id}) {
         auto const any_type = DRM_MODE_OBJECT_ANY;
         auto* const props = drmModeObjectGetProperties(out->fd, id, any_type);
         for (uint32_t pi = 0; props && pi < props->count_props; ++pi) {
             if (!out->prop_id.count(props->props[pi])) {
                 auto* const p = drmModeGetProperty(out->fd, props->props[pi]);
-                if (p) {
+                if (p && (p->flags & DRM_MODE_PROP_ATOMIC)) {
                     out->prop_id[p->prop_id] = p;
                     out->prop_name[p->name] = p;
                 }
             }
         }
+    }
+
+    out->atomic_req = drmModeAtomicAlloc();
+    if (!out->atomic_req) {
+        fmt::print("*** Allocating atomic request: {}\n", strerror(errno));
+        exit(1);
     }
 
     drmModeFreePlaneResources(planes);
@@ -782,18 +801,43 @@ void show_screen(
     v4l2_rect const& rect,
     MappedBuffer* map
 ) {
-    if (out->fd < 0) setup_screen(out, format, rect);
+    if (out->fd < 0) setup_screen(out);
     if (!map->drm_framebuffer) setup_screen_buffer(out, format, rect, map);
 
-    // TODO don't recycle buffer until it's swapped out!
+    auto const add = [=](uint32_t id, char const* name, uint64_t v) {
+        auto const prop = out->prop_name[name];
+        if (!prop) {
+            fmt::print("*** Unknown property: \"{}\"\n", name);
+            exit(1);
+        }
+        if (!drmModeAtomicAddProperty(out->atomic_req, id, prop->prop_id, v)) {
+            fmt::print("*** Adding property: {}\n", strerror(errno));
+            exit(1);
+        }
+    };
 
-    if (drmModeSetCrtc(
-        out->fd, out->crtc_id, map->drm_framebuffer,
-        0, 0, &out->connector_id, 1, nullptr
+    drmModeAtomicSetCursor(out->atomic_req, 0);    
+    add(out->connector_id, "CRTC_ID", out->crtc_id);
+    add(out->crtc_id, "ACTIVE", 1);
+    add(out->crtc_id, "MODE_ID", out->mode_blob);
+    add(out->plane_id, "FB_ID", map->drm_framebuffer);
+    add(out->plane_id, "CRTC_ID", out->crtc_id);
+    add(out->plane_id, "CRTC_X", 0);
+    add(out->plane_id, "CRTC_Y", 0);
+    add(out->plane_id, "CRTC_W", out->mode_info.hdisplay);
+    add(out->plane_id, "CRTC_H", out->mode_info.vdisplay);
+    add(out->plane_id, "SRC_X", 0);
+    add(out->plane_id, "SRC_Y", 0);
+    add(out->plane_id, "SRC_W", rect.width << 16);
+    add(out->plane_id, "SRC_H", rect.height << 16);
+
+    if (drmModeAtomicCommit(
+        out->fd, out->atomic_req, DRM_MODE_ATOMIC_ALLOW_MODESET, nullptr
     )) {
-        fmt::print("*** Showing framebuffer: {}\n", strerror(errno));
-        exit(1);
+        fmt::print("*** DRM atomic commit: {}\n", strerror(errno));
     }
+
+    // TODO don't recycle buffer until it's swapped out!
 }
 
 void run_decoder(
@@ -1028,20 +1072,23 @@ int main(int argc, char** argv) {
     CLI::App app("Use V4L2 to decode an H.264 video file");
     app.add_option("--input", input_file, "Media file or URL")->required();
     app.add_flag("--print_io", print_io_flag, "Print buffer operations");
+    app.add_option("--encoded_buffer_size", encoded_buffer_size, "Bytes/buf");
+    app.add_option("--encoded_buffers", encoded_buffer_count, "Buffer count");
+    app.add_option("--decoded_buffers", decoded_buffer_count, "Buffer count");
     app.add_option(
         "--frame_prefix", jpeg_output.prefix, "Save JPEGs with this prefix"
     );
     app.add_option(
-        "--screen_device", screen_output.device, "Show on this DRI device"
+        "--screen_dev", screen_output.device, "Show on this DRI device"
     );
     app.add_option(
         "--screen_id", screen_output.connector_id, "DRI connector ID"
-    )->needs("--screen_device");
+    )->needs("--screen_dev");
 
     CLI11_PARSE(app, argc, argv);
 
     if (!screen_output.device.empty() && !screen_output.connector_id) {
-       fmt::print("*** --screen_device requires --screen_id\n");
+       fmt::print("*** --screen_dev requires --screen_id\n");
        exit(1);
     }
 
