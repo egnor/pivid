@@ -115,7 +115,7 @@ void inspect_media(AVFormatContext* const avc) {
     fmt::print("\n");
 }
 
-void list_frames(AVFormatContext* const avc) {
+void print_frames(AVFormatContext* const avc) {
     AVPacket packet = {};
     fmt::print("--- Frames ---\n");
     if (avformat_seek_file(avc, -1, 0, 0, 0, 0) < 0) {
@@ -231,13 +231,13 @@ void dump_stream(
 
 int main(int argc, char** argv) {
     std::string media_file;
-    bool list_frames = false;
+    bool print_frames = false;
     std::string dump_prefix;
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
     app.add_option("--dump_streams", dump_prefix, "Prefix for raw stream dump");
-    app.add_flag("--list_frames", list_frames, "Print individual frames");
+    app.add_flag("--print_frames", print_frames, "Print individual frames");
     CLI11_PARSE(app, argc, argv);
 
     AVFormatContext* avc = nullptr;
@@ -247,7 +247,7 @@ int main(int argc, char** argv) {
     }
 
     inspect_media(avc);
-    if (list_frames) ::list_frames(avc);
+    if (print_frames) ::print_frames(avc);
 
     if (!dump_prefix.empty()) {
         for (uint32_t si = 0; si < avc->nb_streams; ++si) {

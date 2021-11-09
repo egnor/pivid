@@ -32,9 +32,13 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-// Set by flags in main()
-bool print_io_flag = false;
-int encoded_buffer_size = 1048576;
+bool flat_out = false;
+double start_delay = 0.2;
+
+bool print_io = false;
+bool print_frames = false;
+
+int encoded_buffer_size = 0;
 int encoded_buffer_count = 16;
 int decoded_buffer_count = 16;
 
@@ -55,25 +59,25 @@ struct InputFromFile {
     void operator=(InputFromFile const&) = delete;
 };
 
-struct JpegOutput {
+struct JpegState {
     std::string prefix;
     AVCodecContext* context = nullptr;
     AVFrame* frame = nullptr;
     AVPacket* packet = nullptr;
     int count = 0;
 
-    JpegOutput() {}
-    ~JpegOutput() {
+    JpegState() {}
+    ~JpegState() {
         if (packet) av_packet_unref(packet);
         if (frame) av_frame_free(&frame);
         if (context) avcodec_free_context(&context);
     }
 
-    JpegOutput(JpegOutput const&) = delete;
-    void operator=(JpegOutput const&) = delete;
+    JpegState(JpegState const&) = delete;
+    void operator=(JpegState const&) = delete;
 };
 
-struct ScreenOutput {
+struct ScreenState {
     std::string device;
     int fd = -1;
     uint32_t connector_id = 0;
@@ -87,16 +91,16 @@ struct ScreenOutput {
     std::map<int, drmModePropertyPtr> prop_id;
     drmModeAtomicReqPtr atomic_req = nullptr;
 
-    ScreenOutput() {}
-    ~ScreenOutput() {
+    ScreenState() {}
+    ~ScreenState() {
         if (atomic_req) drmModeAtomicFree(atomic_req);
         if (mode_blob) drmModeDestroyPropertyBlob(fd, mode_blob);
         for (auto const p : prop_id) drmModeFreeProperty(p.second);
         if (fd >= 0) close(fd);
     }
 
-    ScreenOutput(ScreenOutput const&) = delete;
-    void operator=(ScreenOutput const&) = delete;
+    ScreenState(ScreenState const&) = delete;
+    void operator=(ScreenState const&) = delete;
 };
 
 struct MappedBuffer {
@@ -271,11 +275,16 @@ std::string describe(v4l2_field const field) {
 
 std::string describe(v4l2_buffer const& buf) {
     std::string out = fmt::format(
-        "{} buf #{:<2d} t={:03d}.{:03d} {:4d}/{:4d}kB",
+        "{} buf #{:<2d} t={:03}.{:03} {:4}",
         describe((v4l2_buf_type) buf.type), buf.index,
         buf.timestamp.tv_sec, buf.timestamp.tv_usec / 1000,
-        buf.m.planes[0].bytesused / 1024, buf.m.planes[0].length / 1024
+        buf.m.planes[0].bytesused / 1024
     );
+    if (buf.m.planes[0].length) {
+        out += fmt::format("/{:4}kB", buf.m.planes[0].length / 1024);
+    } else {
+        out += fmt::format("kB     ");
+    }
     switch (buf.memory) {
 #define M(X) case V4L2_MEMORY_##X: out += fmt::format(" {}", #X); break
         M(MMAP);
@@ -517,7 +526,7 @@ void setup_decoded_stream(
 }
 
 void setup_jpeg(
-    JpegOutput* const out,
+    JpegState* const out,
     v4l2_rect const& rect
 ) {
     auto const* jpeg_codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
@@ -569,7 +578,7 @@ void setup_jpeg(
 
 // Write a decoded video frame to disk
 void save_jpeg(
-    JpegOutput* const out,
+    JpegState* const out,
     v4l2_format const& format,
     v4l2_rect const& rect,
     MappedBuffer const& map
@@ -617,7 +626,11 @@ void save_jpeg(
         "Receiving JPEG from encoder"
     );
 
-    auto const path = fmt::format("{}.{:04d}.jpeg", out->prefix, out->count++);
+    auto const path = fmt::format("{}.{:04}.jpeg", out->prefix, out->count++);
+    if (print_io) {
+        fmt::print("Saving JPEG ({}b): {}\n", out->packet->size, path);
+    }
+
     int const fd = open(path.c_str(), O_WRONLY | O_CREAT, 0666);
     if (fd < 0) {
         fmt::print("*** {}: {}\n", path, strerror(errno));
@@ -633,7 +646,7 @@ void save_jpeg(
 }
 
 // Initialize KMS for displaying video frames
-void setup_screen(ScreenOutput* const out) {
+void setup_screen(ScreenState* const out) {
     out->fd = open(out->device.c_str(), O_RDWR);
     if (out->fd < 0) {
         fmt::print("*** {}: {}\n", out->device, strerror(errno));
@@ -642,6 +655,7 @@ void setup_screen(ScreenOutput* const out) {
 
     if (drmSetMaster(out->fd)) {
         fmt::print("*** Claiming ({}): {}\n", out->device, strerror(errno));
+        // Don't exit, go ahead and try to see if things work anyway.
     }
 
     drmSetClientCap(out->fd, DRM_CLIENT_CAP_ATOMIC, 1);
@@ -735,6 +749,13 @@ void setup_screen(ScreenOutput* const out) {
         exit(1);
     }
 
+    fmt::print(
+        "SCREEN: {} plane={} » crtc={} » enc={} » conn={} ({}x{}x{}Hz)\n",
+        out->device, out->plane_id, out->crtc_id, enc->encoder_id,
+        out->connector_id, out->mode_info.hdisplay, out->mode_info.vdisplay,
+        out->mode_info.vrefresh
+    );
+
     drmModeFreePlaneResources(planes);
     drmModeFreeEncoder(enc);
     drmModeFreeConnector(conn);
@@ -743,7 +764,7 @@ void setup_screen(ScreenOutput* const out) {
 
 // Initialize one video buffer (from V4L2) to use as a KMS framebuffer
 void setup_screen_buffer(
-    ScreenOutput* const out,
+    ScreenState* const out,
     v4l2_format const& format,
     v4l2_rect const& rect,
     MappedBuffer* map
@@ -795,8 +816,8 @@ void setup_screen_buffer(
 }
 
 // Show a decoded video frame on screen
-void show_screen(
-    ScreenOutput* const out,
+void flip_screen(
+    ScreenState* const out,
     v4l2_format const& format,
     v4l2_rect const& rect,
     MappedBuffer* map
@@ -831,10 +852,22 @@ void show_screen(
     add(out->plane_id, "SRC_W", rect.width << 16);
     add(out->plane_id, "SRC_H", rect.height << 16);
 
+    if (print_io) {
+        fmt::print(
+            "Showing   dec buf #{:<2d} fb={:<3d} » plane={} » "
+            "crtc={} » conn={} ({}x{}x{}Hz)\n",
+            map->index, map->drm_framebuffer,
+            out->plane_id, out->crtc_id, out->connector_id,
+            out->mode_info.hdisplay, out->mode_info.vdisplay,
+            out->mode_info.vrefresh
+        );
+    }
+
     if (drmModeAtomicCommit(
         out->fd, out->atomic_req, DRM_MODE_ATOMIC_ALLOW_MODESET, nullptr
     )) {
         fmt::print("*** DRM atomic commit: {}\n", strerror(errno));
+        exit(1);
     }
 
     // TODO don't recycle buffer until it's swapped out!
@@ -843,8 +876,8 @@ void show_screen(
 void run_decoder(
     InputFromFile const& input,
     int const fd,
-    JpegOutput* jpeg_output,
-    ScreenOutput* screen_output
+    JpegState* jpeg_state,
+    ScreenState* screen_state
 ) {
     if (!input.packet->buf) {
         fmt::print("*** No packets in input stream #{}\n", input.stream->index);
@@ -865,16 +898,19 @@ void run_decoder(
     auto const decoded_buf_type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     auto const time_base = av_q2d(input.stream->time_base);
     v4l2_format decoded_format = {};
-    v4l2_rect decoded_rect = {};
+    v4l2_rect valid_rect = {};
 
-    int frame_count = 0;
-    time_t frame_sec = 0;
+    int decoded_count = 0;
+    time_t last_status_sec = 0;
+    double last_received_s = 0;
     auto const start_t = std::chrono::steady_clock::now();
 
     bool end_of_stream = false;
     bool decoded_changed = false;
     bool decoded_done = true;  // Until SOURCE_CHANGE.
     while (!end_of_stream || !decoded_done || input.packet->buf) {
+        bool made_progress = false;  // Used to control busy-loop delay.
+
         // Reclaim encoded buffers once consumed by the decoder.
         v4l2_buffer dqbuf = {};
         dqbuf.type = encoded_buf_type;
@@ -889,10 +925,11 @@ void run_decoder(
                 fmt::print("*** Bad reclaimed index: #{}\n", dqbuf.index);
                 exit(1);
             }
-            if (print_io_flag) {
+            if (print_io) {
                 fmt::print("Reclaimed {}\n", describe(dqbuf));
             }
             encoded_free.push_back(encoded_maps[dqbuf.index].get());
+            made_progress = true;
         }
         if (errno != EAGAIN) {
             fmt::print("*** Reclaiming encoded buffer: {}\n", strerror(errno));
@@ -928,14 +965,15 @@ void run_decoder(
             }
 
             memcpy(map->mmap, input.packet->data, input.packet->size);
+            if (print_io) {
+                fmt::print("Sending   {}\n", describe(qbuf));
+            }
             if (ioctl(fd, VIDIOC_QBUF, &qbuf)) {
                 fmt::print("*** Sending encoded buffer: {}\n", strerror(errno));
                 exit(1);
             }
-            if (print_io_flag) {
-                fmt::print("Sent      {}\n", describe(qbuf));
-            }
 
+            made_progress = true;
             next_input_packet(input);
             if (!input.packet->buf) {
                 v4l2_decoder_cmd command = {};
@@ -962,16 +1000,19 @@ void run_decoder(
             qbuf.length = 1;
             qbuf.m.planes = &qbuf_plane;
 
+            if (print_io) {
+                fmt::print("Recycling {}\n", describe(qbuf));
+            }
             if (ioctl(fd, VIDIOC_QBUF, &qbuf)) {
                 fmt::print("*** Recycling buffer: {}\n", strerror(errno));
                 exit(1);
-            } else if (print_io_flag) {
-                fmt::print("Recycled  {}\n", describe(qbuf));
             }
+            made_progress = true;
         }
 
         // Receive decoded data and add the buffers to the free list.
-        while (!decoded_done) {
+        // Only process *one* frame to prioritize keeping the decoder busy.
+        if (!decoded_done) {
             v4l2_buffer dqbuf = {};
             dqbuf.type = decoded_buf_type;
             dqbuf.memory = V4L2_MEMORY_MMAP;
@@ -981,48 +1022,82 @@ void run_decoder(
             dqbuf.m.planes = &dqbuf_plane;
 
             if (ioctl(fd, VIDIOC_DQBUF, &dqbuf)) {
-                if (errno == EAGAIN) break;  // No more buffers.
                 if (errno == EPIPE) {
                     fmt::print("--- EPIPE => Decoded stream fully drained\n");
                     decoded_done = true;
                     continue;
+                } else if (errno != EAGAIN) {
+                    fmt::print("*** Receiving buffer: {}\n", strerror(errno));
+                    exit(1);
                 }
-                fmt::print("*** Receiving buffer: {}\n", strerror(errno));
-                exit(1);
-            }
+            } else {
+                auto const received_t = std::chrono::steady_clock::now();
+                if (print_io) {
+                    fmt::print("Received  {}\n", describe(dqbuf));
+                }
+                if (dqbuf.index > decoded_maps.size()) {
+                    fmt::print("*** Bad decoded index: #{}\n", dqbuf.index);
+                    exit(1);
+                }
 
-            if (dqbuf.index > decoded_maps.size()) {
-                fmt::print("*** Bad decoded index: #{}\n", dqbuf.index);
-                exit(1);
-            }
+                auto* map = decoded_maps[dqbuf.index].get();
+                if (dqbuf.flags & V4L2_BUF_FLAG_LAST) {
+                    fmt::print("--- LAST flag => Decoded stream is drained\n");
+                    decoded_done = true;
+                }
 
-            auto* map = decoded_maps[dqbuf.index].get();
-            if (print_io_flag) {
-                fmt::print("Received  {}\n", describe(dqbuf));
-            }
-            if (dqbuf.flags & V4L2_BUF_FLAG_LAST) {
-                fmt::print("--- LAST flag => Decoded stream is drained\n");
-                decoded_done = true;
-            }
+                auto const received_s =
+                    std::chrono::duration<double>(received_t - start_t).count();
+                auto const scheduled_s =
+                    dqbuf.timestamp.tv_sec + 1e-6 * dqbuf.timestamp.tv_usec +
+                    start_delay;
 
-            if (!jpeg_output->prefix.empty()) {
-                save_jpeg(jpeg_output, decoded_format, decoded_rect, *map);
-            }
+                if (!flat_out && scheduled_s > received_s) {
+                    double const sleep_s = scheduled_s - received_s;
+                    if (print_io) fmt::print("Sleep for {:.3f}s\n", sleep_s);
+                    std::chrono::duration<double> sleep_d{sleep_s};
+                    std::this_thread::sleep_for(sleep_d);
+                }
 
-            if (!screen_output->device.empty()) {
-                show_screen(screen_output, decoded_format, decoded_rect, map);
-            }
+                if (!jpeg_state->prefix.empty()) {
+                    save_jpeg(jpeg_state, decoded_format, valid_rect, *map);
+                }
 
-            decoded_free.push_back(map);
+                if (!screen_state->device.empty()) {
+                    flip_screen(screen_state, decoded_format, valid_rect, map);
+                }
 
-            ++frame_count;
-            if (dqbuf.timestamp.tv_sec > frame_sec) {
-                frame_sec = dqbuf.timestamp.tv_sec;
-                double const elapsed_t = std::chrono::duration<double>(
-                    std::chrono::steady_clock::now() - start_t).count();
-                fmt::print(
-                    "::: {}fr decoded / {:.1f}s elapsed = {:.2f} fps\n",
-                    frame_count, elapsed_t, frame_count / elapsed_t);
+                auto const show_t = std::chrono::steady_clock::now();
+                auto const show_s =
+                    std::chrono::duration<double>(show_t - start_t).count()
+                    - start_delay;
+
+                if (print_frames) {
+                    fmt::print(
+                        "Frame #{:<4} {:6.3f}s {:+.3f} {:.3f}/f; "
+                        "sched {:6.3f}s {:.3f}/f ({:+.3f}s {})\n",
+                        decoded_count,
+                        received_s, received_s - last_received_s,
+                        decoded_count ? received_s / decoded_count : 0.0,
+                        scheduled_s, 
+                        decoded_count ? scheduled_s / decoded_count : 0.0,
+                        received_s - scheduled_s,
+                        scheduled_s > received_s ? "early" : "late"
+                    );
+                } else if (
+                    dqbuf.timestamp.tv_sec > last_status_sec && show_s > 0
+                ) {
+                    last_status_sec = dqbuf.timestamp.tv_sec;
+                    fmt::print(
+                        "::: {:>4}f / {:.2f}s elapsed = {:.1f}fps\n",
+                        decoded_count + 1, show_s, (decoded_count + 1) / show_s
+                    );
+                }
+
+                decoded_free.push_back(map);
+                last_received_s = received_s;
+                made_progress = true;
+                ++decoded_count;
             }
         }
 
@@ -1053,49 +1128,57 @@ void run_decoder(
             decoded_done = decoded_changed = false;  // Restart
             decoded_free.clear();
             setup_decoded_stream(
-                fd, &decoded_maps, &decoded_format, &decoded_rect
+                fd, &decoded_maps, &decoded_format, &valid_rect
             );
             for (auto const &m : decoded_maps) decoded_free.push_back(m.get());
         }
 
-        // Wait 10ms before polling again -- TODO use poll() instead?
-        fflush(stdout);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (!made_progress) {
+            // Wait 10ms before polling again -- TODO use poll() instead?
+            fflush(stdout);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
 }
 
 int main(int argc, char** argv) {
-    std::string input_file;
-    JpegOutput jpeg_output = {};
-    ScreenOutput screen_output = {};
+    std::string media_file;
+    JpegState jpeg_state = {};
+    ScreenState screen_state = {};
 
     CLI::App app("Use V4L2 to decode an H.264 video file");
-    app.add_option("--input", input_file, "Media file or URL")->required();
-    app.add_flag("--print_io", print_io_flag, "Print buffer operations");
+    app.add_option("--media", media_file, "Media file or URL")->required();
+    app.add_option(
+        "--frame_prefix", jpeg_state.prefix, "Save JPEGs with this prefix"
+    );
+    app.add_option(
+        "--screen_dev", screen_state.device, "Display on this DRI device"
+    );
+    app.add_option(
+        "--screen_id", screen_state.connector_id, "Use this DRI connector ID"
+    )->needs("--screen_dev");
+
+    app.add_flag("--flat_out", flat_out, "Decode without frame rate delay");
+    app.add_option("--start_delay", start_delay, "Startup prebuffering time");
+
+    app.add_flag("--print_frames", print_frames, "Print decoded frame info");
+    app.add_flag("--print_io", print_io, "Print buffer operations");
+
     app.add_option("--encoded_buffer_size", encoded_buffer_size, "Bytes/buf");
     app.add_option("--encoded_buffers", encoded_buffer_count, "Buffer count");
     app.add_option("--decoded_buffers", decoded_buffer_count, "Buffer count");
-    app.add_option(
-        "--frame_prefix", jpeg_output.prefix, "Save JPEGs with this prefix"
-    );
-    app.add_option(
-        "--screen_dev", screen_output.device, "Show on this DRI device"
-    );
-    app.add_option(
-        "--screen_id", screen_output.connector_id, "DRI connector ID"
-    )->needs("--screen_dev");
 
     CLI11_PARSE(app, argc, argv);
 
-    if (!screen_output.device.empty() && !screen_output.connector_id) {
+    if (!screen_state.device.empty() && !screen_state.connector_id) {
        fmt::print("*** --screen_dev requires --screen_id\n");
        exit(1);
     }
 
-    auto const input = open_input(input_file);
+    auto const input = open_input(media_file);
     int const decoder_fd = open_decoder();
 
-    run_decoder(*input, decoder_fd, &jpeg_output, &screen_output);
+    run_decoder(*input, decoder_fd, &jpeg_state, &screen_state);
     close(decoder_fd);
     fmt::print("Closed and complete!\n");
     return 0;
