@@ -13,11 +13,6 @@ from subprocess import check_call, check_output
 
 source_dir = Path(__file__).resolve().parent
 build_dir = source_dir / "build"
-venv_dir = build_dir / "python_venv"
-venv_bin = venv_dir / "bin"
-conan_bin = venv_bin / "conan"
-conan_profile = build_dir / "conan-profile.txt"
-conan_install = build_dir / "conan-install"
 
 print("=== System packages (sudo apt install ...) ===")
 apt_packages = ["build-essential", "direnv", "python3"]
@@ -33,21 +28,34 @@ build_dir.mkdir(exist_ok=True)
 
 print()
 print(f"=== Python packages (pip install ...) ===")
+venv_dir = build_dir / "python_venv"
+venv_bin = venv_dir / "bin"
+
 if not venv_dir.is_dir():
     venv.create(venv_dir, symlinks=True, with_pip=True)
     check_call(["direnv", "allow", source_dir])
-check_call([venv_bin / "pip", "install", "conan", "meson", "ninja"])
+
+python_packages = ["conan", "meson", "ninja"]
+if not all(
+    any(venv_dir.glob(f"lib/python*/site-packages/{p}-*.dist-info"))
+    for p in python_packages
+):
+    check_call([venv_bin / "pip", "install"] + python_packages)
 
 print()
 print(f"=== Conan (C++) packages (conan install ...) ===")
+conan_bin = venv_bin / "conan"
+conan_home = Path.home() / ".conan"
+conan_profile = build_dir / "conan-profile.txt"
+conan_install = build_dir / "conan-install"
 os.environ["CONAN_V2_MODE"] = "1"
+
 check_call([conan_bin, "config", "init"])
 check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
-check_call([
-    conan_bin, "remote", "add", "--force", "bincrafters-legacy",
-    "https://bincrafters.jfrog.io/artifactory/api/conan/conan-legacy-bincrafters",
-])
-check_call([conan_bin, "profile", "new", "--force", "--detect", conan_profile])
+
+bc_url = "https://bincrafters.jfrog.io/artifactory/api/conan/conan-legacy-bincrafters"
+check_call([conan_bin, "remote", "add", "--force", "bincrafters", bc_url])
+check_call([conan_bin, "profile", "new", "--detect", "--force", conan_profile])
 check_call([
     conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",
     conan_profile
