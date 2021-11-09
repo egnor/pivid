@@ -35,12 +35,11 @@ extern "C" {
 bool flat_out = false;
 double start_delay = 0.2;
 
-bool print_io = false;
-bool print_frames = false;
-
 int encoded_buffer_size = 0;
 int encoded_buffer_count = 16;
 int decoded_buffer_count = 16;
+
+bool print_io = false;
 
 struct InputFromFile {
     AVFormatContext* context = nullptr;
@@ -655,7 +654,7 @@ void setup_screen(ScreenState* const out) {
 
     if (drmSetMaster(out->fd)) {
         fmt::print("*** Claiming ({}): {}\n", out->device, strerror(errno));
-        // Don't exit, go ahead and try to see if things work anyway.
+        exit(1);
     }
 
     drmSetClientCap(out->fd, DRM_CLIENT_CAP_ATOMIC, 1);
@@ -816,11 +815,11 @@ void setup_screen_buffer(
 }
 
 // Show a decoded video frame on screen
-void flip_screen(
+void show_screen(
     ScreenState* const out,
     v4l2_format const& format,
     v4l2_rect const& rect,
-    MappedBuffer* map
+    MappedBuffer* const map
 ) {
     if (out->fd < 0) setup_screen(out);
     if (!map->drm_framebuffer) setup_screen_buffer(out, format, rect, map);
@@ -869,15 +868,13 @@ void flip_screen(
         fmt::print("*** DRM atomic commit: {}\n", strerror(errno));
         exit(1);
     }
-
-    // TODO don't recycle buffer until it's swapped out!
 }
 
 void run_decoder(
     InputFromFile const& input,
     int const fd,
-    JpegState* jpeg_state,
-    ScreenState* screen_state
+    JpegState* const jpeg_state,
+    ScreenState* const screen_state
 ) {
     if (!input.packet->buf) {
         fmt::print("*** No packets in input stream #{}\n", input.stream->index);
@@ -891,6 +888,7 @@ void run_decoder(
     setup_encoded_stream(fd, &encoded_maps);
     // Don't set up decoded stream until SOURCE_CHANGE event.
 
+    MappedBuffer* on_screen = nullptr;
     std::deque<MappedBuffer*> encoded_free, decoded_free;
     for (auto const &m : encoded_maps) encoded_free.push_back(m.get());
 
@@ -901,7 +899,6 @@ void run_decoder(
     v4l2_rect valid_rect = {};
 
     int decoded_count = 0;
-    time_t last_status_sec = 0;
     double last_received_s = 0;
     auto const start_t = std::chrono::steady_clock::now();
 
@@ -1064,37 +1061,26 @@ void run_decoder(
                 }
 
                 if (!screen_state->device.empty()) {
-                    flip_screen(screen_state, decoded_format, valid_rect, map);
+                    // Don't recycle the buffer until it's offscreen!
+                    show_screen(screen_state, decoded_format, valid_rect, map);
+                    if (on_screen) decoded_free.push_back(on_screen);
+                    on_screen = map;
+                } else {
+                    decoded_free.push_back(map);
                 }
 
-                auto const show_t = std::chrono::steady_clock::now();
-                auto const show_s =
-                    std::chrono::duration<double>(show_t - start_t).count()
-                    - start_delay;
+                fmt::print(
+                    "Frame #{:<4} {:6.3f}s {:+.3f} {:.3f}/f; "
+                    "sched {:6.3f}s {:.3f}/f ({:+.3f}s {})\n",
+                    decoded_count,
+                    received_s, received_s - last_received_s,
+                    decoded_count ? received_s / decoded_count : 0.0,
+                    scheduled_s, 
+                    decoded_count ? scheduled_s / decoded_count : 0.0,
+                    received_s - scheduled_s,
+                    scheduled_s > received_s ? "early" : "late"
+                );
 
-                if (print_frames) {
-                    fmt::print(
-                        "Frame #{:<4} {:6.3f}s {:+.3f} {:.3f}/f; "
-                        "sched {:6.3f}s {:.3f}/f ({:+.3f}s {})\n",
-                        decoded_count,
-                        received_s, received_s - last_received_s,
-                        decoded_count ? received_s / decoded_count : 0.0,
-                        scheduled_s, 
-                        decoded_count ? scheduled_s / decoded_count : 0.0,
-                        received_s - scheduled_s,
-                        scheduled_s > received_s ? "early" : "late"
-                    );
-                } else if (
-                    dqbuf.timestamp.tv_sec > last_status_sec && show_s > 0
-                ) {
-                    last_status_sec = dqbuf.timestamp.tv_sec;
-                    fmt::print(
-                        "::: {:>4}f / {:.2f}s elapsed = {:.1f}fps\n",
-                        decoded_count + 1, show_s, (decoded_count + 1) / show_s
-                    );
-                }
-
-                decoded_free.push_back(map);
                 last_received_s = received_s;
                 made_progress = true;
                 ++decoded_count;
@@ -1134,14 +1120,14 @@ void run_decoder(
         }
 
         if (!made_progress) {
-            // Wait 10ms before polling again -- TODO use poll() instead?
+            // Wait 10ms before polling again. (Could use poll() instead.)
             fflush(stdout);
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
 }
 
-int main(int argc, char** argv) {
+int main(int const argc, char const* const* const argv) {
     std::string media_file;
     JpegState jpeg_state = {};
     ScreenState screen_state = {};
@@ -1161,12 +1147,11 @@ int main(int argc, char** argv) {
     app.add_flag("--flat_out", flat_out, "Decode without frame rate delay");
     app.add_option("--start_delay", start_delay, "Startup prebuffering time");
 
-    app.add_flag("--print_frames", print_frames, "Print decoded frame info");
-    app.add_flag("--print_io", print_io, "Print buffer operations");
-
     app.add_option("--encoded_buffer_size", encoded_buffer_size, "Bytes/buf");
     app.add_option("--encoded_buffers", encoded_buffer_count, "Buffer count");
     app.add_option("--decoded_buffers", decoded_buffer_count, "Buffer count");
+
+    app.add_flag("--print_io", print_io, "Print buffer operations");
 
     CLI11_PARSE(app, argc, argv);
 

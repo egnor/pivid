@@ -17,7 +17,7 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-bool verbose_flag = false;  // Set by flag in main()
+bool print_properties_flag = false;  // Set by flag in main()
 
 // Scan all DRM/KMS capable video cards and print a line for each.
 void scan_gpus() {
@@ -173,7 +173,7 @@ void inspect_gpu(std::string const& path) {
         "Driver: {} v{} ({}x{} max)\n",
         ver->name, ver->date, res->max_width, res->max_height
     );
-    if (verbose_flag) {
+    if (print_properties_flag) {
         uint64_t v = 0;
 #define C(X) \
         if (!drmGetCap(fd, DRM_CAP_##X, &v)) \
@@ -250,7 +250,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (verbose_flag) print_properties(fd, id);
+        if (print_properties_flag) print_properties(fd, id);
         drmModeFreePlane(plane);
     }
     fmt::print("\n");
@@ -288,7 +288,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (verbose_flag) print_properties(fd, id);
+        if (print_properties_flag) print_properties(fd, id);
         drmModeFreeCrtc(crtc);
     }
     fmt::print("\n");
@@ -334,7 +334,7 @@ void inspect_gpu(std::string const& path) {
         }
 
         fmt::print("\n");
-        if (verbose_flag) print_properties(fd, id);
+        if (print_properties_flag) print_properties(fd, id);
         drmModeFreeEncoder(enc);
     }
     fmt::print("\n");
@@ -396,7 +396,7 @@ void inspect_gpu(std::string const& path) {
         }
         fmt::print("\n");
 
-        if (verbose_flag) {
+        if (print_properties_flag) {
             print_properties(fd, id);
             for (int mi = 0; mi < conn->count_modes; ++mi) {
                 auto const& mode = conn->modes[mi];
@@ -472,7 +472,10 @@ int main(int argc, char** argv) {
 
     CLI::App app("Inspect kernel display (DRM/KMS) devices");
     app.add_option("--dev", dev, "DRM/KMS device (in /dev/dri) to inspect");
-    app.add_flag("--verbose", verbose_flag, "Print properties and modes");
+    app.add_flag(
+        "--print_properties", print_properties_flag,
+        "List properties, capabilities, and modes"
+    );
     CLI11_PARSE(app, argc, argv);
 
     if (!dev.empty()) {
