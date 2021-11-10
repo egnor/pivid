@@ -1,4 +1,0 @@
-sources:
-  '4.4':
-    sha256: 42093549751b582cf0f338a21a3664f52e0a9fbe0d238d3c992005e493607d0e
-    url: https://ffmpeg.org/releases/ffmpeg-4.4.tar.bz2

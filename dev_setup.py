@@ -15,7 +15,7 @@ source_dir = Path(__file__).resolve().parent
 build_dir = source_dir / "build"
 
 print("=== System packages (sudo apt install ...) ===")
-apt_packages = ["build-essential", "direnv", "python3"]
+apt_packages = ["build-essential", "cmake", "direnv", "python3"]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
 installed = installed.decode().split()
 if not all(p in installed for p in apt_packages):
@@ -54,7 +54,9 @@ check_call([conan_bin, "config", "init"])
 check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
 
 bc_url = "https://bincrafters.jfrog.io/artifactory/api/conan/conan-legacy-bincrafters"
+pi_url = "https://egnor.jfrog.io/artifactory/api/conan/raspberry-pi"
 check_call([conan_bin, "remote", "add", "--force", "bincrafters", bc_url])
+check_call([conan_bin, "remote", "add", "--force", "egnor-pi", pi_url])
 check_call([conan_bin, "profile", "new", "--detect", "--force", conan_profile])
 check_call([
     conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",

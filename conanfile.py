@@ -8,13 +8,15 @@ class PividConan(conans.ConanFile):
     generators = "pkg_config"  # Used by the Meson build helper (below)
 
     requires = [
-        "cli11/2.1.1", "ffmpeg/4.4", "fmt/8.0.1",
+        "cli11/2.1.1", "ffmpeg/4.3+rpi@egnor/pi", "fmt/8.0.1",
         "libdrm/2.4.100@bincrafters/stable",
     ]
 
     default_options = {
         # Omit as much of ffmpeg as possible to minimize dependency build time
-        "ffmpeg:postproc": False, **{
+        "ffmpeg:postproc": False,
+        "ffmpeg:with_rpi": True,
+        **{
             f"ffmpeg:with_{lib}": False for lib in [
                 "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
                 "libmp3lame", "libvpx", "libwebp", "libx264", "libx265",

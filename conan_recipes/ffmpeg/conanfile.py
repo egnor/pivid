@@ -52,6 +52,9 @@ class FFMpegConan(ConanFile):
         "with_audiotoolbox": [True, False],
         "with_videotoolbox": [True, False],
         "with_programs": [True, False],
+
+        # Added for +rpi --egnor
+        "with_rpi": [True, False],
     }
     default_options = {
         "shared": False,
@@ -86,6 +89,9 @@ class FFMpegConan(ConanFile):
         "with_audiotoolbox": True,
         "with_videotoolbox": True,
         "with_programs": True,
+
+        # Added for +rpi --egnor
+        "with_rpi": True,
     }
 
     generators = "pkg_config"
@@ -172,6 +178,10 @@ class FFMpegConan(ConanFile):
         if self.options.get_safe("with_vdpau"):
             self.requires("vdpau/system")
 
+        # Added for +rpi --egnor
+        # TODO: Add libdrm to egnor/pi channel
+        self.requires("libdrm/2.4.100@bincrafters/stable")
+
     def validate(self):
         if self.options.with_ssl == "securetransport" and not tools.is_apple_os(self.settings.os):
             raise ConanInvalidConfiguration("securetransport is only available on Apple")
@@ -184,8 +194,14 @@ class FFMpegConan(ConanFile):
             self.build_requires("msys2/cci.latest")
 
     def source(self):
-        tools.get(**self.conan_data["sources"][self.version],
-                  destination=self._source_subfolder, strip_root=True)
+        # Modified for +rpi --egnor
+        # tools.get(**self.conan_data["sources"][self.version],
+        #           destination=self._source_subfolder, strip_root=True)
+        tools.Git(folder=self._source_subfolder).clone(
+            url="https://github.com/jc-kynesim/rpi-ffmpeg/",
+            branch="release/4.3/rpi_main",
+            shallow=True
+        )
 
     @property
     def _target_arch(self):
@@ -278,7 +294,11 @@ class FFMpegConan(ConanFile):
             "--disable-cuvid",  # FIXME: CUVID support
             # Licenses
             opt_enable_disable("nonfree", self.options.with_libfdk_aac),
-            opt_enable_disable("gpl", self.options.with_libx264 or self.options.with_libx265 or self.options.postproc)
+            opt_enable_disable("gpl", self.options.with_libx264 or self.options.with_libx265 or self.options.postproc),
+
+            # Added for +rpi --egnor
+            opt_enable_disable("rpi", self.options.with_rpi),
+            opt_enable_disable("sand", self.options.with_rpi),
         ]
         args.append("--arch={}".format(self._target_arch))
         if self.settings.build_type == "Debug":
