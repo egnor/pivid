@@ -5,8 +5,16 @@ Experimental video code for Linux / Raspberry Pi
 1. Run `./dev_setup.py`. (Works On My Machine™, YMMV)
 2. Run `ninja -C build` to run the actual build (this is the only part to repeat after edits).
 3. Run binaries from `build` (like `build/pivid_test_decode`).
+4. If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 
-If things get weird, `rm -rf build` and start over with `dev_setup.py`.
+Notable programs:
+
+* `pivid_test_decode` - play an H.264 video file via KMS/DRM (stop X first)
+* `pivid_inspect_avformat` - print a summary of streams in a video file
+* `pivid_inspect_kms` - print capabilities & properties of KMS/DRM devices
+* `pivid_inspect_v4l2` - print capabilities & properties of V4L2 devices
+
+Use `--help` to see usage (and/or read the source).
 
 ## Notes and links
 

@@ -1,4 +1,25 @@
-// Simple command line tool to exercise h.264 decoding via V4L2
+// Simple command line tool to exercise H.264 decoding via V4L2.
+// THIS IS NOT A GOOD VIDEO PLAYER, it is just a proof of concept.
+//
+// To play an H.264-encoded video file:
+//   - Stop X and other display users (e.g. "systemctl stop lightdm")
+//   - Run this program: build/pivid_test_decode --media=your_video_file.mp4
+//   - Maybe it works?
+//
+// Use --help to see other flags.
+//
+// This program is mostly intended for the Raspberry Pi, though it might
+// work on any machine with similar hardware. It will use the first active
+// screen and its default ("preferred") video mode.
+//
+// High level approach:
+// - use libavformat to get H.264 data from the container (.mp4, .mkv, etc)
+// - send the H.264 to the V4L2 decoder device in memory-mapped buffers
+// - get decoded frames back; "export" the buffers to DMA-BUF
+// - "import" the DMA-BUF buffers as framebuffers in KMS
+// - use KMS atomic mode switching to switch the framebuffer
+//
+// See README.md for links and notes.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -32,15 +53,15 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
+// Command line options set in main()
 bool flat_out = false;
 double start_delay = 0.2;
-
 int encoded_buffer_size = 0;
 int encoded_buffer_count = 16;
 int decoded_buffer_count = 16;
-
 bool print_io = false;
 
+// State associated with using libavformat to extract H.264 from a media file
 struct InputFromFile {
     AVFormatContext* context = nullptr;
     AVStream* stream = nullptr;
@@ -50,7 +71,7 @@ struct InputFromFile {
     InputFromFile() {}
     ~InputFromFile() {
         if (packet) av_packet_free(&packet);
-        // if (filter) av_bsf_free(&filter);  // Seems to cause double-free??
+        // if (filter) av_bsf_free(&filter);  // Seems to double-free things??
         if (context) avformat_close_input(&context);
     }
 
@@ -58,6 +79,8 @@ struct InputFromFile {
     void operator=(InputFromFile const&) = delete;
 };
 
+// State associated with using libavcodec to generate JPEG files
+// (if the --frame_prefix option is used to save every frame)
 struct JpegState {
     std::string prefix;
     AVCodecContext* context = nullptr;
@@ -76,8 +99,9 @@ struct JpegState {
     void operator=(JpegState const&) = delete;
 };
 
+// State associated with sending buffers to KMS for on-screen display
 struct ScreenState {
-    std::string device;
+    std::string device = "/dev/dri/card0";
     int fd = -1;
     uint32_t connector_id = 0;
     uint32_t crtc_id = 0;
@@ -102,6 +126,8 @@ struct ScreenState {
     void operator=(ScreenState const&) = delete;
 };
 
+// A single kernel memory buffer, used either for sending H.264 data to V4L2
+// or for moving a decoded frame from V4L2 to KMS (or saving as a JPEG)
 struct MappedBuffer {
     int index = 0;
     void *mmap = nullptr;
@@ -120,6 +146,7 @@ struct MappedBuffer {
     void operator=(MappedBuffer const&) = delete;
 };
 
+// Utility to print error messages for libavformat / libavcodec functions
 void avcheck(int averr, std::string const& text) {
     if (averr < 0) {
         char buf[AV_ERROR_MAX_STRING_SIZE];
@@ -132,12 +159,17 @@ void avcheck(int averr, std::string const& text) {
 // Updates input.packet with the next packet from filtered input.
 // At EOF, the packet will be empty (!input.packet->buf).
 void next_input_packet(InputFromFile const& input) {
+    // Packets are read from libavformat and sent to the "bitstream filter"
+    // the changes their headers as needed for V4L2.
     for (;;) {
+        // Read anything pending from the bitstream filter.
         av_packet_unref(input.packet);
         int const filt_err = av_bsf_receive_packet(input.filter, input.packet);
         if (filt_err >= 0 || filt_err == AVERROR_EOF) return;
         if (filt_err != AVERROR(EAGAIN)) avcheck(filt_err, "Input filter");
 
+        // If the bitstream filter is empty, feed it more input data,
+        // skipping anything that isn't from the stream with H.264 data.
         do {
             av_packet_unref(input.packet);
             int const codec_err = av_read_frame(input.context, input.packet);
@@ -149,7 +181,7 @@ void next_input_packet(InputFromFile const& input) {
     }
 }
 
-// Opens media file with libavformat and finds H.264 stream
+// Opens a media file with libavformat and finds the H.264 stream.
 std::unique_ptr<InputFromFile> open_input(const std::string& url) {
     auto in = std::make_unique<InputFromFile>();
     avcheck(
@@ -161,6 +193,7 @@ std::unique_ptr<InputFromFile> open_input(const std::string& url) {
 
     fmt::print("Media file: {}\n", url);
 
+    // Find a stream with H.264 video data.
     for (uint32_t si = 0; si < in->context->nb_streams; ++si) {
         auto* maybe = in->context->streams[si];
         if (maybe->codecpar && maybe->codecpar->codec_id == AV_CODEC_ID_H264) {
@@ -181,6 +214,9 @@ std::unique_ptr<InputFromFile> open_input(const std::string& url) {
         av_q2d(in->stream->avg_frame_rate)
     );
 
+    // Initialize the "mp4 to annex B" filter; libavcodec provides H.264
+    // data in "mp4" format, V4L2 needs it with "Annex B" headers.
+    // https://wiki.multimedia.cx/index.php/H.264
     auto const* const filter_type = av_bsf_get_by_name("h264_mp4toannexb");
     if (!filter_type) {
         fmt::print("*** No \"h264_mp4toannexb\" bitstream filter available\n");
@@ -201,8 +237,9 @@ std::unique_ptr<InputFromFile> open_input(const std::string& url) {
     return in;
 }
 
-// Scan V4L2 devices and find H.264 decoder
+// Finds and opens a V4L2 device offering memory-to-memory H.264 decoding.
 int open_decoder() {
+    // Look for /dev/videoN entries.
     std::filesystem::path const dev_dir = "/dev";
     for (const auto& entry : std::filesystem::directory_iterator(dev_dir)) {
         std::string const filename = entry.path().filename();
@@ -217,6 +254,7 @@ int open_decoder() {
             continue;
         }
 
+        // Look for the capabilities and formats we need.
         // We don't use MPLANE support but it's what the Pi decoder has.
         // To be more general we'd check for non-MPLANE VIDEO_M2M also.
         v4l2_fmtdesc format = {};
@@ -246,6 +284,7 @@ int open_decoder() {
     exit(1);
 }
 
+// Formats a buffer type (to-decoder or from-encoder) for debugging.
 std::string describe(v4l2_buf_type type) {
     switch (type) {
         case V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE: return "dec";
@@ -254,6 +293,7 @@ std::string describe(v4l2_buf_type type) {
     }
 }
 
+// Formats a "field" type (interlacing status) for debugging.
 std::string describe(v4l2_field const field) {
     switch (field) {
 #define F(X) case V4L2_FIELD_##X: return #X
@@ -272,6 +312,7 @@ std::string describe(v4l2_field const field) {
     }
 }
 
+// Formats a V4L2 buffer descriptor (not actual contents) for debugging.
 std::string describe(v4l2_buffer const& buf) {
     std::string out = fmt::format(
         "{} buf #{:<2d} t={:03}.{:03} {:4}",
@@ -323,6 +364,7 @@ std::string describe(v4l2_buffer const& buf) {
     return out + fmt::format(" {}", describe((v4l2_field) buf.field));
 }
 
+// Formats a V4L2 media format (and optional buffer count) for debugging.
 std::string describe(v4l2_format const& format, int num_buffers) {
     std::string out = describe((v4l2_buf_type) format.type);
     auto const& pix = format.fmt.pix_mp;
@@ -348,6 +390,9 @@ std::string describe(v4l2_format const& format, int num_buffers) {
     return out + "]";
 }
 
+// Queries V4L2 for buffers of the specified type, which must have been
+// previously created on the device. Each buffer is memory-mapped and a
+// MappedBuffer object generated for each one.
 std::vector<std::unique_ptr<MappedBuffer>> mmap_decoder_buffers(
     int const fd, v4l2_buf_type const type
 ) {
@@ -394,6 +439,7 @@ std::vector<std::unique_ptr<MappedBuffer>> mmap_decoder_buffers(
     return maps;
 }
 
+// Subscribes to V4L2 events of interest.
 void setup_decoder_events(int const fd) {
     v4l2_event_subscription subscribe = {};
     subscribe.type = V4L2_EVENT_SOURCE_CHANGE;
@@ -409,7 +455,8 @@ void setup_decoder_events(int const fd) {
     }
 }
 
-// "OUTPUT" (app-to-device, i.e. decoder *input*) setup
+// Sets up the "OUTPUT" (app-to-device, i.e. decoder *input*) channel
+// for H.264 input with a specified number of buffers.
 void setup_encoded_stream(
     int const fd, // int const width, int const height,
     std::vector<std::unique_ptr<MappedBuffer>>* const buffers
@@ -453,7 +500,8 @@ void setup_encoded_stream(
     fmt::print("ON: {}\n", describe(encoded_format, encoded_reqbuf.count));
 }
 
-// "CAPTURE" (device-to-app, i.e. decoder *output*) setup
+// Sets up the "CAPTURE" (device-to-app, i.e. decoder *output*) channel,
+// querying the decoder for the picture format and size.
 void setup_decoded_stream(
     int const fd,
     std::vector<std::unique_ptr<MappedBuffer>>* const buffers,
@@ -524,6 +572,7 @@ void setup_decoded_stream(
     }
 }
 
+// Sets up a software JPEG encoder used to save frame files, if enabled.
 void setup_jpeg(
     JpegState* const out,
     v4l2_rect const& rect
@@ -541,6 +590,8 @@ void setup_jpeg(
         exit(1);
     }
 
+    // The JPEG encoder will take (a flavor of) YUV420, which is what the
+    // H.264 decoder outputs, so we don't have to do color space conversion.
     out->context->pix_fmt = AV_PIX_FMT_YUVJ420P;  // "J" is JPEG color space
     out->context->width = rect.width;
     out->context->height = rect.height;
@@ -574,8 +625,7 @@ void setup_jpeg(
     }
 }
 
-
-// Write a decoded video frame to disk
+// Writes a decoded video frame as a JPEG file.
 void save_jpeg(
     JpegState* const out,
     v4l2_format const& format,
@@ -644,7 +694,7 @@ void save_jpeg(
     close(fd);
 }
 
-// Initialize KMS for displaying video frames
+// Initializes KMS for displaying video frames on screen.
 void setup_screen(ScreenState* const out) {
     out->fd = open(out->device.c_str(), O_RDWR);
     if (out->fd < 0) {
@@ -665,12 +715,29 @@ void setup_screen(ScreenState* const out) {
         exit(1);
     }
 
-    auto* const conn = drmModeGetConnector(out->fd, out->connector_id);
+    // Use the first active connector (video output) if it wasn't specified.
+    for (int ci = 0; ci < res->count_connectors && !out->connector_id; ++ci) {
+        auto* const conn = drmModeGetConnector(out->fd, res->connectors[ci]);
+        if (conn) {
+            if (conn->connection == DRM_MODE_CONNECTED) {
+                out->connector_id = conn->connector_id;
+            }
+            drmModeFreeConnector(conn);
+        }
+    }
+
+    if (!out->connector_id) {
+        fmt::print("*** {}: No active connector found\n");
+        exit(1);
+    }
+
+    auto* conn = drmModeGetConnector(out->fd, out->connector_id);
     if (!conn) {
         fmt::print("*** Screen #{}: {}\n", out->connector_id, strerror(errno));
         exit(1);
     }
 
+    // Get the preferred video mode used by the selected container.
     out->mode_blob = 0;
     for (int mi = 0; mi < conn->count_modes && !out->mode_blob; ++mi) {
         if (conn->modes[mi].type & DRM_MODE_TYPE_PREFERRED) {
@@ -689,6 +756,8 @@ void setup_screen(ScreenState* const out) {
         exit(1);
     }
 
+    // Use the first encoder associated with the connector to find
+    // a CRTC compatible with the connector.
     auto* const enc = drmModeGetEncoder(out->fd, conn->encoders[0]);
     if (!enc) {
         fmt::print("*** Encoder #{}: {}\n", conn->encoders[0], strerror(errno));
@@ -709,6 +778,8 @@ void setup_screen(ScreenState* const out) {
         exit(1);
     }
 
+    // Find a video plane compatible with the selected CRTC.
+    // This assumes the first plane will be the "primary" plane.
     out->plane_id = 0;
     for (uint32_t pi = 0; !out->plane_id && pi < planes->count_planes; ++pi) {
         auto* plane = drmModeGetPlane(out->fd, planes->planes[pi]);
@@ -724,10 +795,12 @@ void setup_screen(ScreenState* const out) {
         drmModeFreePlane(plane);
     }
     if (!out->plane_id) {
-        fmt::print("*** No plane compatible with CRTC #{}\n", out->crtc_id);
+        fmt::print("*** CRTC #{}: No compatible plane found\n", out->crtc_id);
         exit(1);
     }
 
+    // Scan property definitions on the connector, CRTC, and plane objects,
+    // for use in atomic mode setting updates.
     for (auto id : {out->connector_id, out->crtc_id, out->plane_id}) {
         auto const any_type = DRM_MODE_OBJECT_ANY;
         auto* const props = drmModeObjectGetProperties(out->fd, id, any_type);
@@ -742,6 +815,7 @@ void setup_screen(ScreenState* const out) {
         }
     }
 
+    // Allocate an atomic mode setting request for later use.
     out->atomic_req = drmModeAtomicAlloc();
     if (!out->atomic_req) {
         fmt::print("*** Allocating atomic request: {}\n", strerror(errno));
@@ -761,7 +835,7 @@ void setup_screen(ScreenState* const out) {
     drmModeFreeResources(res);
 }
 
-// Initialize one video buffer (from V4L2) to use as a KMS framebuffer
+// Initializes a video buffer (from V4L2) to use as a KMS framebuffer.
 void setup_screen_buffer(
     ScreenState* const out,
     v4l2_format const& format,
@@ -805,6 +879,7 @@ void setup_screen_buffer(
         0  // Unused
     };
 
+    // Create a framebuffer object using the memory buffer.
     if (drmModeAddFB2(
         out->fd, rect.width, rect.height, DRM_FORMAT_YUV420,
         drm_handles, pitches, offsets, &map->drm_framebuffer, 0
@@ -814,7 +889,9 @@ void setup_screen_buffer(
     }
 }
 
-// Show a decoded video frame on screen
+// Shows a decoded video frame on screen. Returns once the frame is visible.
+// Since the buffer is being directly used as a framebuffer, it should not
+// be recycled until some other buffer is shown.
 void show_screen(
     ScreenState* const out,
     v4l2_format const& format,
@@ -836,6 +913,7 @@ void show_screen(
         }
     };
 
+    // Use atomic modesetting to make this buffer visible.
     drmModeAtomicSetCursor(out->atomic_req, 0);    
     add(out->connector_id, "CRTC_ID", out->crtc_id);
     add(out->crtc_id, "ACTIVE", 1);
@@ -870,6 +948,7 @@ void show_screen(
     }
 }
 
+// Runs the main decoding loop.
 void run_decoder(
     InputFromFile const& input,
     int const fd,
@@ -1127,6 +1206,7 @@ void run_decoder(
     }
 }
 
+// Main program, parses flags and calls the decoder loop.
 int main(int const argc, char const* const* const argv) {
     std::string media_file;
     JpegState jpeg_state = {};
@@ -1146,19 +1226,15 @@ int main(int const argc, char const* const* const argv) {
 
     app.add_flag("--flat_out", flat_out, "Decode without frame rate delay");
     app.add_option("--start_delay", start_delay, "Startup prebuffering time");
-
     app.add_option("--encoded_buffer_size", encoded_buffer_size, "Bytes/buf");
     app.add_option("--encoded_buffers", encoded_buffer_count, "Buffer count");
     app.add_option("--decoded_buffers", decoded_buffer_count, "Buffer count");
-
     app.add_flag("--print_io", print_io, "Print buffer operations");
 
     CLI11_PARSE(app, argc, argv);
 
-    if (!screen_state.device.empty() && !screen_state.connector_id) {
-       fmt::print("*** --screen_dev requires --screen_id\n");
-       exit(1);
-    }
+    if (screen_state.device == "none" || screen_state.device == "/dev/null")
+        screen_state.device.clear();
 
     auto const input = open_input(media_file);
     int const decoder_fd = open_decoder();
