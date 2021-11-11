@@ -59,8 +59,8 @@ check_call([
 ])
 
 for dir, ref in [
-    ("ffmpeg+rpi", "ffmpeg/4.3+rpi@egnor/pi"),
-    ("libdrm", "libdrm/2.4.100@egnor/pi"),
+    ("ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),
+    ("libdrm", "libdrm/2.4.100@pivid/specific"),
 ]:
     print()
     print(f"=== {ref} recipe (conan export) ===")
