@@ -537,8 +537,8 @@ class FFMpegConan(ConanFile):
             self.cpp_info.components["avutil"].requires.append("vdpau::vdpau")
 
         # Added for +rpi --egnor
+        self.cpp_info.components["avcodec"].requires.append("libdrm::libdrm")
         if self.options.get_safe("with_rpi"):
-            self.cpp_info.components["avcodec"].requires.append("libdrm::libdrm")
             self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/lib")
             self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/include")
             self.cpp_info.components["avcodec"].system_libs.extend([
