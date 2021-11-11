@@ -13,28 +13,25 @@ class PividConan(conans.ConanFile):
         "libdrm/2.4.100@egnor/pi",
     ]
 
-    default_options = {
-        # Omit as much of ffmpeg as possible to minimize dependency build time
-        "ffmpeg:postproc": False,
-        "ffmpeg:with_rpi": (self.settings.arch == "armv7"),
-        **{
-            f"ffmpeg:with_{lib}": False for lib in [
-                "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
-                "libmp3lame", "libvpx", "libwebp", "libx264", "libx265",
-                "lzma", "openh264", "openjpeg", "opus", "programs", "pulse",
-                "vaapi", "vdpau", "vorbis", "xcb", "zlib",
-            ]
-        },
+    def configure(self):
+        # Trim things we don't use from ffmpeg to simplify the build.
+        self.options["ffmpeg"].postproc = False
+        self.options["ffmpeg"].with_rpi = (self.settings.arch == "armv7")
+        for ffmpeg_without in [
+            "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
+            "libmp3lame", "libvpx", "libwebp", "libx264", "libx265",
+            "lzma", "openh264", "openjpeg", "opus", "programs", "pulse",
+            "vaapi", "vdpau", "vorbis", "xcb", "zlib",
+        ]:
+            setattr(self.options["ffmpeg"], f"with_{ffmpeg_without}", False)
 
-        # Simplify libdrm, we don't need GPU-specific add-ons
-        **{
-            f"libdrm:{opt}": False for opt in [
-                "amdgpu", "etnaviv", "exynos", "freedreno", "freedreno-kgsl",
-                "intel", "libkms", "nouveau", "omap", "radeon", "tegra",
-                "udev", "valgrind", "vc4", "vmwgfx",
-            ]
-        },
-    }
+        # Likewise, trim driver-specific support we don't use from libdrm.
+        for libdrm_disable in [
+            "amdgpu", "etnaviv", "exynos", "freedreno", "freedreno-kgsl",
+            "intel", "libkms", "nouveau", "omap", "radeon", "tegra",
+            "udev", "valgrind", "vc4", "vmwgfx",
+        ]:
+            setattr(self.options["libdrm"], libdrm_disable, False)
 
     def build(self):
         meson = conans.Meson(self)  # Uses the "pkg_config" generator (above)
