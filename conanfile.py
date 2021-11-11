@@ -4,7 +4,6 @@ import shutil
 
 class PividConan(conans.ConanFile):
     name, version = "pivid", "0.0"
-
     settings = "os", "compiler", "build_type", "arch"  # boilerplate
     generators = "pkg_config"  # Used by the Meson build helper (below)
 

@@ -179,8 +179,7 @@ class FFMpegConan(ConanFile):
             self.requires("vdpau/system")
 
         # Added for +rpi --egnor
-        if self.options.get_safe("with_rpi"):
-            self.requires("libdrm/2.4.100@egnor/pi")
+        self.requires("libdrm/2.4.100@egnor/pi")
 
     def validate(self):
         if self.options.with_ssl == "securetransport" and not tools.is_apple_os(self.settings.os):
