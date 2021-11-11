@@ -17,15 +17,9 @@
 #include <fmt/core.h>
 
 // Print driver name and capability bits from VIDIOC_QUERYCAP results.
-void print_videodev_driver(int const fd) {
-    v4l2_capability cap = {};
-    if (ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
-        fmt::print("*** Error querying device\n");
-        exit(1);
-    }
-
+std::string describe_driver(v4l2_capability const& cap) {
     uint32_t const v = cap.version;
-    fmt::print(
+    std::string out = fmt::format(
         "{} v{}.{}.{}:",
         (char const*) cap.driver, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF
     );
@@ -35,7 +29,7 @@ void print_videodev_driver(int const fd) {
     for (uint32_t bit = 1; bit > 0; bit <<= 1) {
         if (!(caps & bit)) continue;
         switch (bit) {
-#define C(X) case V4L2_CAP_##X: fmt::print(" {}", #X); break
+#define C(X) case V4L2_CAP_##X: out += fmt::format(" {}", #X); break
             C(VIDEO_CAPTURE);
             C(VIDEO_CAPTURE_MPLANE);
             C(VIDEO_OUTPUT);
@@ -66,9 +60,10 @@ void print_videodev_driver(int const fd) {
             C(TOUCH);
             C(IO_MC);
 #undef C
-            default: fmt::print(" ?0x{:x}?", bit); break;
+            default: out += fmt::format(" ?0x{:x}?", bit); break;
         }
     }
+    return out;
 }
 
 // Scan all V4L2 video devices and print a line for each.
@@ -90,9 +85,12 @@ void scan_videodevs() {
             continue;
         }
 
-        fmt::print("{}\n    ", path);
-        print_videodev_driver(fd);
-        fmt::print("\n");
+        v4l2_capability cap = {};
+        if (!ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
+            fmt::print("{}: {} ({})\n", path, cap.bus_info, cap.card);
+            fmt::print("    {}\n", describe_driver(cap));
+        }
+
         close(fd);
     }
 
@@ -116,9 +114,15 @@ void inspect_videodev(std::string const& path) {
         exit(1);
     }
 
-    fmt::print("Driver: ");
-    print_videodev_driver(fd);
-    fmt::print("\n\n");
+    v4l2_capability cap = {};
+    if (ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
+        fmt::print("*** Querying: {}\n", strerror(errno));
+        exit(1);
+    }
+
+    fmt::print("Driver: {}\n", describe_driver(cap));
+    fmt::print("Device: {} ({})\n", cap.bus_info, cap.card);
+    fmt::print("\n");
 
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {
         v4l2_fmtdesc format = {};
