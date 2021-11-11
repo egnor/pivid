@@ -179,8 +179,8 @@ class FFMpegConan(ConanFile):
             self.requires("vdpau/system")
 
         # Added for +rpi --egnor
-        # TODO: Add libdrm to egnor/pi channel
-        self.requires("libdrm/2.4.100@bincrafters/stable")
+        if self.options.get_safe("with_rpi"):
+            self.requires("libdrm/2.4.100@egnor/pi")
 
     def validate(self):
         if self.options.with_ssl == "securetransport" and not tools.is_apple_os(self.settings.os):
@@ -536,6 +536,22 @@ class FFMpegConan(ConanFile):
 
         if self.options.get_safe("with_vdpau"):
             self.cpp_info.components["avutil"].requires.append("vdpau::vdpau")
+
+        # Added for +rpi --egnor
+        if self.options.get_safe("with_rpi"):
+            self.cpp_info.components["avcodec"].requires.append("libdrm::libdrm")
+            self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/lib")
+            self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/include")
+            self.cpp_info.components["avcodec"].system_libs.extend([
+                "mmal_core",
+                "mmal_util",
+                "mmal_vc_client",
+                "bcm_host",
+                "vcos",
+                "vcsm",
+                "vchostif",
+                "vchiq_arm",
+            ])
 
         if self.options.get_safe("with_appkit"):
             self.cpp_info.components["avdevice"].frameworks.append("AppKit")

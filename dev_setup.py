@@ -43,39 +43,44 @@ if not all(
     check_call([venv_bin / "pip", "install"] + python_packages)
 
 print()
-print(f"=== Conan (C++) packages (conan install ...) ===")
+print(f"=== C++ package manager (conan init) ===")
 conan_bin = venv_bin / "conan"
-conan_home = Path.home() / ".conan"
 conan_profile = build_dir / "conan-profile.txt"
 conan_install = build_dir / "conan-install"
 os.environ["CONAN_V2_MODE"] = "1"
+os.environ["CONAN_USER_HOME"] = str(build_dir)
 
 check_call([conan_bin, "config", "init"])
 check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
-
-bc_url = "https://bincrafters.jfrog.io/artifactory/api/conan/conan-legacy-bincrafters"
-pi_url = "https://egnor.jfrog.io/artifactory/api/conan/raspberry-pi"
-check_call([conan_bin, "remote", "add", "--force", "bincrafters", bc_url])
-check_call([conan_bin, "remote", "add", "--force", "egnor-pi", pi_url])
 check_call([conan_bin, "profile", "new", "--detect", "--force", conan_profile])
 check_call([
     conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",
     conan_profile
 ])
 
+for dir, ref in [
+    ("ffmpeg+rpi", "ffmpeg/4.3+rpi@egnor/pi"),
+    ("libdrm", "libdrm/2.4.100@egnor/pi"),
+]:
+    print()
+    print(f"=== {ref} recipe (conan export) ===")
+    check_call([conan_bin, "export", source_dir / "conan_recipes" / dir, ref])
+
+print()
+print(f"=== C++ dependencies (conan install) ===")
 check_call([
     conan_bin, "install",
     f"--profile={conan_profile}",
     # "--settings=build_type=Debug",
     "--settings=ffmpeg:build_type=Release",  # ffmpeg ARM won't build Debug
     f"--install-folder={conan_install}",
-    "--update",
+    # "--update",
     "--build=outdated",
     source_dir
 ])
 
 print()
-print(f"=== Configure build (Meson/Ninja via Conan) ===")
+print(f"=== Prepare build (Meson/Ninja via Conan) ===")
 check_call([
     conan_bin, "build",
     f"--build-folder={build_dir}",

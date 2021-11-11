@@ -1,5 +1,6 @@
 import conans
 import os.path
+import shutil
 
 class PividConan(conans.ConanFile):
     name, version = "pivid", "0.0"
@@ -9,13 +10,13 @@ class PividConan(conans.ConanFile):
 
     requires = [
         "cli11/2.1.1", "ffmpeg/4.3+rpi@egnor/pi", "fmt/8.0.1",
-        "libdrm/2.4.100@bincrafters/stable",
+        "libdrm/2.4.100@egnor/pi",
     ]
 
     default_options = {
         # Omit as much of ffmpeg as possible to minimize dependency build time
         "ffmpeg:postproc": False,
-        "ffmpeg:with_rpi": True,
+        "ffmpeg:with_rpi": (self.settings.arch == "armv7"),
         **{
             f"ffmpeg:with_{lib}": False for lib in [
                 "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
@@ -37,6 +38,9 @@ class PividConan(conans.ConanFile):
 
     def build(self):
         meson = conans.Meson(self)  # Uses the "pkg_config" generator (above)
-        dat = os.path.join(self.build_folder, "meson-private", "coredata.dat")
-        meson.configure(args=["--reconfigure"] if os.path.isfile(dat) else [])
+        meson_private_dir = os.path.join(self.build_folder, "meson-private")
+        shutil.rmtree(meson_private_dir, ignore_errors=True)  # Force reconfig
+        # dat = os.path.join(self.build_folder, "meson-private", "coredata.dat")
+        # meson.configure(["--reconfigure"] if os.path.isfile(dat) else [])
+        meson.configure()
         meson.build()
