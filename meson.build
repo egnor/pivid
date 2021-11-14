@@ -1,4 +1,4 @@
-project('video_play', 'cpp', version: '0.0',
+project('video_play', ['c', 'cpp'], version: '0.0',
     default_options: [
         'warning_level=3',
         'cpp_std=c++17',
@@ -7,14 +7,13 @@ project('video_play', 'cpp', version: '0.0',
     ]
 )
 
-cpp = meson.get_compiler('cpp')
-add_project_arguments(['-Wno-pedantic'], language: 'cpp')
+add_project_arguments(['-Wno-pedantic'], language: ['c', 'cpp'])
 
 util_deps = [
     dependency('CLI11'),
     dependency('fmt'),
-    cpp.find_library('atomic'),
-    cpp.find_library('stdc++fs'),
+    meson.get_compiler('cpp').find_library('atomic'),
+    meson.get_compiler('cpp').find_library('stdc++fs'),
 ]
 
 libav_deps = [
@@ -43,4 +42,12 @@ executable(
 executable(
     'pivid_test_decode', 'pivid_test_decode.cpp',
     dependencies: [util_deps, libav_deps, libdrm_dep],
+)
+
+executable(
+    'hello_drmprime', [
+        'hello_drmprime/hello_drmprime.c',
+        'hello_drmprime/drmprime_out.c',
+    ],
+    dependencies: [libav_deps, libdrm_dep],
 )
