@@ -59,17 +59,16 @@ void scan_devices() {
             fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
         } else {
             fmt::print("{}", path);
+            if (!dev_path.empty()) fmt::print(": {}", dev_path);
 
             // See https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html
             drmSetVersion api_version = {1, 4, -1, -1};
             drmSetInterfaceVersion(fd, &api_version);
             auto* const busid = drmGetBusid(fd);
-            if (busid && *busid) {
-                fmt::print(" ({})", busid);
-            } else if (!dev_path.empty()) {
-                fmt::print(" ({})", dev_path);
+            if (busid) {
+                if (*busid) fmt::print(" ({})", busid);
+                drmFreeBusid(busid);
             }
-            if (busid) drmFreeBusid(busid);
 
             fmt::print("\n    {} v{}: {}\n", ver->name, ver->date, ver->desc);
             drmFreeVersion(ver);
