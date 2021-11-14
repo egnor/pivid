@@ -3,6 +3,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -20,7 +23,7 @@
 bool print_properties_flag = false;  // Set by flag in main()
 
 // Scan all DRM/KMS capable video cards and print a line for each.
-void scan_gpus() {
+void scan_devices() {
     fmt::print("=== Scanning DRM/KMS GPU devices ===\n");
     std::filesystem::path const dri_dir = "/dev/dri";
     std::vector<std::string> dev_files;
@@ -38,6 +41,19 @@ void scan_gpus() {
             continue;
         }
 
+        std::string dev_path;
+        struct stat stat = {}; 
+        if (fstat(fd, &stat)) {
+            fmt::print("*** stat({}): {}\n", path, strerror(errno));
+        } else if ((stat.st_mode & S_IFMT) != S_IFCHR) {
+            fmt::print("*** {}: Not a char device\n", path, strerror(errno));
+        } else {
+            auto const mj = major(stat.st_rdev), mn = minor(stat.st_rdev);
+            auto const devid_path = fmt::format("/sys/dev/char/{}:{}", mj, mn);
+            auto const device_path = std::filesystem::canonical(devid_path);
+            dev_path = std::filesystem::relative(device_path, "/sys/devices");
+        }
+
         auto* const ver = drmGetVersion(fd);
         if (!ver) {
             fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
@@ -48,10 +64,12 @@ void scan_gpus() {
             drmSetVersion api_version = {1, 4, -1, -1};
             drmSetInterfaceVersion(fd, &api_version);
             auto* const busid = drmGetBusid(fd);
-            if (busid) {
-                if (*busid) fmt::print(" ({})", busid);
-                drmFreeBusid(busid);
+            if (busid && *busid) {
+                fmt::print(" ({})", busid);
+            } else if (!dev_path.empty()) {
+                fmt::print(" ({})", dev_path);
             }
+            if (busid) drmFreeBusid(busid);
 
             fmt::print("\n    {} v{}: {}\n", ver->name, ver->date, ver->desc);
             drmFreeVersion(ver);
@@ -143,7 +161,7 @@ void print_properties(int const fd, uint32_t const id) {
 }
 
 // Print information about the DRM/KMS resources associated with a video card.
-void inspect_gpu(std::string const& path) {
+void inspect_device(std::string const& path) {
     fmt::print("=== {} ===\n", path);
 
     int const fd = open(path.c_str(), O_RDWR);
@@ -479,9 +497,9 @@ int main(int argc, char** argv) {
     CLI11_PARSE(app, argc, argv);
 
     if (!dev.empty()) {
-        inspect_gpu(dev);
+        inspect_device(dev);
     } else {
-        scan_gpus();
+        scan_devices();
     }
     return 0;
 }
