@@ -39,7 +39,5 @@ class PividConan(conans.ConanFile):
         meson = conans.Meson(self)  # Uses the "pkg_config" generator (above)
         meson_private_dir = os.path.join(self.build_folder, "meson-private")
         shutil.rmtree(meson_private_dir, ignore_errors=True)  # Force reconfig
-        # dat = os.path.join(self.build_folder, "meson-private", "coredata.dat")
-        # meson.configure(["--reconfigure"] if os.path.isfile(dat) else [])
         meson.configure()
         meson.build()
