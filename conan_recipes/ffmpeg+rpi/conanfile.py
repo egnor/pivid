@@ -200,15 +200,13 @@ class FFMpegConan(ConanFile):
 
     def source(self):
         # Modified for pivid --egnor
-        if self.options.for_pivid:
-            tools.Git(folder=self._source_subfolder).clone(
-                url="https://github.com/jc-kynesim/rpi-ffmpeg/",
-                branch="release/4.3/rpi_main",
-                shallow=True
-            )
-        else:
-            tools.get(**self.conan_data["sources"][self.version],
-                      destination=self._source_subfolder, strip_root=True)
+        # tools.get(**self.conan_data["sources"][self.version],
+        #           destination=self._source_subfolder, strip_root=True)
+        tools.Git(folder=self._source_subfolder).clone(
+            url="https://github.com/jc-kynesim/rpi-ffmpeg/",
+            branch="release/4.3/rpi_main",
+            shallow=True
+        )
 
     @property
     def _target_arch(self):
