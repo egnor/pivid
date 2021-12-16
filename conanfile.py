@@ -10,12 +10,14 @@ class PividConan(conans.ConanFile):
     requires = [
         "cli11/2.1.1", "fmt/8.0.1",
         "ffmpeg/4.3+rpi@pivid/specific",
-        "libdrm/2.4.100@pivid/specific",
+        # "libdrm/2.4.100@pivid/specific",
+        "libdrm/2.4.109@pivid/specific",
     ]
 
     def configure(self):
         # Trim things we don't use from ffmpeg to simplify the build.
         self.options["ffmpeg"].postproc = False
+        self.options["ffmpeg"].shared = False
         self.options["ffmpeg"].with_rpi = (self.settings.arch == "armv7")
         for ffmpeg_without in [
             "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
@@ -26,6 +28,7 @@ class PividConan(conans.ConanFile):
             setattr(self.options["ffmpeg"], f"with_{ffmpeg_without}", False)
 
         # Likewise, trim driver-specific support we don't use from libdrm.
+        self.options["libdrm"].shared = False
         for libdrm_disable in [
             "amdgpu", "etnaviv", "exynos", "freedreno", "freedreno-kgsl",
             "intel", "libkms", "nouveau", "omap", "radeon", "tegra",

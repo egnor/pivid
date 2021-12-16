@@ -15,7 +15,10 @@ source_dir = Path(__file__).resolve().parent
 build_dir = source_dir / "build"
 
 print("=== System packages (sudo apt install ...) ===")
-apt_packages = ["build-essential", "cmake", "direnv", "python3"]
+apt_packages = [
+    # TODO: Make the libraries into Conan dependencies
+    "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev", "python3"
+]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
 installed = installed.decode().split()
 if not all(p in installed for p in apt_packages):
@@ -60,7 +63,7 @@ check_call([
 
 for dir, ref in [
     ("ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),
-    ("libdrm", "libdrm/2.4.100@pivid/specific"),
+    ("libdrm", "libdrm/2.4.109@pivid/specific"),
 ]:
     print()
     print(f"=== {ref} recipe (conan export) ===")
@@ -74,7 +77,6 @@ check_call([
     # "--settings=build_type=Debug",
     "--settings=ffmpeg:build_type=Release",  # ffmpeg ARM won't build Debug
     f"--install-folder={conan_install}",
-    # "--update",
     "--build=outdated",
     source_dir
 ])

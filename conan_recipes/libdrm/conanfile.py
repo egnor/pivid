@@ -1,3 +1,6 @@
+# Adapted from:
+# https://github.com/bincrafters/conan-libdrm/blob/testing/2.4.100/conanfile.py
+
 from conans import ConanFile, Meson, tools
 import os
 import shutil

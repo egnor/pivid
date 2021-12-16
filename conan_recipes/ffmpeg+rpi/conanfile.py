@@ -1,3 +1,7 @@
+# Adapted from:
+# https://conan.io/center/ffmpeg?version=4.3.2&tab=recipe
+# https://github.com/jc-kynesim/rpi-ffmpeg/blob/release/4.3/rpi_main/pi-util/conf_native.sh
+
 from conans import ConanFile, AutoToolsBuildEnvironment, tools
 from conans.errors import ConanInvalidConfiguration
 import os
@@ -179,7 +183,10 @@ class FFMpegConan(ConanFile):
             self.requires("vdpau/system")
 
         # Added for +rpi --egnor
-        self.requires("libdrm/2.4.100@pivid/specific")
+        if self.options.get_safe("with_rpi"):
+            # self.requires("libdrm/2.4.100@pivid/specific")
+            self.requires("libdrm/2.4.109@pivid/specific")
+            self.requires("libjpeg/9d")
 
     def validate(self):
         if self.options.with_ssl == "securetransport" and not tools.is_apple_os(self.settings.os):
@@ -294,11 +301,8 @@ class FFMpegConan(ConanFile):
             # Licenses
             opt_enable_disable("nonfree", self.options.with_libfdk_aac),
             opt_enable_disable("gpl", self.options.with_libx264 or self.options.with_libx265 or self.options.postproc),
-
-            # Added for +rpi --egnor
-            opt_enable_disable("rpi", self.options.with_rpi),
-            opt_enable_disable("sand", self.options.with_rpi),
         ]
+
         args.append("--arch={}".format(self._target_arch))
         if self.settings.build_type == "Debug":
             args.extend([
@@ -334,6 +338,23 @@ class FFMpegConan(ConanFile):
                 apple_arch = tools.to_apple_arch(str(self.settings.arch))
                 extra_cflags.extend(["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
                 extra_ldflags.extend(["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
+
+        # Added for +rpi --egnor
+        if self.options.with_rpi:
+            args.extend([
+                "--disable-mmal",
+                "--extra-version=rpi",
+                "--enable-libdrm",
+                "--enable-libudev",
+                "--enable-libv4l2",
+                "--enable-rpi",
+                "--enable-sand",
+                "--enable-v4l2-m2m",
+                "--enable-v4l2-request",
+                "--enable-vout-drm",
+            ])
+            # args.extend(["--arch=armv6t2", "--cpu=cortex-a7"])
+            # extra_cflags.append("-mfpu=neon-vfpv4")
 
         args.append("--extra-cflags={}".format(" ".join(extra_cflags)))
         args.append("--extra-ldflags={}".format(" ".join(extra_ldflags)))
@@ -537,15 +558,21 @@ class FFMpegConan(ConanFile):
             self.cpp_info.components["avutil"].requires.append("vdpau::vdpau")
 
         # Added for +rpi --egnor
-        self.cpp_info.components["avcodec"].requires.append("libdrm::libdrm")
         if self.options.get_safe("with_rpi"):
+            self.cpp_info.components["avcodec"].requires.extend([
+                "libdrm::libdrm", "libjpeg::libjpeg"
+            ])
             self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/lib")
-            self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/include")
+            self.cpp_info.components["avcodec"].includedirs.append(
+                "/opt/vc/include"
+            )
             self.cpp_info.components["avcodec"].system_libs.extend([
                 "mmal_core",
                 "mmal_util",
                 "mmal_vc_client",
                 "bcm_host",
+                "udev",
+                "v4l2",  # TODO: Replace with conan dependency
                 "vcos",
                 "vcsm",
                 "vchostif",
