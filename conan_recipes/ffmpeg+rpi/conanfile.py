@@ -345,7 +345,7 @@ class FFMpegConan(ConanFile):
                 "--extra-version=rpi",
                 "--enable-libudev",
                 "--enable-libv4l2",
-                "--enable-rpi",
+                # "--enable-rpi",
                 "--enable-sand",
                 "--enable-v4l2-m2m",
                 "--enable-v4l2-request",
@@ -565,16 +565,16 @@ class FFMpegConan(ConanFile):
                 "/opt/vc/include"
             )
             self.cpp_info.components["avcodec"].system_libs.extend([
-                "mmal_core",
-                "mmal_util",
-                "mmal_vc_client",
-                "bcm_host",
+                # "mmal_core",
+                # "mmal_util",
+                # "mmal_vc_client",
+                # "bcm_host",
                 "udev",
                 "v4l2",  # TODO: Replace with conan dependency
-                "vcos",
-                "vcsm",
-                "vchostif",
-                "vchiq_arm",
+                # "vcos",
+                # "vcsm",
+                # "vchostif",
+                # "vchiq_arm",
             ])
 
         if self.options.get_safe("with_appkit"):
