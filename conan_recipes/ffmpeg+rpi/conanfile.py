@@ -182,11 +182,9 @@ class FFMpegConan(ConanFile):
         if self.options.get_safe("with_vdpau"):
             self.requires("vdpau/system")
 
-        # Added for +rpi --egnor
-        if self.options.get_safe("with_rpi"):
-            # self.requires("libdrm/2.4.100@pivid/specific")
-            self.requires("libdrm/2.4.109@pivid/specific")
-            self.requires("libjpeg/9d")
+        # Added for +rpi (needed for this code even w/o --with_rpi) --egnor
+        self.requires("libdrm/2.4.109@pivid/specific")
+        self.requires("libjpeg/9d")
 
     def validate(self):
         if self.options.with_ssl == "securetransport" and not tools.is_apple_os(self.settings.os):
@@ -340,11 +338,11 @@ class FFMpegConan(ConanFile):
                 extra_ldflags.extend(["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
 
         # Added for +rpi --egnor
+        args.append("--enable-libdrm")
         if self.options.with_rpi:
             args.extend([
                 "--disable-mmal",
                 "--extra-version=rpi",
-                "--enable-libdrm",
                 "--enable-libudev",
                 "--enable-libv4l2",
                 "--enable-rpi",
@@ -558,10 +556,10 @@ class FFMpegConan(ConanFile):
             self.cpp_info.components["avutil"].requires.append("vdpau::vdpau")
 
         # Added for +rpi --egnor
+        self.cpp_info.components["avcodec"].requires.extend([
+            "libdrm::libdrm", "libjpeg::libjpeg"  # Needed even w/o --with_rpi
+        ])
         if self.options.get_safe("with_rpi"):
-            self.cpp_info.components["avcodec"].requires.extend([
-                "libdrm::libdrm", "libjpeg::libjpeg"
-            ])
             self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/lib")
             self.cpp_info.components["avcodec"].includedirs.append(
                 "/opt/vc/include"
