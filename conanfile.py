@@ -15,6 +15,7 @@ class PividConan(conans.ConanFile):
 
     def configure(self):
         # Trim things we don't use from ffmpeg to simplify the build.
+        self.options["ffmpeg"].for_pivid = True
         self.options["ffmpeg"].postproc = False
         self.options["ffmpeg"].shared = False
         for ffmpeg_without in [

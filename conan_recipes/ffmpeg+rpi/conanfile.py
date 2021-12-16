@@ -183,8 +183,9 @@ class FFMpegConan(ConanFile):
             self.requires("vdpau/system")
 
         # Added for pivid --egnor
-        self.requires("libdrm/2.4.109@pivid/specific")
-        self.requires("libjpeg/9d")
+        if self.options.for_pivid:
+            self.requires("libdrm/2.4.109@pivid/specific")
+            self.requires("libjpeg/9d")
 
     def validate(self):
         if self.options.with_ssl == "securetransport" and not tools.is_apple_os(self.settings.os):
@@ -199,13 +200,15 @@ class FFMpegConan(ConanFile):
 
     def source(self):
         # Modified for pivid --egnor
-        # tools.get(**self.conan_data["sources"][self.version],
-        #           destination=self._source_subfolder, strip_root=True)
-        tools.Git(folder=self._source_subfolder).clone(
-            url="https://github.com/jc-kynesim/rpi-ffmpeg/",
-            branch="release/4.3/rpi_main",
-            shallow=True
-        )
+        if self.options.for_pivid:
+            tools.Git(folder=self._source_subfolder).clone(
+                url="https://github.com/jc-kynesim/rpi-ffmpeg/",
+                branch="release/4.3/rpi_main",
+                shallow=True
+            )
+        else:
+            tools.get(**self.conan_data["sources"][self.version],
+                      destination=self._source_subfolder, strip_root=True)
 
     @property
     def _target_arch(self):
@@ -338,20 +341,21 @@ class FFMpegConan(ConanFile):
                 extra_ldflags.extend(["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
 
         # Added for pivid --egnor
-        args.extend([
-            "--disable-mmal",  # New hotness only, not old proprietary libs
-            "--enable-libdrm",
-            "--extra-version=pivid",
-            "--enable-libudev",
-            "--enable-libv4l2",
-            "--enable-sand",
-            "--enable-v4l2-m2m",
-            "--enable-v4l2-request",
-            "--enable-vout-drm",
-        ])
-        # TODO: Would these improve performance on Pi?
-        # args.extend(["--arch=armv6t2", "--cpu=cortex-a7"])
-        # extra_cflags.append("-mfpu=neon-vfpv4")
+        if self.options.for_pivid:
+            args.extend([
+                "--disable-mmal",  # New hotness only, not old proprietary libs
+                "--enable-libdrm",
+                "--extra-version=pivid",
+                "--enable-libudev",
+                "--enable-libv4l2",
+                "--enable-sand",
+                "--enable-v4l2-m2m",
+                "--enable-v4l2-request",
+                "--enable-vout-drm",
+            ])
+            # TODO: Would these improve performance on Pi?
+            # args.extend(["--arch=armv6t2", "--cpu=cortex-a7"])
+            # extra_cflags.append("-mfpu=neon-vfpv4")
 
         args.append("--extra-cflags={}".format(" ".join(extra_cflags)))
         args.append("--extra-ldflags={}".format(" ".join(extra_ldflags)))
@@ -555,11 +559,14 @@ class FFMpegConan(ConanFile):
             self.cpp_info.components["avutil"].requires.append("vdpau::vdpau")
 
         # Added for pivid --egnor
-        # TODO: Use a conan dependency instead of system libraries
-        self.cpp_info.components["avcodec"].requires.extend([
-            "libdrm::libdrm", "libjpeg::libjpeg"
-        ])
-        self.cpp_info.components["avcodec"].system_libs.extend(["udev", "v4l2"])
+        if self.options.for_pivid:
+            self.cpp_info.components["avcodec"].requires.extend([
+                "libdrm::libdrm", "libjpeg::libjpeg"
+            ])
+            # TODO: Use a conan dependency instead of system libraries
+            self.cpp_info.components["avcodec"].system_libs.extend([
+                "udev", "v4l2"
+            ])
 
         if self.options.get_safe("with_appkit"):
             self.cpp_info.components["avdevice"].frameworks.append("AppKit")
