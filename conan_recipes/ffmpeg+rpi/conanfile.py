@@ -57,8 +57,8 @@ class FFMpegConan(ConanFile):
         "with_videotoolbox": [True, False],
         "with_programs": [True, False],
 
-        # Added for +rpi --egnor
-        "with_rpi": [True, False],
+        # Added for pivid --egnor
+        "for_pivid": [True, False],
     }
     default_options = {
         "shared": False,
@@ -94,8 +94,8 @@ class FFMpegConan(ConanFile):
         "with_videotoolbox": True,
         "with_programs": True,
 
-        # Added for +rpi --egnor
-        "with_rpi": True,
+        # Added for pivid --egnor
+        "for_pivid": True,
     }
 
     generators = "pkg_config"
@@ -182,7 +182,7 @@ class FFMpegConan(ConanFile):
         if self.options.get_safe("with_vdpau"):
             self.requires("vdpau/system")
 
-        # Added for +rpi (needed for this code even w/o --with_rpi) --egnor
+        # Added for pivid --egnor
         self.requires("libdrm/2.4.109@pivid/specific")
         self.requires("libjpeg/9d")
 
@@ -198,7 +198,7 @@ class FFMpegConan(ConanFile):
             self.build_requires("msys2/cci.latest")
 
     def source(self):
-        # Modified for +rpi --egnor
+        # Modified for pivid --egnor
         # tools.get(**self.conan_data["sources"][self.version],
         #           destination=self._source_subfolder, strip_root=True)
         tools.Git(folder=self._source_subfolder).clone(
@@ -337,22 +337,21 @@ class FFMpegConan(ConanFile):
                 extra_cflags.extend(["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
                 extra_ldflags.extend(["-arch {}".format(apple_arch), "-isysroot {}".format(xcrun.sdk_path)])
 
-        # Added for +rpi --egnor
-        args.append("--enable-libdrm")
-        if self.options.with_rpi:
-            args.extend([
-                "--disable-mmal",
-                "--extra-version=rpi",
-                "--enable-libudev",
-                "--enable-libv4l2",
-                # "--enable-rpi",
-                "--enable-sand",
-                "--enable-v4l2-m2m",
-                "--enable-v4l2-request",
-                "--enable-vout-drm",
-            ])
-            # args.extend(["--arch=armv6t2", "--cpu=cortex-a7"])
-            # extra_cflags.append("-mfpu=neon-vfpv4")
+        # Added for pivid --egnor
+        args.extend([
+            "--disable-mmal",  # New hotness only, not old proprietary libs
+            "--enable-libdrm",
+            "--extra-version=pivid",
+            "--enable-libudev",
+            "--enable-libv4l2",
+            "--enable-sand",
+            "--enable-v4l2-m2m",
+            "--enable-v4l2-request",
+            "--enable-vout-drm",
+        ])
+        # TODO: Would these improve performance on Pi?
+        # args.extend(["--arch=armv6t2", "--cpu=cortex-a7"])
+        # extra_cflags.append("-mfpu=neon-vfpv4")
 
         args.append("--extra-cflags={}".format(" ".join(extra_cflags)))
         args.append("--extra-ldflags={}".format(" ".join(extra_ldflags)))
@@ -555,27 +554,12 @@ class FFMpegConan(ConanFile):
         if self.options.get_safe("with_vdpau"):
             self.cpp_info.components["avutil"].requires.append("vdpau::vdpau")
 
-        # Added for +rpi --egnor
+        # Added for pivid --egnor
+        # TODO: Use a conan dependency instead of system libraries
         self.cpp_info.components["avcodec"].requires.extend([
-            "libdrm::libdrm", "libjpeg::libjpeg"  # Needed even w/o --with_rpi
+            "libdrm::libdrm", "libjpeg::libjpeg"
         ])
-        if self.options.get_safe("with_rpi"):
-            self.cpp_info.components["avcodec"].libdirs.append("/opt/vc/lib")
-            self.cpp_info.components["avcodec"].includedirs.append(
-                "/opt/vc/include"
-            )
-            self.cpp_info.components["avcodec"].system_libs.extend([
-                # "mmal_core",
-                # "mmal_util",
-                # "mmal_vc_client",
-                # "bcm_host",
-                "udev",
-                "v4l2",  # TODO: Replace with conan dependency
-                # "vcos",
-                # "vcsm",
-                # "vchostif",
-                # "vchiq_arm",
-            ])
+        self.cpp_info.components["avcodec"].system_libs.extend(["udev", "v4l2"])
 
         if self.options.get_safe("with_appkit"):
             self.cpp_info.components["avdevice"].frameworks.append("AppKit")

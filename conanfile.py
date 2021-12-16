@@ -17,7 +17,6 @@ class PividConan(conans.ConanFile):
         # Trim things we don't use from ffmpeg to simplify the build.
         self.options["ffmpeg"].postproc = False
         self.options["ffmpeg"].shared = False
-        self.options["ffmpeg"].with_rpi = (self.settings.arch == "armv7")
         for ffmpeg_without in [
             "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
             "libmp3lame", "libvpx", "libwebp", "libx264", "libx265",
