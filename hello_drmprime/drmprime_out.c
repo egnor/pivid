@@ -187,7 +187,8 @@ static int do_display(drmprime_out_env_t *const de, AVFrame *frame)
 
         while (drmWaitVBlank(de->drm_fd, &vbl)) {
             if (errno != EINTR) {
-                fprintf(stderr, "drmWaitVBlank failed: %s\n", ERRSTR);
+// This always fails - don't know why
+//                fprintf(stderr, "drmWaitVBlank failed: %s\n", ERRSTR);
                 break;
             }
         }
