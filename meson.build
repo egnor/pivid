@@ -18,6 +18,7 @@ util_deps = [
 
 libav_deps = [
     dependency('libavcodec'),
+    dependency('libavfilter'),
     dependency('libavformat'),
     dependency('libavutil'),
 ]
