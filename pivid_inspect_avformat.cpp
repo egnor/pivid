@@ -51,6 +51,8 @@ void inspect_media(AVFormatContext* const avc) {
             fmt::print(" {:.1f}sec", stream->duration * time_base);
         if (stream->nb_frames > 0)
             fmt::print(" {}fr", stream->nb_frames);
+        if (stream->nb_index_entries > 0)
+            fmt::print(" ({}idx)", stream->nb_index_entries);
         if (stream->avg_frame_rate.num > 0)
             fmt::print(" {:.1f}fps", av_q2d(stream->avg_frame_rate));
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
@@ -79,6 +81,7 @@ void inspect_media(AVFormatContext* const avc) {
                 }
             }
         }
+
         if (stream->codecpar) {
             auto const* par = stream->codecpar;
             switch (par->codec_type) {
@@ -116,6 +119,31 @@ void inspect_media(AVFormatContext* const avc) {
 }
 
 void print_frames(AVFormatContext* const avc) {
+    for (uint32_t si = 0; si < avc->nb_streams; ++si) {
+        auto const* stream = avc->streams[si];
+        double const time_base = av_q2d(stream->time_base);
+        if (stream->nb_index_entries > 0) {
+            fmt::print(
+                "--- S{} ({}) Index ---\n", si,
+                avcodec_get_name(stream->codecpar->codec_id)
+            );
+            for (int ii = 0; ii < stream->nb_index_entries; ++ii) {
+                auto const& e = stream->index_entries[ii];
+                fmt::print("S{} I{:<5d}", si, ii);
+                if (e.size > 0) fmt::print(" {:4d}kB", e.size / 1024);
+                if (e.pos >= 0) fmt::print(" @{:<8d}", e.pos);
+                if (e.timestamp != AV_NOPTS_VALUE)
+                    fmt::print(" pres@{:.3f}s", e.timestamp * time_base);
+                if (e.min_distance > 0)
+                    fmt::print(" dist={:<6d}", e.min_distance);
+                if ((e.flags & AVINDEX_KEYFRAME)) fmt::print(" KEY");
+                if ((e.flags & AVINDEX_DISCARD_FRAME)) fmt::print(" DISCARD");
+                fmt::print("\n");
+            }
+            fmt::print("\n");
+        }
+    }
+
     AVPacket packet = {};
     fmt::print("--- Frames ---\n");
     if (avformat_seek_file(avc, -1, 0, 0, 0, 0) < 0) {
