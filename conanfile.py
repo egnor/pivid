@@ -8,9 +8,9 @@ class PividConan(conans.ConanFile):
     generators = "pkg_config"  # Used by the Meson build helper (below)
 
     requires = [
-        "cli11/2.1.1", "fmt/8.0.1",
+        "cli11/2.1.1", "fmt/8.0.1", "libdrm/2.4.109",
+        "linux-headers-generic/5.14.9",
         "ffmpeg/4.3+rpi@pivid/specific",
-        "libdrm/2.4.109@pivid/specific",
     ]
 
     def configure(self):

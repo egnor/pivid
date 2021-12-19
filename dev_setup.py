@@ -50,7 +50,8 @@ print(f"=== C++ package manager (conan init) ===")
 conan_bin = venv_bin / "conan"
 conan_profile = build_dir / "conan-profile.txt"
 conan_install = build_dir / "conan-install"
-os.environ["CONAN_V2_MODE"] = "1"
+# https://github.com/conan-io/conan-center-index/issues/8467
+# os.environ["CONAN_V2_MODE"] = "1"
 os.environ["CONAN_USER_HOME"] = str(build_dir)
 
 check_call([conan_bin, "config", "init"])
@@ -63,7 +64,6 @@ check_call([
 
 for dir, ref in [
     ("ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),
-    ("libdrm", "libdrm/2.4.109@pivid/specific"),
 ]:
     print()
     print(f"=== {ref} recipe (conan export) ===")

@@ -184,7 +184,7 @@ class FFMpegConan(ConanFile):
 
         # Added for pivid --egnor
         if self.options.for_pivid:
-            self.requires("libdrm/2.4.109@pivid/specific")
+            self.requires("libdrm/2.4.109")
             self.requires("libjpeg/9d")
 
     def validate(self):
