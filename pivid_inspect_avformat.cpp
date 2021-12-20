@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <cmath>
 #include <map>
 
 #include <CLI/App.hpp>
@@ -16,20 +17,30 @@ extern "C" {
 #include <libavformat/avio.h>
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
+#include <libavutil/error.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/rational.h>
 }
 
-void inspect_media(AVFormatContext* const avc) {
-    if (avformat_find_stream_info(avc, nullptr) < 0) {
-        fmt::print("*** Stream info ({}): {}\n", avc->url, strerror(errno));
+void av_or_die(std::string const& text, int const err) {
+    if (err < 0) {
+        char errbuf[256];
+        av_strerror(err, errbuf, sizeof(errbuf));
+        fmt::print("*** {}: {}\n", text, errbuf);
+        exit(1);
     }
+}
+
+void inspect_media(AVFormatContext* const avc) {
+    av_or_die("Stream info", avformat_find_stream_info(avc, nullptr));
 
     fmt::print("=== {} ===\n", avc->url);
     fmt::print("Container:");
-    if (avc->duration)
+    if (avc->start_time > 0)
+        fmt::print(" {:.3f} +", avc->start_time * 1.0 / AV_TIME_BASE);
+    if (avc->duration > 0)
         fmt::print(" {:.1f}sec", avc->duration * 1.0 / AV_TIME_BASE);
-    if (avc->bit_rate)
+    if (avc->bit_rate > 0)
         fmt::print(" {}bps", avc->bit_rate);
     fmt::print(" ({})\n", avc->iformat->long_name);
 
@@ -47,6 +58,8 @@ void inspect_media(AVFormatContext* const avc) {
         double const time_base = av_q2d(stream->time_base);
 
         fmt::print("    Str #{}", stream->id);
+        if (stream->start_time > 0)
+            fmt::print(" {:.3f} +", stream->start_time * time_base);
         if (stream->duration > 0)
             fmt::print(" {:.1f}sec", stream->duration * time_base);
         if (stream->nb_frames > 0)
@@ -118,13 +131,17 @@ void inspect_media(AVFormatContext* const avc) {
     fmt::print("\n");
 }
 
-void seek_time(AVFormatContext* const avc, double secs) {
-    int64_t const t = secs * AV_TIME_BASE;
-    int64_t const max_t = std::max(avc->duration, t) + AV_TIME_BASE;
-    if (avformat_seek_file(avc, -1, 0, t, max_t, 0) < 0) {
-        fmt::print("*** Seek to {:.3f}s: {}\n", secs, strerror(errno));
-        exit(1);
-    }
+void seek_before(AVFormatContext* const avc, double seconds) {
+    int64_t const t = seconds * AV_TIME_BASE;
+    fmt::print("Requesting seek before: {:.3f}sec\n\n", t * 1.0 / AV_TIME_BASE);
+    av_or_die("Seek", avformat_seek_file(avc, -1, 0, t, t, 0));
+}
+
+void seek_after(AVFormatContext* const avc, double seconds) {
+    int64_t const t = seconds * AV_TIME_BASE;
+    int64_t const max_t = std::max(t, avc->duration) + AV_TIME_BASE;
+    fmt::print("Requesting seek after: {:.3f}sec\n\n", t * 1.0 / AV_TIME_BASE);
+    av_or_die("Seek", avformat_seek_file(avc, -1, t, t, max_t, 0));
 }
 
 void print_frames(AVFormatContext* const avc) {
@@ -223,11 +240,6 @@ void dump_stream(
         exit(1);
     }
 
-    if (avformat_seek_file(avc, stream->index, 0, 0, 0, 0) < 0) {
-        fmt::print("*** Seek to start ({}): {}\n", avc->url, strerror(errno));
-        exit(1);
-    }
-
     AVPacket packet = {};
     while (av_read_frame(avc, &packet) >= 0) {
         if (packet.stream_index != stream->index) continue;
@@ -239,22 +251,28 @@ void dump_stream(
 
 int main(int argc, char** argv) {
     std::string media_file;
-    bool print_frames = false;
     std::string dump_prefix;
+    bool print_frames = false;
+    double seek_before = NAN;
+    double seek_after = NAN;
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
-    app.add_option("--dump_streams", dump_prefix, "Prefix for raw stream dump");
+    app.add_option("--dump_prefix", dump_prefix, "Prefix for raw stream dump");
     app.add_flag("--print_frames", print_frames, "Print individual frames");
+    app.add_option("--seek_before", seek_before, "Find keyframe before time");
+    app.add_option("--seek_after", seek_after, "Find keyframe after time");
     CLI11_PARSE(app, argc, argv);
 
     AVFormatContext* avc = nullptr;
-    if (avformat_open_input(&avc, media_file.c_str(), nullptr, nullptr) < 0) {
-        fmt::print("*** {}: {}\n", media_file, strerror(errno));
-        exit(1);
-    }
+    av_or_die(
+        media_file,
+        avformat_open_input(&avc, media_file.c_str(), nullptr, nullptr)
+    );
 
     inspect_media(avc);
+    if (!std::isnan(seek_before)) ::seek_before(avc, seek_before);
+    if (!std::isnan(seek_after)) ::seek_after(avc, seek_after);
     if (print_frames) ::print_frames(avc);
 
     if (!dump_prefix.empty()) {
