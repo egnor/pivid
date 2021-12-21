@@ -56,11 +56,14 @@ os.environ["CONAN_USER_HOME"] = str(build_dir)
 
 check_call([conan_bin, "config", "init"])
 check_call([conan_bin, "config", "set", "general.revisions_enabled=1"])
-check_call([conan_bin, "profile", "new", "--detect", "--force", conan_profile])
-check_call([
-    conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",
-    conan_profile
-])
+if not conan_profile.is_file():
+    check_call([
+        conan_bin, "profile", "new", "--detect", "--force", conan_profile
+    ])
+    check_call([
+        conan_bin, "profile", "update", "settings.compiler.libcxx=libstdc++11",
+        conan_profile
+    ])
 
 for dir, ref in [
     ("ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),

@@ -6,6 +6,8 @@ class PividConan(conans.ConanFile):
     name, version = "pivid", "0.0"
     settings = "os", "compiler", "build_type", "arch"  # boilerplate
     generators = "pkg_config"  # Used by the Meson build helper (below)
+    options = {"shared": [True, False]}
+    default_options = {"shared": False}  # Used by Meson build helper
 
     requires = [
         "cli11/2.1.1", "fmt/8.0.1", "libdrm/2.4.109",

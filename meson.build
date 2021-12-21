@@ -1,8 +1,8 @@
-project('video_play', ['c', 'cpp'], version: '0.0',
+project('pivid', ['c', 'cpp'], version: '0.0',
     default_options: [
-        'warning_level=3',
-        'cpp_std=c++17',
         'build.cpp_std=c++17',
+        'cpp_std=c++17',
+        'warning_level=3',
         'werror=true',
     ]
 )
@@ -25,6 +25,13 @@ libav_deps = [
 
 libdrm_dep = dependency('libdrm')
 
+pivid_lib = library(
+    'pivid', [
+        'media_decoder.cpp',
+    ],
+    dependencies: [util_deps, libav_deps],
+)
+
 executable(
     'pivid_inspect_kms', 'pivid_inspect_kms.cpp',
     dependencies: [util_deps, libdrm_dep],
@@ -32,7 +39,7 @@ executable(
 
 executable(
     'pivid_inspect_v4l2', 'pivid_inspect_v4l2.cpp',
-    dependencies: [util_deps]
+    dependencies: [util_deps],
 )
 
 executable(
@@ -42,7 +49,8 @@ executable(
 
 executable(
     'pivid_test_decode', 'pivid_test_decode.cpp',
-    dependencies: [util_deps, libav_deps, libdrm_dep],
+    link_with: [pivid_lib],
+    dependencies: [util_deps],
 )
 
 executable(

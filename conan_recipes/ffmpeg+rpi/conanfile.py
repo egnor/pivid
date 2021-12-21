@@ -341,6 +341,7 @@ class FFMpegConan(ConanFile):
         # Added for pivid --egnor
         if self.options.for_pivid:
             args.extend([
+                "--disable-network",  # Stay home, stay safe
                 "--disable-mmal",  # New hotness only, not old proprietary libs
                 "--enable-libdrm",
                 "--extra-version=pivid",
