@@ -4,6 +4,7 @@
 #include <string>
 
 struct AVFrame;
+struct AVStream;
 struct AVDRMFrameDescriptor;
 
 namespace pivid {
@@ -20,6 +21,7 @@ class MediaFrame {
 class MediaDecoder {
   public:
     virtual ~MediaDecoder() {}
+    virtual AVStream const& stream() = 0;
     virtual std::unique_ptr<MediaFrame> next_frame() = 0;
     virtual bool at_eof() const = 0;
 };
