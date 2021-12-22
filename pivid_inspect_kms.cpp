@@ -130,7 +130,7 @@ void print_properties(int const fd, uint32_t const id) {
             if (blob) {
                 auto const* const mode = (drmModeModeInfoPtr) blob->data;
                 fmt::print(
-                    " {}x{}x{}Hz",
+                    " {}x{} {}Hz",
                     mode->hdisplay, mode->vdisplay, mode->vrefresh
                 );
                 drmModeFreePropertyBlob(blob);
@@ -298,9 +298,8 @@ void inspect_device(std::string const& path) {
 
         if (crtc->mode_valid) {
             fmt::print(
-                " => {}x{}x{}Hz",
-                crtc->mode.hdisplay, crtc->mode.vdisplay,
-                crtc->mode.vrefresh
+                " => {}x{} {}Hz",
+                crtc->mode.hdisplay, crtc->mode.vdisplay, crtc->mode.vrefresh
             );
         }
 
@@ -418,7 +417,7 @@ void inspect_device(std::string const& path) {
             for (int mi = 0; mi < conn->count_modes; ++mi) {
                 auto const& mode = conn->modes[mi];
                 fmt::print(
-                    "        [mode] {:>4}x{:<4}x{}Hz",
+                    "        [mode] {:>4}x{:<4} {}Hz",
                     mode.hdisplay, mode.vdisplay, mode.vrefresh
                 );
                 for (uint32_t bit = 1; bit; bit <<= 1) {

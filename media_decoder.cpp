@@ -1,5 +1,6 @@
 #include "media_decoder.h"
 
+#undef NDEBUG
 #include <assert.h>
 
 extern "C" {
@@ -20,45 +21,44 @@ namespace {
 // Libav-specific error handling
 //
 
-class LibavMediaError : public MediaError {
+class LibavError : public DecoderError {
   public:
-    LibavMediaError(std::string const& text) : text(text) {}
+    using str = std::string_view;
+    LibavError(str action, str note, str error, int avcode = 0) {
+        text = std::string{action};
+        if (!note.empty()) text += fmt::format(" ({})", note);
+        if (!error.empty()) text += fmt::format(": {}", error);
+        if (avcode) {
+            char errbuf[256];
+            av_strerror(avcode, errbuf, sizeof(errbuf));
+            text += fmt::format(": {}", errbuf);
+        }
+    }
+
     virtual char const* what() const noexcept { return text.c_str(); }
+
   private:
     std::string text;
 };
 
-[[noreturn]] void throw_error(
-    std::string_view action, std::string_view note, std::string_view error
-) {
-    std::string text{action};
-    if (!note.empty()) text += fmt::format(" ({})", note);
-    if (!error.empty()) text += fmt::format(": {}", error);
-    throw LibavMediaError(text);
-}
-
-int check_av(
-    std::string_view action, std::string_view note, int const avcode
-) {
+int check_av(std::string_view action, std::string_view note, int avcode) {
     if (avcode >= 0) return avcode; // No error.
-    char errbuf[256];
-    av_strerror(avcode, errbuf, sizeof(errbuf));
-    throw_error(action, note, errbuf);
+    throw LibavError(action, note, "", avcode);
 }
 
 template <typename T>
 T* check_alloc(std::string_view action, T* item) {
     if (item) return item;  // No error.
-    throw_error(action, "", "Allocation failed");
+    throw LibavError(action, "", "", AVERROR(ENOMEM));
 }
 
 //
-// MediaFrame implementation
+// DecodedFrame implementation
 //
 
-class LibavMediaFrame : public MediaFrame {
+class LibavDecodedFrame : public DecodedFrame {
   public:
-    virtual ~LibavMediaFrame() noexcept {
+    virtual ~LibavDecodedFrame() noexcept {
         if (av_frame) av_frame_free(&av_frame);
     }
 
@@ -70,8 +70,8 @@ class LibavMediaFrame : public MediaFrame {
 
     void init(AVFrame** const frame) {
         assert(frame && *frame);
-        assert(frame->format == AV_PIX_FMT_DRM_PRIME);
-        assert(frame->data[0] && !frame->data[1]);
+        assert((*frame)->format == AV_PIX_FMT_DRM_PRIME);
+        assert((*frame)->data[0] && !(*frame)->data[1]);
         assert(!this->av_frame);
         std::swap(this->av_frame, *frame);  // Take ownership
     }
@@ -117,7 +117,7 @@ class LibavMediaDecoder : public MediaDecoder {
         return eof_seen_from_codec;
     }
 
-    virtual std::unique_ptr<MediaFrame> next_frame() {
+    virtual std::unique_ptr<DecodedFrame> next_frame() {
         assert(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc("Packet", av_packet_alloc());
         if (!av_frame) av_frame = check_alloc("Frame", av_frame_alloc());
@@ -163,7 +163,7 @@ class LibavMediaDecoder : public MediaDecoder {
                     eof_seen_from_codec = true;
                 } else if (err != AVERROR(EAGAIN)) {
                     check_av("Decode frame", codec_context->codec->name, err);
-                    auto frame = std::make_unique<LibavMediaFrame>();
+                    auto frame = std::make_unique<LibavDecodedFrame>();
                     frame->init(&av_frame);
                     return frame;
                 }
@@ -193,11 +193,11 @@ class LibavMediaDecoder : public MediaDecoder {
         );
 
         if (codec == nullptr || stream_index < 0) {
-            throw_error("Codec not found", url, "");
+            throw LibavError("Decode", url, "Codec not found");
         } else if (codec->id == AV_CODEC_ID_H264) {
-            char const* m2m_codec = "h264_v4l2m2m";
-            codec = avcodec_find_decoder_by_name(m2m_codec);
-            if (!codec) throw_error("Codec", m2m_codec, "Not found");
+            codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
+            if (!codec)
+                throw LibavError("Decode", url, "Codec h264_v4l2m2m not found");
         }
 
         codec_context = avcodec_alloc_context3(codec);

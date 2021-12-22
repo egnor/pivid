@@ -9,11 +9,11 @@ struct AVDRMFrameDescriptor;
 
 namespace pivid {
 
-class MediaError : public std::exception {};
+class DecoderError : public std::exception {};
 
-class MediaFrame {
+class DecodedFrame {
   public:
-    virtual ~MediaFrame() {}
+    virtual ~DecodedFrame() {}
     virtual AVFrame const& frame() = 0;
     virtual AVDRMFrameDescriptor const& drm() = 0;
 };
@@ -22,7 +22,7 @@ class MediaDecoder {
   public:
     virtual ~MediaDecoder() {}
     virtual AVStream const& stream() = 0;
-    virtual std::unique_ptr<MediaFrame> next_frame() = 0;
+    virtual std::unique_ptr<DecodedFrame> next_frame() = 0;
     virtual bool at_eof() const = 0;
 };
 

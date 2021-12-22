@@ -28,7 +28,7 @@ int main(int const argc, char const* const* const argv) {
                 std::this_thread::sleep_for(0.01s);
             }
         }
-    } catch (pivid::MediaError const& e) {
+    } catch (pivid::DecoderError const& e) {
         fmt::print("*** {}\n", e.what());
     }
 

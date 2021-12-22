@@ -28,6 +28,7 @@ libdrm_dep = dependency('libdrm')
 pivid_lib = library(
     'pivid', [
         'media_decoder.cpp',
+        'video_display.cpp',
     ],
     dependencies: [util_deps, libav_deps],
 )
