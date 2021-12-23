@@ -7,7 +7,7 @@ project('pivid', ['c', 'cpp'], version: '0.0',
     ]
 )
 
-add_project_arguments(['-Wno-pedantic'], language: ['c', 'cpp'])
+add_project_arguments('-Wno-pedantic', language: ['c', 'cpp'])
 
 util_deps = [
     dependency('CLI11'),
@@ -25,17 +25,19 @@ libav_deps = [
 
 libdrm_dep = dependency('libdrm')
 
+linux_dep = dependency('linux-headers-generic')
+
 pivid_lib = library(
     'pivid', [
         'media_decoder.cpp',
         'video_display.cpp',
     ],
-    dependencies: [util_deps, libav_deps],
+    dependencies: [libav_deps, util_deps],
 )
 
 executable(
     'pivid_inspect_kms', 'pivid_inspect_kms.cpp',
-    dependencies: [util_deps, libdrm_dep],
+    dependencies: [libdrm_dep, util_deps],
 )
 
 executable(

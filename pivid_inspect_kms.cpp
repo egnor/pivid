@@ -101,7 +101,7 @@ void print_properties(int const fd, uint32_t const id) {
         }
 
         std::string const name = meta->name;
-        fmt::print("        ");
+        fmt::print("        prop #{:<3} ", props->props[pi]);
         if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
         if (meta->flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
         if (meta->flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");

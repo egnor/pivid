@@ -21,35 +21,36 @@ namespace {
 // Libav-specific error handling
 //
 
+using strview = std::string_view;
+
 class LibavError : public DecoderError {
   public:
-    using str = std::string_view;
-    LibavError(str action, str note, str error, int avcode = 0) {
-        text = std::string{action};
-        if (!note.empty()) text += fmt::format(" ({})", note);
-        if (!error.empty()) text += fmt::format(": {}", error);
+    LibavError(strview action, strview note, strview error, int avcode = 0) {
+        what_val.assign(action);
+        if (!note.empty()) what_val += fmt::format(" ({})", note);
+        if (!error.empty()) what_val += fmt::format(": {}", error);
         if (avcode) {
             char errbuf[256];
             av_strerror(avcode, errbuf, sizeof(errbuf));
-            text += fmt::format(": {}", errbuf);
+            what_val += fmt::format(": {}", errbuf);
         }
     }
 
-    virtual char const* what() const noexcept { return text.c_str(); }
+    virtual char const* what() const noexcept { return what_val.c_str(); }
 
   private:
-    std::string text;
+    std::string what_val;
 };
 
-int check_av(std::string_view action, std::string_view note, int avcode) {
+int check_av(int avcode, std::string_view action, std::string_view note = "") {
     if (avcode >= 0) return avcode; // No error.
     throw LibavError(action, note, "", avcode);
 }
 
 template <typename T>
-T* check_alloc(std::string_view action, T* item) {
+T* check_alloc(T* item, std::string_view action, std::string_view note = "") {
     if (item) return item;  // No error.
-    throw LibavError(action, "", "", AVERROR(ENOMEM));
+    throw LibavError(action, note, "", AVERROR(ENOMEM));
 }
 
 //
@@ -119,8 +120,8 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual std::unique_ptr<DecodedFrame> next_frame() {
         assert(format_context && codec_context);
-        if (!av_packet) av_packet = check_alloc("Packet", av_packet_alloc());
-        if (!av_frame) av_frame = check_alloc("Frame", av_frame_alloc());
+        if (!av_packet) av_packet = check_alloc(av_packet_alloc(), "Packet");
+        if (!av_frame) av_frame = check_alloc(av_frame_alloc(), "Frame");
 
         for (;;) {
             if (!eof_seen_from_file) {
@@ -131,7 +132,7 @@ class LibavMediaDecoder : public MediaDecoder {
                         continue;
                     }
 
-                    check_av("Read", format_context->iformat->name, err);
+                    check_av(err, "Read", format_context->iformat->name);
                     if (av_packet->stream_index != stream_index) {
                         av_packet_unref(av_packet);
                         continue;
@@ -140,7 +141,7 @@ class LibavMediaDecoder : public MediaDecoder {
 
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err != AVERROR(EAGAIN)) {
-                    check_av("Decode packet", codec_context->codec->name, err);
+                    check_av(err, "Decode packet", codec_context->codec->name);
                     av_packet_unref(av_packet);
                     assert(av_packet->data == nullptr);
                     continue;
@@ -152,7 +153,7 @@ class LibavMediaDecoder : public MediaDecoder {
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err != AVERROR(EAGAIN)) {
                     if (err != AVERROR_EOF)
-                        check_av("Decode EOF", codec_context->codec->name, err);
+                        check_av(err, "Decode EOF", codec_context->codec->name);
                     eof_sent_to_codec = true;
                 }
             }
@@ -162,7 +163,7 @@ class LibavMediaDecoder : public MediaDecoder {
                 if (err == AVERROR_EOF) {
                     eof_seen_from_codec = true;
                 } else if (err != AVERROR(EAGAIN)) {
-                    check_av("Decode frame", codec_context->codec->name, err);
+                    check_av(err, "Decode frame", codec_context->codec->name);
                     auto frame = std::make_unique<LibavDecodedFrame>();
                     frame->init(&av_frame);
                     return frame;
@@ -175,21 +176,20 @@ class LibavMediaDecoder : public MediaDecoder {
 
     void init(std::string const& url) {
         check_av(
-            "Open media", url,
-            avformat_open_input(&format_context, url.c_str(), nullptr, nullptr)
+            avformat_open_input(&format_context, url.c_str(), nullptr, nullptr),
+            "Open media", url
         );
 
         check_av(
-            "Find stream info", url,
-            avformat_find_stream_info(format_context, nullptr)
+            avformat_find_stream_info(format_context, nullptr),
+            "Find stream info", url
         );
 
         AVCodec* codec = nullptr;
         stream_index = check_av(
-            "Find video stream", url,
             av_find_best_stream(
                 format_context, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0
-            )
+            ), "Find video stream", url
         );
 
         if (codec == nullptr || stream_index < 0) {
@@ -201,18 +201,17 @@ class LibavMediaDecoder : public MediaDecoder {
         }
 
         codec_context = avcodec_alloc_context3(codec);
-        check_alloc("Codec context", codec_context);
+        check_alloc(codec_context, "Codec context");
         check_av(
-            "Codec parameters", codec->name,
             avcodec_parameters_to_context(
                 codec_context, format_context->streams[stream_index]->codecpar
-            )
+            ), "Codec parameters", codec->name
         );
 
         codec_context->get_format = pixel_format_callback;
         check_av(
-            "Open codec", codec->name,
-            avcodec_open2(codec_context, codec, nullptr)
+            avcodec_open2(codec_context, codec, nullptr),
+            "Open codec", codec->name
         );
     }
 
