@@ -10,11 +10,6 @@ namespace pivid {
 
 class DisplayError : public std::exception {};
 
-class DisplayConnector {
-  public:
-    virtual ~DisplayConnector() {}
-};
-
 struct DisplayMode {
     struct Timings {
         uint32_t clock;
@@ -36,7 +31,7 @@ struct DisplayMode {
     bool preferred;
 };
 
-struct DisplayConnectorListing {
+struct DisplayConnector {
     uint32_t id;
     std::string type;
     int which;
@@ -48,7 +43,7 @@ struct DisplayConnectorListing {
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
-    virtual std::vector<DisplayConnectorListing> list_connectors() = 0;
+    virtual std::vector<DisplayConnector> list_connectors() = 0;
 };
 
 std::unique_ptr<DisplayDriver> open_display_driver(

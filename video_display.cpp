@@ -184,8 +184,8 @@ class DrmDriver : public DisplayDriver {
         for (auto const plane_id : plane_ids) obj_props(plane_id);
     }
 
-    virtual std::vector<DisplayConnectorListing> list_connectors() {
-        std::vector<DisplayConnectorListing> out;
+    virtual std::vector<DisplayConnector> list_connectors() {
+        std::vector<DisplayConnector> out;
         for (auto const id_conn : connector_crtcs) {
             drm_mode_get_connector c = {};
             c.connector_id = id_conn.first;
@@ -195,7 +195,7 @@ class DrmDriver : public DisplayDriver {
                 fd.io_update<DRM_IOCTL_MODE_GETCONNECTOR>(&c, "Get connector");
             } while (update_vec(&c.modes_ptr, &c.count_modes, &modes));
 
-            DisplayConnectorListing listing = {};
+            DisplayConnector listing = {};
             listing.id = c.connector_id;
             listing.which = c.connector_type_id;
             if (c.connection < 3) listing.connected.emplace(c.connection == 1); 
