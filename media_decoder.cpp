@@ -195,9 +195,8 @@ class LibavMediaDecoder : public MediaDecoder {
         if (codec == nullptr || stream_index < 0) {
             throw LibavError("Decode", url, "Codec not found");
         } else if (codec->id == AV_CODEC_ID_H264) {
-            codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
-            if (!codec)
-                throw LibavError("Decode", url, "Codec h264_v4l2m2m not found");
+            auto* m2m_codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
+            if (m2m_codec) codec = m2m_codec;
         }
 
         codec_context = avcodec_alloc_context3(codec);

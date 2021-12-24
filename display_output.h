@@ -13,37 +13,40 @@ class DisplayError : public std::exception {};
 struct DisplayMode {
     struct Timings {
         uint32_t clock;
-        uint16_t display;
-        uint16_t sync_start;
-        uint16_t sync_end;
-        uint16_t total;
-        int8_t sync;
+        uint16_t display, sync_start, sync_end, total;
+        int8_t sync_polarity;
     };
 
     Timings horiz, vert;
     uint16_t pixel_skew;
-    uint16_t line_reps;
+    uint16_t line_repeats;
     bool interlace;
     int8_t clock_exp2;
-    int8_t composite_sync;
-
+    int8_t csync_polarity;
     std::string name;
     bool preferred;
+
+    std::string format() const;
 };
 
-struct DisplayConnector {
-    uint32_t id;
-    std::string type;
-    int which;
+struct DisplayOutputStatus {
+    uint32_t connector_id;
+    std::string name;
     std::optional<bool> connected;
     std::vector<DisplayMode> modes;
-    std::optional<DisplayMode> active_mode;
+    std::optional<DisplayMode> active_mode;  // Output disabled if not present.
+};
+
+struct DisplayOutputRequest {
+    uint32_t connector_id;
+    std::optional<DisplayMode> mode;  // Output disabled if not present.
 };
 
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
-    virtual std::vector<DisplayConnector> list_connectors() = 0;
+    virtual std::vector<DisplayOutputStatus> scan_outputs() = 0;
+    virtual void set_outputs(std::vector<DisplayOutputRequest> const&) = 0;
 };
 
 std::unique_ptr<DisplayDriver> open_display_driver(
@@ -59,6 +62,6 @@ struct DisplayDriverListing {
     std::string driver_bus_id;
 };
 
-std::vector<DisplayDriverListing> list_drivers();
+std::vector<DisplayDriverListing> list_display_drivers();
 
 }  // namespace pivid

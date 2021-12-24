@@ -7,7 +7,7 @@ project('pivid', ['c', 'cpp'], version: '0.0',
     ]
 )
 
-add_project_arguments('-Wno-pedantic', language: ['c', 'cpp'])
+add_project_arguments('-Wno-pedantic', '-Wno-psabi', language: ['c', 'cpp'])
 
 util_deps = [
     dependency('CLI11'),
@@ -30,7 +30,7 @@ linux_dep = dependency('linux-headers-generic')
 pivid_lib = library(
     'pivid', [
         'media_decoder.cpp',
-        'video_display.cpp',
+        'display_output.cpp',
     ],
     dependencies: [libav_deps, util_deps],
 )

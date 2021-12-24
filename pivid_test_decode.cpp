@@ -5,10 +5,11 @@
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
 
+#include <cmath>
 #include <thread>
 
+#include "display_output.h"
 #include "media_decoder.h"
-#include "video_display.h"
 
 // Main program, parses flags and calls the decoder loop.
 int main(int const argc, char const* const* const argv) {
@@ -23,7 +24,7 @@ int main(int const argc, char const* const* const argv) {
     try {
         fmt::print("=== Video drivers ===\n");
         std::vector<std::filesystem::path> dev_files;
-        for (auto const& d : pivid::list_drivers()) {
+        for (auto const& d : pivid::list_display_drivers()) {
             fmt::print(
                 "{} ({}): {}", d.dev_file.native(), d.driver, d.system_path
             );
@@ -45,16 +46,25 @@ int main(int const argc, char const* const* const argv) {
         }
         fmt::print("\n");
 
+        fmt::print("=== Display outputs ===\n");
         auto const driver = pivid::open_display_driver(dev_files[0]);
-
-        fmt::print("=== Display connectors ===\n");
-        for (auto const& conn : driver->list_connectors()) {
+        for (auto const& output : driver->scan_outputs()) {
             fmt::print(
-                "#{:<3} {}-{}{}\n", conn.id, conn.type, conn.which,
-                conn.connected.value_or(false) ? " [connected]" : ""
+                "#{:<3} {}{}\n", output.connector_id, output.name,
+                output.connected.value_or(false) ? " [connected]" : ""
             );
+
+            std::string active;
+            if (output.active_mode) {
+                active = output.active_mode->format();
+                fmt::print("  {} active\n", active);
+            }
+            for (auto const& mode : output.modes) {
+                auto const line = mode.format();
+                if (line != active) fmt::print("  {}\n", line);
+            }
+            fmt::print("\n");
         }
-        fmt::print("\n");
 
         if (media_arg.empty()) {
             fmt::print("*** No --media file specified\n");
