@@ -6,23 +6,23 @@
 #include <string>
 #include <vector>
 
-namespace pivid {
+#include "frame_buffer.h"
 
-class DisplayError : public std::exception {};
+namespace pivid {
 
 struct DisplayMode {
     struct Timings {
-        uint32_t clock;
-        uint16_t display, sync_start, sync_end, total;
-        int8_t sync_polarity;
+        int clock;
+        int display, sync_start, sync_end, total;
+        int sync_polarity;
     };
 
     Timings horiz, vert;
-    uint16_t pixel_skew;
-    uint16_t line_repeats;
+    int pixel_skew;
+    int line_repeats;
     bool interlace;
-    int8_t clock_exp2;
-    int8_t csync_polarity;
+    int clock_exp2;
+    int csync_polarity;
     std::string name;
     bool preferred;
 
@@ -37,16 +37,23 @@ struct DisplayOutputStatus {
     std::optional<DisplayMode> active_mode;  // Output disabled if not present.
 };
 
-struct DisplayOutputRequest {
+struct DisplayOutputUpdate {
+    struct Layer {
+        FrameBuffer fb;
+        double fb_x, fb_y, fb_w, fb_h;
+        int out_x, out_y, out_w, out_h;
+    };
+
     uint32_t connector_id;
-    std::optional<DisplayMode> mode;  // Output disabled if not present.
+    std::optional<DisplayMode> mode;
+    std::vector<Layer> layers;
 };
 
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
     virtual std::vector<DisplayOutputStatus> scan_outputs() = 0;
-    virtual void set_outputs(std::vector<DisplayOutputRequest> const&) = 0;
+    virtual void make_updates(std::vector<DisplayOutputUpdate> const&) = 0;
 };
 
 std::unique_ptr<DisplayDriver> open_display_driver(

@@ -3,6 +3,8 @@
 #undef NDEBUG
 #include <assert.h>
 
+#include <system_error>
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -10,8 +12,6 @@ extern "C" {
 #include <libavutil/frame.h>
 #include <libavutil/pixdesc.h>
 }
-
-#include <fmt/core.h>
 
 namespace pivid {
 
@@ -23,34 +23,32 @@ namespace {
 
 using strview = std::string_view;
 
-class LibavError : public DecoderError {
+class LibavErrorCategory : public std::error_category {
   public:
-    LibavError(strview action, strview note, strview error, int avcode = 0) {
-        what_val.assign(action);
-        if (!note.empty()) what_val += fmt::format(" ({})", note);
-        if (!error.empty()) what_val += fmt::format(": {}", error);
-        if (avcode) {
-            char errbuf[256];
-            av_strerror(avcode, errbuf, sizeof(errbuf));
-            what_val += fmt::format(": {}", errbuf);
-        }
+    virtual char const* name() const noexcept { return "libav"; }
+    virtual std::string message(int code) const {
+        char errbuf[256];
+        av_strerror(code, errbuf, sizeof(errbuf));
+        return errbuf;
     }
-
-    virtual char const* what() const noexcept { return what_val.c_str(); }
-
-  private:
-    std::string what_val;
 };
 
-int check_av(int avcode, std::string_view action, std::string_view note = "") {
+LibavErrorCategory const& libav_category() {
+    static LibavErrorCategory singleton;
+    return singleton;
+}
+
+int check_av(int avcode, strview note, strview detail = "") {
     if (avcode >= 0) return avcode; // No error.
-    throw LibavError(action, note, "", avcode);
+    auto what = std::string(note);
+    if (!detail.empty()) ((what += " (") += detail) += ")";
+    throw std::system_error(avcode, libav_category(), what);
 }
 
 template <typename T>
-T* check_alloc(T* item, std::string_view action, std::string_view note = "") {
+T* check_alloc(T* item) {
     if (item) return item;  // No error.
-    throw LibavError(action, note, "", AVERROR(ENOMEM));
+    throw std::bad_alloc();
 }
 
 //
@@ -120,8 +118,8 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual std::unique_ptr<DecodedFrame> next_frame() {
         assert(format_context && codec_context);
-        if (!av_packet) av_packet = check_alloc(av_packet_alloc(), "Packet");
-        if (!av_frame) av_frame = check_alloc(av_frame_alloc(), "Frame");
+        if (!av_packet) av_packet = check_alloc(av_packet_alloc());
+        if (!av_frame) av_frame = check_alloc(av_frame_alloc());
 
         for (;;) {
             if (!eof_seen_from_file) {
@@ -193,14 +191,15 @@ class LibavMediaDecoder : public MediaDecoder {
         );
 
         if (codec == nullptr || stream_index < 0) {
-            throw LibavError("Decode", url, "Codec not found");
+            throw std::system_error(
+                AVERROR_DECODER_NOT_FOUND, libav_category(), url
+            );
         } else if (codec->id == AV_CODEC_ID_H264) {
             auto* m2m_codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
             if (m2m_codec) codec = m2m_codec;
         }
 
-        codec_context = avcodec_alloc_context3(codec);
-        check_alloc(codec_context, "Codec context");
+        codec_context = check_alloc(avcodec_alloc_context3(codec));
         check_av(
             avcodec_parameters_to_context(
                 codec_context, format_context->streams[stream_index]->codecpar

@@ -54,14 +54,15 @@ int main(int const argc, char const* const* const argv) {
                 output.connected.value_or(false) ? " [connected]" : ""
             );
 
-            std::string active;
+            std::set<std::string> seen;
             if (output.active_mode) {
-                active = output.active_mode->format();
+                auto const active = output.active_mode->format();
                 fmt::print("  {} active\n", active);
+                seen.insert(output.active_mode->name);
             }
             for (auto const& mode : output.modes) {
-                auto const line = mode.format();
-                if (line != active) fmt::print("  {}\n", line);
+                if (seen.insert(mode.name).second)
+                    fmt::print("  {}\n", mode.format());
             }
             fmt::print("\n");
         }

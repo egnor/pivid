@@ -9,8 +9,6 @@ struct AVDRMFrameDescriptor;
 
 namespace pivid {
 
-class DecoderError : public std::exception {};
-
 class DecodedFrame {
   public:
     virtual ~DecodedFrame() {}
