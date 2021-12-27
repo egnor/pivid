@@ -12,48 +12,40 @@ namespace pivid {
 
 struct DisplayMode {
     struct Timings {
-        int clock;
         int display, sync_start, sync_end, total;
-        int sync_polarity;
+        int doubling, sync_polarity;
     };
 
+    std::string name;
+    int pixel_khz;
+    int refresh_hz;
     Timings horiz, vert;
-    int pixel_skew;
-    int line_repeats;
-    bool interlace;
-    int clock_exp2;
-    int csync_polarity;
-    std::string name;
-    bool preferred;
-
-    std::string format() const;
 };
 
-struct DisplayOutputStatus {
+struct DisplayStatus {
     uint32_t connector_id;
-    std::string name;
-    std::optional<bool> connected;
-    std::vector<DisplayMode> modes;
-    std::optional<DisplayMode> active_mode;  // Output disabled if not present.
+    std::string connector_name;
+    bool display_detected;
+    std::vector<DisplayMode> display_modes;
+    DisplayMode active_mode;
 };
 
-struct DisplayOutputUpdate {
-    struct Layer {
-        FrameBuffer fb;
-        double fb_x, fb_y, fb_w, fb_h;
-        int out_x, out_y, out_w, out_h;
-    };
-
-    uint32_t connector_id;
-    std::optional<DisplayMode> mode;
-    std::vector<Layer> layers;
+struct DisplayLayer {
+    FrameBuffer fb;
+    double fb_x, fb_y, fb_w, fb_h;
+    int out_x, out_y, out_w, out_h;
 };
 
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
-    virtual std::vector<DisplayOutputStatus> scan_outputs() = 0;
-    virtual void make_updates(std::vector<DisplayOutputUpdate> const&) = 0;
+    virtual std::vector<DisplayStatus> scan_outputs() = 0;
+    virtual bool update_ready(uint32_t connector_id) = 0;
+    virtual void update_output(
+        uint32_t connector_id,
+        DisplayMode const& mode,
+        std::vector<DisplayLayer> const& layers
+    ) = 0;
 };
 
 std::unique_ptr<DisplayDriver> open_display_driver(
@@ -70,5 +62,8 @@ struct DisplayDriverListing {
 };
 
 std::vector<DisplayDriverListing> list_display_drivers();
+
+std::string debug_string(DisplayDriverListing const&);
+std::string debug_string(DisplayMode const&);
 
 }  // namespace pivid
