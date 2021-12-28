@@ -40,7 +40,7 @@ class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
     virtual std::vector<DisplayStatus> scan_outputs() = 0;
-    virtual bool update_ready(uint32_t connector_id) = 0;
+    virtual bool ready_for_update(uint32_t connector_id) = 0;
     virtual void update_output(
         uint32_t connector_id,
         DisplayMode const& mode,

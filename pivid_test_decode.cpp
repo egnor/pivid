@@ -52,7 +52,7 @@ int main(int const argc, char const* const* const argv) {
         if (dev_file.empty()) throw std::runtime_error("No matching device");
         auto const driver = pivid::open_display_driver(dev_file);
 
-        fmt::print("=== Display outputs ===\n");
+        fmt::print("=== Display output connectors ===\n");
         uint32_t connector_id = 0;
         pivid::DisplayMode mode = {};
         for (auto const& output : driver->scan_outputs()) {
@@ -64,7 +64,7 @@ int main(int const argc, char const* const* const argv) {
             }
 
             fmt::print(
-                "{} #{:<3} {}{}\n",
+                "{} Conn #{:<3} {}{}\n",
                 connector_id == output.connector_id ? "=>" : "  ",
                 output.connector_id, output.connector_name,
                 output.display_detected ? " [connected]" : ""
@@ -96,7 +96,13 @@ int main(int const argc, char const* const* const argv) {
         if (!connector_id) throw std::runtime_error("No matching connector");
         if (mode.name.empty()) throw std::runtime_error("No matching mode");
 
+        fmt::print("Setting mode \"{}\"...\n", mode.name);
         driver->update_output(connector_id, mode, {});
+        while (!driver->ready_for_update(connector_id)) {
+           using namespace std::chrono_literals;
+           std::this_thread::sleep_for(0.01s);
+        }
+        fmt::print("  Mode set complete.\n\n");
 
         if (!media_arg.empty()) {
            auto const decoder = pivid::new_media_decoder(media_arg);
