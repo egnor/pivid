@@ -1,7 +1,6 @@
 project('pivid', ['c', 'cpp'], version: '0.0',
     default_options: [
-        'build.cpp_std=c++17',
-        'cpp_std=c++17',
+        'cpp_std=c++2a',
         'warning_level=3',
         'werror=true',
     ]
@@ -31,6 +30,7 @@ pivid_lib = library(
     'pivid', [
         'media_decoder.cpp',
         'display_output.cpp',
+        'unix_system.cpp',
     ],
     dependencies: [libav_deps, util_deps],
 )

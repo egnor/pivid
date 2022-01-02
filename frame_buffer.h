@@ -1,20 +1,22 @@
 #pragma once
 
-#include "file_descriptor.h"
+#include <compare>
 
 namespace pivid {
 
 struct FrameBuffer {
     struct Channel {
         std::shared_ptr<int const> dma_fd;
-        int offset = 0;
-        int line_pitch = 0;
+        int start_offset = 0;
+        int bytes_per_line = 0;
+        auto operator<=>(Channel const&) const = default;
     };
 
+    std::vector<Channel> channels;
     uint32_t fourcc = 0;
     int width = 0;
     int height = 0;
-    std::vector<Channel> channels;
+    auto operator<=>(FrameBuffer const&) const = default;
 };
 
 }  // namespace pivid

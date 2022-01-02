@@ -10,16 +10,27 @@
 
 namespace pivid {
 
+struct DisplayDriverListing {
+    std::filesystem::path dev_file; 
+    std::string system_path;
+    std::string driver;
+    std::string driver_date;
+    std::string driver_desc;
+    std::string driver_bus_id;
+};
+
 struct DisplayMode {
     struct Timings {
         int display, sync_start, sync_end, total;
         int doubling, sync_polarity;
+        auto operator<=>(Timings const&) const = default;
     };
 
     std::string name;
     int pixel_khz;
     int refresh_hz;
     Timings horiz, vert;
+    auto operator<=>(DisplayMode const&) const = default;
 };
 
 struct DisplayStatus {
@@ -48,20 +59,10 @@ class DisplayDriver {
     ) = 0;
 };
 
+std::vector<DisplayDriverListing> list_display_drivers();
 std::unique_ptr<DisplayDriver> open_display_driver(
     std::filesystem::path const& dev_file
 );
-
-struct DisplayDriverListing {
-    std::filesystem::path dev_file; 
-    std::string system_path;
-    std::string driver;
-    std::string driver_date;
-    std::string driver_desc;
-    std::string driver_bus_id;
-};
-
-std::vector<DisplayDriverListing> list_display_drivers();
 
 std::string debug_string(DisplayDriverListing const&);
 std::string debug_string(DisplayMode const&);
