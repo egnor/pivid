@@ -128,8 +128,15 @@ class DrmDriver : public DisplayDriver {
         );
 
         for (auto const crtc_id : crtc_ids) {
-            crtcs[crtc_id].id = crtc_id;
-            lookup_prop_ids(crtc_id, &crtcs[crtc_id].prop_ids);
+            drm_mode_crtc ccdat = {};
+            ccdat.crtc_id = crtc_id;
+            fd->ioc<DRM_IOCTL_MODE_GETCRTC>(&ccdat).ex("DRM CRTC");
+
+            auto* crtc = &crtcs[crtc_id];
+            crtc->id = crtc_id;
+            lookup_prop_ids(crtc_id, &crtc->prop_ids);
+            if (ccdat.mode_valid)
+                crtc->active.mode = mode_from_drm(ccdat.mode);
         }
 
         for (auto const conn_id : conn_ids) {
@@ -234,11 +241,9 @@ class DrmDriver : public DisplayDriver {
                 edat.encoder_id = cdat.encoder_id;
                 fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
                 if (edat.crtc_id) {
-                    drm_mode_crtc ccdat = {};
-                    ccdat.crtc_id = edat.crtc_id;
-                    fd->ioc<DRM_IOCTL_MODE_GETCRTC>(&ccdat).ex("DRM CRTC");
-                    if (ccdat.mode_valid)
-                        status.active_mode = mode_from_drm(ccdat.mode);
+                    auto const id_crtc_iter = crtcs.find(edat.crtc_id);
+                    if (id_crtc_iter != crtcs.end())
+                        status.active_mode = id_crtc_iter->second.active.mode;
                 }
             }
 
@@ -299,7 +304,7 @@ class DrmDriver : public DisplayDriver {
             return !conn.using_crtc->pending_flip;
 
         for (auto const* const crtc : conn.usable_crtcs) {
-            if (!crtc->active.mode.refresh_hz && !crtc->pending_flip)
+            if (!crtc->used_by_conn && !crtc->pending_flip)
                 return true;
         }
 
@@ -323,7 +328,7 @@ class DrmDriver : public DisplayDriver {
         } else {
             if (!mode.refresh_hz) return;  // Was off, still off
             for (auto* const c : conn->usable_crtcs) {
-                if (!c->active.mode.refresh_hz && !c->pending_flip) {
+                if (!c->used_by_conn && !c->pending_flip) {
                     crtc = c;
                     break;
                 }

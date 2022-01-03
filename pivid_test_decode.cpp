@@ -67,13 +67,14 @@ int main(int const argc, char const* const* const argv) {
                 output.connector_name.find(conn_arg) != std::string::npos
             ) {
                 connector_id = output.connector_id;
+                if (mode_arg.empty()) mode = output.active_mode;
             }
 
             fmt::print(
                 "{} Conn #{:<3} {}{}\n",
                 connector_id == output.connector_id ? "=>" : "  ",
                 output.connector_id, output.connector_name,
-                output.display_detected ? " [connected]" : ""
+                output.display_detected ? " [connected]" : " [no connection]"
             );
 
             std::set<std::string> seen;
