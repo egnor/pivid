@@ -28,8 +28,8 @@ linux_dep = dependency('linux-headers-generic')
 
 pivid_lib = library(
     'pivid', [
-        'media_decoder.cpp',
         'display_output.cpp',
+        'media_decoder.cpp',
         'unix_system.cpp',
     ],
     dependencies: [libav_deps, util_deps],

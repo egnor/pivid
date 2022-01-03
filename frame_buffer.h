@@ -14,6 +14,7 @@ struct FrameBuffer {
 
     std::vector<Channel> channels;
     uint32_t fourcc = 0;
+    uint64_t modifier = 0;
     int width = 0;
     int height = 0;
     auto operator<=>(FrameBuffer const&) const = default;

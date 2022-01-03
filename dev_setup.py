@@ -77,7 +77,7 @@ print(f"=== C++ dependencies (conan install) ===")
 check_call([
     conan_bin, "install",
     f"--profile={conan_profile}",
-    # "--settings=build_type=Debug",
+    "--settings=build_type=Debug",
     "--settings=ffmpeg:build_type=Release",  # ffmpeg ARM won't build Debug
     f"--install-folder={conan_install}",
     "--build=outdated",

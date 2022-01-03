@@ -5,11 +5,14 @@
 
 #include <system_error>
 
+#include <fmt/core.h>
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
+#include <libavutil/hwcontext_drm.h>
 #include <libavutil/pixdesc.h>
 }
 
@@ -38,10 +41,9 @@ LibavErrorCategory const& libav_category() {
     return singleton;
 }
 
-int check_av(int avcode, strview note, strview detail = "") {
+int check_av(int avcode, strview note, strview detail) {
     if (avcode >= 0) return avcode; // No error.
-    auto what = std::string(note);
-    if (!detail.empty()) ((what += " (") += detail) += ")";
+    auto what = fmt::format("{} ({})", note, detail);
     throw std::system_error(avcode, libav_category(), what);
 }
 
@@ -50,34 +52,6 @@ T* check_alloc(T* item) {
     if (item) return item;  // No error.
     throw std::bad_alloc();
 }
-
-//
-// DecodedFrame implementation
-//
-
-class LibavDecodedFrame : public DecodedFrame {
-  public:
-    virtual ~LibavDecodedFrame() noexcept {
-        if (av_frame) av_frame_free(&av_frame);
-    }
-
-    virtual AVFrame const& frame() { return *av_frame; }
-
-    virtual AVDRMFrameDescriptor const& drm() {
-        return *(AVDRMFrameDescriptor const*)(av_frame->data[0]);
-    }
-
-    void init(AVFrame** const frame) {
-        assert(frame && *frame);
-        assert((*frame)->format == AV_PIX_FMT_DRM_PRIME);
-        assert((*frame)->data[0] && !(*frame)->data[1]);
-        assert(!this->av_frame);
-        std::swap(this->av_frame, *frame);  // Take ownership
-    }
-
-  private:
-    AVFrame* av_frame = nullptr;
-};
 
 //
 // MediaDecoder implementation
@@ -107,16 +81,13 @@ class LibavMediaDecoder : public MediaDecoder {
         if (format_context) avformat_close_input(&format_context);
     }
 
-    virtual AVStream const& stream() {
-        assert(format_context && stream_index >= 0);
-        return *format_context->streams[stream_index];
-    }
+    virtual MediaInfo const& info() const { return media_info; }
 
     virtual bool at_eof() const {
         return eof_seen_from_codec;
     }
 
-    virtual std::unique_ptr<DecodedFrame> next_frame() {
+    virtual std::optional<DecodedFrame> next_frame() {
         assert(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
@@ -156,19 +127,52 @@ class LibavMediaDecoder : public MediaDecoder {
                 }
             }
 
-            if (!eof_seen_from_codec) {
-                auto const err = avcodec_receive_frame(codec_context, av_frame);
-                if (err == AVERROR_EOF) {
-                    eof_seen_from_codec = true;
-                } else if (err != AVERROR(EAGAIN)) {
-                    check_av(err, "Decode frame", codec_context->codec->name);
-                    auto frame = std::make_unique<LibavDecodedFrame>();
-                    frame->init(&av_frame);
-                    return frame;
-                }
+            if (eof_seen_from_codec) return {};
+            auto const err = avcodec_receive_frame(codec_context, av_frame);
+            if (err == AVERROR(EAGAIN)) return {};
+            if (err == AVERROR_EOF) {
+                eof_seen_from_codec = true;
+                return {};
             }
 
-            return nullptr;  // Busy or EOF
+            check_av(err, "Decode frame", codec_context->codec->name);
+            assert(av_frame->format == AV_PIX_FMT_DRM_PRIME);
+            assert(av_frame->data[0] && !av_frame->data[1]);
+
+            auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
+            std::shared_ptr<AVFrame> shared_frame{av_frame, deleter};
+            av_frame = nullptr;  // Owned by shared_frame now.
+
+            std::optional<DecodedFrame> decoded(std::in_place);
+            auto av_drm = (AVDRMFrameDescriptor const*)(shared_frame->data[0]);
+            for (int l = 0; l < av_drm->nb_layers; ++l) {
+                auto const& av_layer = av_drm->layers[l];
+                FrameBuffer fb;
+                for (int p = 0; p < av_layer.nb_planes; ++p) {
+                    auto const& av_plane = av_layer.planes[p];
+                    auto const& av_obj = av_drm->objects[av_plane.object_index];
+
+                    FrameBuffer::Channel channel;
+                    channel.start_offset = av_plane.offset;
+                    channel.bytes_per_line = av_plane.pitch;
+                    channel.dma_fd = std::shared_ptr<int const>(
+                        shared_frame, &av_obj.fd
+                    );
+                    fb.channels.push_back(std::move(channel));
+                    fb.modifier = av_obj.format_modifier;
+                }
+
+                fb.fourcc = av_layer.format;
+                fb.width = shared_frame->width;
+                fb.height = shared_frame->height;
+                decoded->layers.push_back(std::move(fb));
+            }
+
+            auto const* stream = format_context->streams[stream_index];
+            decoded->time = shared_frame->pts * av_q2d(stream->time_base);
+            decoded->is_corrupt = (shared_frame->flags & AV_FRAME_FLAG_CORRUPT);
+            decoded->is_key_frame = shared_frame->key_frame;
+            return decoded;
         }
     }
 
@@ -199,11 +203,12 @@ class LibavMediaDecoder : public MediaDecoder {
             if (m2m_codec) codec = m2m_codec;
         }
 
+        assert(stream_index >= 0);
+        auto const* str = format_context->streams[stream_index];
         codec_context = check_alloc(avcodec_alloc_context3(codec));
         check_av(
-            avcodec_parameters_to_context(
-                codec_context, format_context->streams[stream_index]->codecpar
-            ), "Codec parameters", codec->name
+            avcodec_parameters_to_context(codec_context, str->codecpar),
+            "Codec parameters", codec->name
         );
 
         codec_context->get_format = pixel_format_callback;
@@ -211,12 +216,37 @@ class LibavMediaDecoder : public MediaDecoder {
             avcodec_open2(codec_context, codec, nullptr),
             "Open codec", codec->name
         );
+
+        double const time_base = av_q2d(str->time_base);
+        media_info.container_type = format_context->iformat->long_name;
+        media_info.codec_name = codec_context->codec->long_name;
+        media_info.pixel_format = av_get_pix_fmt_name(codec_context->pix_fmt);
+        media_info.start_time =
+            (str->start_time > 0) ? str->start_time * time_base :
+            (format_context->start_time > 0) ?
+                format_context->start_time * 1.0 / AV_TIME_BASE : 0;
+        media_info.duration =
+            (str->duration > 0) ? str->duration * time_base :
+            (format_context->duration > 0) ?
+                format_context->duration * 1.0 / AV_TIME_BASE : 0;
+        media_info.bit_rate =
+            (codec_context->bit_rate > 0) ? codec_context->bit_rate :
+            (format_context->bit_rate > 0) ? format_context->bit_rate : 0;
+        media_info.frame_rate =
+            (str->avg_frame_rate.num > 0) ? av_q2d(str->avg_frame_rate) : 0;
+        media_info.frame_count = (str->nb_frames > 0) ? str->nb_frames : 0;
+        if (codec_context->width > 0 && codec_context->height > 0) {
+            media_info.width = codec_context->width;
+            media_info.height = codec_context->height;
+        }
     }
 
   private:
     AVFormatContext* format_context = nullptr;
     AVCodecContext* codec_context = nullptr;
     int stream_index = -1;
+
+    MediaInfo media_info = {};
 
     AVPacket* av_packet = nullptr;
     AVFrame* av_frame = nullptr;

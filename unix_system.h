@@ -8,38 +8,65 @@
 #include <sys/sysmacros.h>
 #include <sys/types.h>
 
-#include <filesystem>
-#include <functional>
+#include <memory>
 #include <string>
+#include <system_error>
 #include <type_traits>
+#include <vector>
 
 namespace pivid {
 
-int check_errno(std::function<int()>, std::string_view what, int ok_errno = 0);
+template <typename T>
+struct [[nodiscard]] ErrnoOr {
+    int err = 0;
+    T value = {};
+    T ex(std::string_view w) const {
+        static auto const& cat = std::system_category();
+        if (err) throw std::system_error(err, cat, std::string{w});
+        return value;
+    }
+};
 
-std::shared_ptr<int const> open_shared_fd(
-    std::filesystem::path const& path, int flags, mode_t mode = 0
-);
+class FileDescriptor {
+  public:
+    virtual ~FileDescriptor() {}
+    virtual int fileno() const = 0;
+    virtual ErrnoOr<int> read(void* buf, size_t len) = 0;
+    virtual ErrnoOr<int> ioctl(uint32_t nr, void* data) = 0;
 
-template <uint32_t nr>
-int ioc(int fd, std::string_view what, int ok_errno = 0) {
-    static_assert(_IOC_DIR(nr) == _IOC_NONE && _IOC_SIZE(nr) == 0);
-    return check_errno([&] {return ioctl(fd, nr, nullptr);}, what, ok_errno);
-}
+    template <uint32_t nr>
+    ErrnoOr<int> ioc() {
+        static_assert(_IOC_DIR(nr) == _IOC_NONE && _IOC_SIZE(nr) == 0);
+        return this->ioctl(nr, nullptr);
+    }
 
-template <uint32_t nr, typename T>
-int ioc(int fd, T const& v, std::string_view what, int ok_errno = 0) {
-    static_assert(std::is_standard_layout<T>::value);
-    static_assert(_IOC_DIR(nr) == _IOC_WRITE && _IOC_SIZE(nr) == sizeof(T));
-    return check_errno([&] {return ioctl(fd, nr, (void*) &v);}, what, ok_errno);
-}
+    template <uint32_t nr, typename T>
+    ErrnoOr<int> ioc(T const& v) {
+        static_assert(std::is_standard_layout<T>::value);
+        static_assert(_IOC_DIR(nr) == _IOC_WRITE && _IOC_SIZE(nr) == sizeof(T));
+        return this->ioctl(nr, (void*) &v);
+    }
 
-template <uint32_t nr, typename T>
-int ioc(int fd, T* v, std::string_view what, int ok_errno = 0) {
-    static_assert(std::is_standard_layout<T>::value);
-    static_assert(_IOC_DIR(nr) == (_IOC_READ | _IOC_WRITE));
-    static_assert(_IOC_SIZE(nr) == sizeof(T));
-    return check_errno([&] {return ioctl(fd, nr, v);}, what, ok_errno);
-}
+    template <uint32_t nr, typename T>
+    ErrnoOr<int> ioc(T* v) {
+        static_assert(std::is_standard_layout<T>::value);
+        static_assert(_IOC_DIR(nr) == (_IOC_READ | _IOC_WRITE));
+        static_assert(_IOC_SIZE(nr) == sizeof(T));
+        return this->ioctl(nr, v);
+    }
+};
+
+class UnixSystem {
+  public:
+    virtual ~UnixSystem() {}
+    virtual ErrnoOr<std::vector<std::string>> list(std::string const& dir) = 0;
+    virtual ErrnoOr<struct stat> stat(std::string const&) = 0;
+    virtual ErrnoOr<std::string> realpath(std::string const&) = 0;
+    virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
+        std::string const&, int flags, mode_t mode = 0
+    ) = 0;
+};
+
+UnixSystem* global_system();
 
 }  // namespace pivid

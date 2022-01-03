@@ -1,17 +1,17 @@
 #pragma once
 
 #include <memory>
-#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "frame_buffer.h"
+#include "unix_system.h"
 
 namespace pivid {
 
 struct DisplayDriverListing {
-    std::filesystem::path dev_file; 
+    std::string dev_file; 
     std::string system_path;
     std::string driver;
     std::string driver_date;
@@ -43,8 +43,8 @@ struct DisplayStatus {
 
 struct DisplayLayer {
     FrameBuffer fb;
-    double fb_x, fb_y, fb_w, fb_h;
-    int out_x, out_y, out_w, out_h;
+    double fb_x, fb_y, fb_width, fb_height;
+    int out_x, out_y, out_width, out_height;
 };
 
 class DisplayDriver {
@@ -59,9 +59,10 @@ class DisplayDriver {
     ) = 0;
 };
 
-std::vector<DisplayDriverListing> list_display_drivers();
+std::vector<DisplayDriverListing> list_display_drivers(UnixSystem* sys);
+
 std::unique_ptr<DisplayDriver> open_display_driver(
-    std::filesystem::path const& dev_file
+    UnixSystem* sys, std::string const& dev_file
 );
 
 std::string debug_string(DisplayDriverListing const&);
