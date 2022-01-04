@@ -239,8 +239,8 @@ class LibavMediaDecoder : public MediaDecoder {
         );
 
         double const time_base = av_q2d(str->time_base);
-        media_info.container_type = format_context->iformat->long_name;
-        media_info.codec_name = codec_context->codec->long_name;
+        media_info.container_type = format_context->iformat->name;
+        media_info.codec_name = codec_context->codec->name;
         media_info.pixel_format = av_get_pix_fmt_name(codec_context->pix_fmt);
         media_info.start_time =
             (str->start_time > 0) ? str->start_time * time_base :

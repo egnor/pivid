@@ -8,13 +8,13 @@ namespace pivid {
 class MemoryBuffer {
   public:
     virtual ~MemoryBuffer() {}
-    int dma_fd() const = 0;
+    virtual int dma_fd() const = 0;
 };
 
 struct FrameBuffer {
     struct Channel {
         std::shared_ptr<MemoryBuffer> memory;
-        int start_offset;
+        int memory_offset;
         int bytes_per_line;
         auto operator<=>(Channel const&) const = default;
     };
