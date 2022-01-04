@@ -116,8 +116,8 @@ void inspect_media(AVFormatContext* const avc) {
             if (par->sample_rate)
                 fmt::print(" {}hz", par->sample_rate);
             if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
-                auto const pixfmt = (AVPixelFormat) par->format;
-                fmt::print(" ({})", av_get_pix_fmt_name(pixfmt));
+                auto name = av_get_pix_fmt_name((AVPixelFormat) par->format);
+                if (name) fmt::print(" ({})", name);
             }
         }
         fmt::print("\n");
