@@ -57,20 +57,14 @@ T* check_alloc(T* item) {
 // MediaDecoder implementation
 //
 
-extern "C" AVPixelFormat pixel_format_callback(
-    AVCodecContext* context, AVPixelFormat const* formats
-) {
-    for (auto const* f = formats; *f != AV_PIX_FMT_NONE; ++f) {
-        if (*f == AV_PIX_FMT_NONE) return *f;  // None match.
-        if (*f == AV_PIX_FMT_DRM_PRIME) break;
-    }
-    if (av_hwdevice_ctx_create(
-        &context->hw_device_ctx, AV_HWDEVICE_TYPE_DRM, nullptr, nullptr, 0
-    ) < 0) {
-        return AV_PIX_FMT_NONE;
-    }
-    return AV_PIX_FMT_DRM_PRIME;
-}
+class LibavDrmBuffer : public MemoryBuffer {
+  public:
+    LibavDrmBuffer(int fd, std::shared_ptr<AVFrame> ref) : fd(fd), frame(ref) {}
+    virtual int dma_fd() const { return fd; }
+  private:
+    int fd;
+    std::shared_ptr<AVFrame> frame;
+};
 
 class LibavMediaDecoder : public MediaDecoder {
   public:
@@ -191,7 +185,7 @@ class LibavMediaDecoder : public MediaDecoder {
                 fb->modifier = av_obj.format_modifier;
                 fb->channels.push_back({
                     .dma_fd = av_obj.fd,
-                    .start_offset = (int) av_plane.offset,
+                    .memory_offset = (int) av_plane.offset,
                     .bytes_per_line = (int) av_plane.pitch
                 });
             }
@@ -272,7 +266,6 @@ class LibavMediaDecoder : public MediaDecoder {
     AVFormatContext* format_context = nullptr;
     AVCodecContext* codec_context = nullptr;
     int stream_index = -1;
-
     MediaInfo media_info = {};
 
     AVPacket* av_packet = nullptr;
@@ -281,6 +274,21 @@ class LibavMediaDecoder : public MediaDecoder {
     bool eof_seen_from_file = false;
     bool eof_sent_to_codec = false;
     bool eof_seen_from_codec = false;
+
+    static extern "C" AVPixelFormat pixel_format_callback(
+        AVCodecContext* context, AVPixelFormat const* formats
+    ) {
+        for (auto const* f = formats; *f != AV_PIX_FMT_NONE; ++f) {
+            if (*f == AV_PIX_FMT_NONE) return *f;  // None match.
+            if (*f == AV_PIX_FMT_DRM_PRIME) break;
+        }
+        if (av_hwdevice_ctx_create(
+            &context->hw_device_ctx, AV_HWDEVICE_TYPE_DRM, nullptr, nullptr, 0
+        ) < 0) {
+            return AV_PIX_FMT_NONE;
+        }
+        return AV_PIX_FMT_DRM_PRIME;
+    }
 };
 
 }  // anonymous namespace
