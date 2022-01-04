@@ -191,8 +191,8 @@ class LibavMediaDecoder : public MediaDecoder {
                 fb->modifier = av_obj.format_modifier;
                 fb->channels.push_back({
                     .dma_fd = av_obj.fd,
-                    .start_offset = av_plane.offset,
-                    .bytes_per_line = av_plane.pitch
+                    .start_offset = (int) av_plane.offset,
+                    .bytes_per_line = (int) av_plane.pitch
                 });
             }
 

@@ -413,7 +413,7 @@ class DrmDriver : public DisplayDriver {
 
         drm_mode_atomic atomic = {
             .flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET,
-            .count_objs = obj_ids.size(),
+            .count_objs = (uint32_t) obj_ids.size(),
             .objs_ptr = (uint64_t) obj_ids.data(),
             .count_props_ptr = (uint64_t) obj_prop_counts.data(),
             .props_ptr = (uint64_t) prop_ids.data(),

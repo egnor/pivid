@@ -136,7 +136,7 @@ int main(int const argc, char const* const* const argv) {
                 fmt::print("{:5.2f}s", frame.time);
                 if (!frame.frame_type.empty())
                     fmt::print(" {:<2s}", frame.frame_type);
-                for (auto const fb : frame.layers) {
+                for (auto const& fb : frame.layers) {
                     fmt::print(
                         " [{}x{} {:.4s}",
                         fb->width, fb->height, (char const*) &fb->fourcc
@@ -182,7 +182,7 @@ int main(int const argc, char const* const* const argv) {
                 fmt::print("\n");
 
                 std::vector<pivid::DisplayLayer> display_layers;
-                for (auto const fb : frame.layers) {
+                for (auto const& fb : frame.layers) {
                     pivid::DisplayLayer display_layer = {};
                     display_layer.fb = fb;
                     display_layer.fb_width = fb->width;
