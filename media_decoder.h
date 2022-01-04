@@ -8,9 +8,9 @@
 
 namespace pivid {
 
-struct DecodedFrame {
+struct MediaFrame {
     double time;
-    std::vector<std::shared_ptr<FrameBuffer>> layers;
+    std::vector<std::shared_ptr<FrameBuffer const>> layers;
     std::string_view frame_type;
     bool is_key_frame;
     bool is_corrupt;
@@ -34,7 +34,7 @@ class MediaDecoder {
     virtual ~MediaDecoder() {}
     virtual MediaInfo const& info() const = 0;
     virtual bool next_frame_ready() = 0;
-    virtual DecodedFrame next_frame() = 0;
+    virtual MediaFrame next_frame() = 0;
 };
 
 std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& url);

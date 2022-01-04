@@ -140,8 +140,8 @@ class LibavMediaDecoder : public MediaDecoder {
         }
     }
 
-    virtual DecodedFrame next_frame() {
-        DecodedFrame decoded = {};
+    virtual MediaFrame next_frame() {
+        MediaFrame decoded = {};
         if (eof_seen_from_codec) {
             decoded.at_eof = true;
             decoded.time = last_frame_time;

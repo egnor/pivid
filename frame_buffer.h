@@ -7,16 +7,16 @@ namespace pivid {
 struct FrameBuffer {
     struct Channel {
         int dma_fd;
-        int start_offset = 0;
-        int bytes_per_line = 0;
+        int start_offset;
+        int bytes_per_line;
         auto operator<=>(Channel const&) const = default;
     };
 
     std::vector<Channel> channels;
-    uint32_t fourcc = 0;
-    uint64_t modifier = 0;
-    int width = 0;
-    int height = 0;
+    uint32_t fourcc;
+    uint64_t modifier;
+    int width;
+    int height;
     auto operator<=>(FrameBuffer const&) const = default;
 };
 

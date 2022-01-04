@@ -461,7 +461,7 @@ class DrmDriver : public DisplayDriver {
         struct State {
             std::vector<Plane*> using_planes;
             std::map<
-                std::shared_ptr<FrameBuffer>,
+                std::shared_ptr<FrameBuffer const>,
                 std::shared_ptr<uint32_t const>
             > fb_ids;
             DisplayMode mode = {};

@@ -42,7 +42,7 @@ struct DisplayStatus {
 };
 
 struct DisplayLayer {
-    std::shared_ptr<FrameBuffer> fb;
+    std::shared_ptr<FrameBuffer const> fb;
     double fb_x, fb_y, fb_width, fb_height;
     int out_x, out_y, out_width, out_height;
 };
