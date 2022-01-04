@@ -25,7 +25,7 @@ class GlobalFileDescriptor : public FileDescriptor {
   public:
     GlobalFileDescriptor(int fd) : fd(fd) {}
     virtual ~GlobalFileDescriptor() { ::close(fd); }
-    virtual int fileno() const { return fd; }
+    virtual int raw_fd() const { return fd; }
 
     virtual ErrnoOr<int> read(void* buf, size_t len) {
         return run_sys([&] {return ::read(fd, buf, len);});

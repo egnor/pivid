@@ -1,12 +1,19 @@
 #pragma once
 
 #include <compare>
+#include <memory>
 
 namespace pivid {
 
+class MemoryBuffer {
+  public:
+    virtual ~MemoryBuffer() {}
+    int dma_fd() const = 0;
+};
+
 struct FrameBuffer {
     struct Channel {
-        int dma_fd;
+        std::shared_ptr<MemoryBuffer> memory;
         int start_offset;
         int bytes_per_line;
         auto operator<=>(Channel const&) const = default;
