@@ -324,7 +324,7 @@ class DrmDriver : public DisplayDriver {
         auto* crtc = conn->using_crtc;
         if (crtc) {
             if (crtc->pending_flip)
-                throw std::invalid_argument("Set while pending: " + conn->name);
+                throw std::invalid_argument("Unready output: " + conn->name);
         } else {
             if (!mode.refresh_hz) return;  // Was off, still off
             for (auto* const c : conn->usable_crtcs) {
@@ -333,7 +333,8 @@ class DrmDriver : public DisplayDriver {
                     break;
                 }
             }
-            if (!crtc) throw std::runtime_error("CRTCs busy: " + conn->name);
+            if (!crtc)
+                throw std::invalid_argument("Unready output: " + conn->name);
         }
 
         // Build the atomic update and the state that will result.
@@ -378,7 +379,7 @@ class DrmDriver : public DisplayDriver {
                 if (fb_it != crtc->active.fb_ids.end()) {
                     fb_it = next.fb_ids.insert(*fb_it).first;
                 } else {
-                    auto const fb = create_fb(layer.fb);
+                    auto const fb = create_fb(*layer.fb);
                     fb_it = next.fb_ids.insert({layer.fb, fb}).first;
                 }
 
@@ -459,7 +460,10 @@ class DrmDriver : public DisplayDriver {
     struct Crtc {
         struct State {
             std::vector<Plane*> using_planes;
-            std::map<FrameBuffer, std::shared_ptr<uint32_t const>> fb_ids;
+            std::map<
+                std::shared_ptr<FrameBuffer>,
+                std::shared_ptr<uint32_t const>
+            > fb_ids;
             DisplayMode mode = {};
         };
 
@@ -566,7 +570,7 @@ class DrmDriver : public DisplayDriver {
                     handles.push_back(handles[pc]);
             }
             if (handles.size() <= c)
-                handles.push_back(import_buffer(*fb.channels[c].dma_fd));
+                handles.push_back(import_buffer(fb.channels[c].dma_fd));
 
             fbdat.handles[c] = *handles.back();
             fbdat.pitches[c] = fb.channels[c].bytes_per_line;

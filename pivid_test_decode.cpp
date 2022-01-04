@@ -126,74 +126,76 @@ int main(int const argc, char const* const* const argv) {
             if (info.bit_rate) fmt::print(" {:.3f}Mbps", info.bit_rate * 1e-6);
             fmt::print(" {}x{}\n", info.width, info.height);
 
-            while (!decoder->at_eof()) {
-                auto const frame = decoder->next_frame();
-                if (frame) {
-                    fmt::print("{:5.2f}s", frame->time);
-                    for (auto const& layer : frame->layers) {
-                        fmt::print(
-                            " [{}x{} {:.4s}",
-                            layer.width, layer.height,
-                            (char const*) &layer.fourcc
-                        );
-
-                        if (layer.modifier) {
-                            auto const vendor = layer.modifier >> 56;
-                            switch (vendor) {
-#define V(x) case DRM_FORMAT_MOD_VENDOR_##x: fmt::print(":{}", #x); break
-                                V(NONE);
-                                V(INTEL);
-                                V(AMD);
-                                V(NVIDIA);
-                                V(SAMSUNG);
-                                V(QCOM);
-                                V(VIVANTE);
-                                V(BROADCOM);
-                                V(ARM);
-                                V(ALLWINNER);
-                                V(AMLOGIC);
-#undef V
-                                default: fmt::print(":#{}", vendor);
-                            }
-                            fmt::print(
-                                ":{:x}", layer.modifier & ((1ull << 56) - 1)
-                            );
-                        }
-
-                        for (auto const& channel : layer.channels) {
-                            fmt::print(
-                                " {}bpp@{}",
-                                8 * channel.bytes_per_line / layer.width,
-                                *channel.dma_fd
-                            );
-                            if (channel.start_offset > 0)
-                                fmt::print("+{}k", channel.start_offset / 1024);
-                        }
-
-                        fmt::print("]");
-                    }
-                    if (frame->is_corrupt) fmt::print(" CORRUPT");
-                    if (frame->is_key_frame) fmt::print(" KEY");
-                    fmt::print("\n");
-
-                    std::vector<pivid::DisplayLayer> display_layers;
-                    for (auto const& fb : frame->layers) {
-                        pivid::DisplayLayer display_layer = {};
-                        display_layer.fb = fb;
-                        display_layer.fb_width = fb.width;
-                        display_layer.fb_height = fb.height;
-                        display_layer.out_width = mode.horiz.display;
-                        display_layer.out_height = mode.vert.display;
-                        display_layers.push_back(display_layer);
-                    }
-
-                    while (!driver->ready_for_update(connector_id))
-                        std::this_thread::sleep_for(0.01s);
-
-                    driver->update_output(connector_id, mode, display_layers);
-                } else {
+            for (;;) {
+                while (!decoder->next_frame_ready())
                     std::this_thread::sleep_for(0.01s);
+
+                auto const frame = decoder->next_frame();
+                if (frame.at_eof) break;
+
+                fmt::print("{:5.2f}s", frame.time);
+                if (!frame.frame_type.empty())
+                    fmt::print(" {:<2s}", frame.frame_type);
+                for (auto const fb : frame.layers) {
+                    fmt::print(
+                        " [{}x{} {:.4s}",
+                        fb->width, fb->height, (char const*) &fb->fourcc
+                    );
+
+                    if (fb->modifier) {
+                        auto const vendor = fb->modifier >> 56;
+                        switch (vendor) {
+#define V(x) case DRM_FORMAT_MOD_VENDOR_##x: fmt::print(":{}", #x); break
+                            V(NONE);
+                            V(INTEL);
+                            V(AMD);
+                            V(NVIDIA);
+                            V(SAMSUNG);
+                            V(QCOM);
+                            V(VIVANTE);
+                            V(BROADCOM);
+                            V(ARM);
+                            V(ALLWINNER);
+                            V(AMLOGIC);
+#undef V
+                            default: fmt::print(":#{}", vendor);
+                        }
+                        fmt::print(
+                            ":{:x}", fb->modifier & ((1ull << 56) - 1)
+                        );
+                    }
+
+                    for (auto const& chan : fb->channels) {
+                        fmt::print(
+                            "{}{}bpp fd{:<2d}",
+                            (&chan != &fb->channels[0]) ? " | " : " ",
+                            8 * chan.bytes_per_line / fb->width, chan.dma_fd
+                        );
+                        if (chan.start_offset > 0)
+                            fmt::print(" @{}k", chan.start_offset / 1024);
+                    }
+
+                    fmt::print("]");
                 }
+                if (frame.is_corrupt) fmt::print(" CORRUPT");
+                if (frame.is_key_frame) fmt::print(" KEY");
+                fmt::print("\n");
+
+                std::vector<pivid::DisplayLayer> display_layers;
+                for (auto const fb : frame.layers) {
+                    pivid::DisplayLayer display_layer = {};
+                    display_layer.fb = fb;
+                    display_layer.fb_width = fb->width;
+                    display_layer.fb_height = fb->height;
+                    display_layer.out_width = mode.horiz.display;
+                    display_layer.out_height = mode.vert.display;
+                    display_layers.push_back(display_layer);
+                }
+
+                while (!driver->ready_for_update(connector_id))
+                    std::this_thread::sleep_for(0.01s);
+
+                driver->update_output(connector_id, mode, display_layers);
             }
         }
 

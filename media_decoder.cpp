@@ -83,16 +83,15 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual MediaInfo const& info() const { return media_info; }
 
-    virtual bool at_eof() const {
-        return eof_seen_from_codec;
-    }
-
-    virtual std::optional<DecodedFrame> next_frame() {
+    virtual bool next_frame_ready() {
         assert(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
 
         for (;;) {
+            if (eof_seen_from_codec) return true;
+            if (av_frame->width && av_frame->height) return true;
+
             if (!eof_seen_from_file) {
                 if (av_packet->data == nullptr) {
                     auto const err = av_read_frame(format_context, av_packet);
@@ -113,7 +112,7 @@ class LibavMediaDecoder : public MediaDecoder {
                     check_av(err, "Decode packet", codec_context->codec->name);
                     av_packet_unref(av_packet);
                     assert(av_packet->data == nullptr);
-                    continue;
+                    continue;  // Get more packets
                 }
             }
 
@@ -127,53 +126,81 @@ class LibavMediaDecoder : public MediaDecoder {
                 }
             }
 
-            if (eof_seen_from_codec) return {};
             auto const err = avcodec_receive_frame(codec_context, av_frame);
-            if (err == AVERROR(EAGAIN)) return {};
+            if (err == AVERROR(EAGAIN)) return false;
             if (err == AVERROR_EOF) {
                 eof_seen_from_codec = true;
-                return {};
+                continue;
             }
 
             check_av(err, "Decode frame", codec_context->codec->name);
             assert(av_frame->format == AV_PIX_FMT_DRM_PRIME);
             assert(av_frame->data[0] && !av_frame->data[1]);
+            assert(av_frame->width && av_frame->height);
+        }
+    }
 
-            auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
-            std::shared_ptr<AVFrame> shared_frame{av_frame, deleter};
-            av_frame = nullptr;  // Owned by shared_frame now.
-
-            std::optional<DecodedFrame> decoded(std::in_place);
-            auto av_drm = (AVDRMFrameDescriptor const*)(shared_frame->data[0]);
-            for (int l = 0; l < av_drm->nb_layers; ++l) {
-                auto const& av_layer = av_drm->layers[l];
-                FrameBuffer fb;
-                for (int p = 0; p < av_layer.nb_planes; ++p) {
-                    auto const& av_plane = av_layer.planes[p];
-                    auto const& av_obj = av_drm->objects[av_plane.object_index];
-
-                    FrameBuffer::Channel channel;
-                    channel.start_offset = av_plane.offset;
-                    channel.bytes_per_line = av_plane.pitch;
-                    channel.dma_fd = std::shared_ptr<int const>(
-                        shared_frame, &av_obj.fd
-                    );
-                    fb.channels.push_back(std::move(channel));
-                    fb.modifier = av_obj.format_modifier;
-                }
-
-                fb.fourcc = av_layer.format;
-                fb.width = shared_frame->width;
-                fb.height = shared_frame->height;
-                decoded->layers.push_back(std::move(fb));
-            }
-
-            auto const* stream = format_context->streams[stream_index];
-            decoded->time = shared_frame->pts * av_q2d(stream->time_base);
-            decoded->is_corrupt = (shared_frame->flags & AV_FRAME_FLAG_CORRUPT);
-            decoded->is_key_frame = shared_frame->key_frame;
+    virtual DecodedFrame next_frame() {
+        DecodedFrame decoded = {};
+        if (eof_seen_from_codec) {
+            decoded.at_eof = true;
+            decoded.time = last_frame_time;
             return decoded;
         }
+
+        if (!av_frame || !av_frame->width || !av_frame->height)
+            throw std::logic_error("Frame not ready");
+
+        auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
+        std::shared_ptr<AVFrame> shared_frame{av_frame, deleter};
+        av_frame = nullptr;  // Owned by shared_frame now.
+
+        auto const* stream = format_context->streams[stream_index];
+        decoded.time = shared_frame->pts * av_q2d(stream->time_base);
+        decoded.is_corrupt = (shared_frame->flags & AV_FRAME_FLAG_CORRUPT);
+        decoded.is_key_frame = shared_frame->key_frame;
+        switch (shared_frame->pict_type) {
+            case AV_PICTURE_TYPE_NONE: break;
+#define P(x) case AV_PICTURE_TYPE_##x: decoded.frame_type = #x; break
+            P(I);
+            P(P);
+            P(B);
+            P(S);
+            P(SI);
+            P(SP);
+            P(BI);
+#undef P
+            default: decoded.frame_type = "?";
+        }
+
+        auto av_drm = (AVDRMFrameDescriptor const*)(shared_frame->data[0]);
+        for (int l = 0; l < av_drm->nb_layers; ++l) {
+            auto const& av_layer = av_drm->layers[l];
+
+            // Bundle the shared AVFrame with a FrameBuffer into the shared_ptr.
+            using FbPair = std::pair<std::shared_ptr<AVFrame>, FrameBuffer>;
+            auto ptr_fb = std::make_shared<FbPair>(shared_frame, FrameBuffer{});
+            auto fb = std::shared_ptr<FrameBuffer>(ptr_fb, &ptr_fb->second);
+            fb->fourcc = av_layer.format;
+            fb->width = shared_frame->width;
+            fb->height = shared_frame->height;
+
+            for (int p = 0; p < av_layer.nb_planes; ++p) {
+                auto const& av_plane = av_layer.planes[p];
+                auto const& av_obj = av_drm->objects[av_plane.object_index];
+                fb->modifier = av_obj.format_modifier;
+                fb->channels.push_back({
+                    .dma_fd = av_obj.fd,
+                    .start_offset = av_plane.offset,
+                    .bytes_per_line = av_plane.pitch
+                });
+            }
+
+            decoded.layers.push_back(std::move(fb));
+        }
+
+        last_frame_time = decoded.time;
+        return decoded;
     }
 
     void init(std::string const& url) {
@@ -250,6 +277,7 @@ class LibavMediaDecoder : public MediaDecoder {
 
     AVPacket* av_packet = nullptr;
     AVFrame* av_frame = nullptr;
+    double last_frame_time = 0.0;
     bool eof_seen_from_file = false;
     bool eof_sent_to_codec = false;
     bool eof_seen_from_codec = false;
