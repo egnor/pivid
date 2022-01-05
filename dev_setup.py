@@ -66,11 +66,11 @@ if not conan_profile.is_file():
     ])
 
 for dir, ref in [
-    ("ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),
+    ("conan_ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),
 ]:
     print()
     print(f"=== {ref} recipe (conan export) ===")
-    check_call([conan_bin, "export", source_dir / "conan_recipes" / dir, ref])
+    check_call([conan_bin, "export", source_dir / dir, ref])
 
 print()
 print(f"=== C++ dependencies (conan install) ===")

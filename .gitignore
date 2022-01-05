@@ -1,5 +1,9 @@
 .*.swp
-*.mkv
-*.mp4
+
+*.gif
 *.h264
 *.jpeg
+*.jpg
+*.mkv
+*.mp4
+*.png

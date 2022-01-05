@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "frame_buffer.h"
+#include "image_buffer.h"
 #include "unix_system.h"
 
 namespace pivid {
@@ -42,15 +42,17 @@ struct DisplayStatus {
 };
 
 struct DisplayLayer {
-    std::shared_ptr<FrameBuffer const> fb;
-    double fb_x, fb_y, fb_width, fb_height;
-    int out_x, out_y, out_width, out_height;
+    ImageBuffer image;
+    double image_x, image_y, image_width, image_height;
+    int screen_x, screen_y, screen_width, screen_height;
 };
 
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
     virtual std::vector<DisplayStatus> scan_outputs() = 0;
+    virtual ImageBuffer make_buffer(int width, int height, int bpp) = 0;
+
     virtual bool ready_for_update(uint32_t connector_id) = 0;
     virtual void update_output(
         uint32_t connector_id,

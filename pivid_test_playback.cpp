@@ -126,24 +126,25 @@ int main(int const argc, char const* const* const argv) {
             if (info.bit_rate) fmt::print(" {:.3f}Mbps", info.bit_rate * 1e-6);
             fmt::print(" {}x{}\n", info.width, info.height);
 
-            for (;;) {
-                while (!decoder->next_frame_ready())
+            while (!decoder->reached_eof()) {
+                if (!decoder->next_frame_ready()) {
                     std::this_thread::sleep_for(0.01s);
+                    continue;
+                }
 
-                auto const frame = decoder->next_frame();
-                if (frame.at_eof) break;
-
-                fmt::print("{:5.2f}s", frame.time);
+                auto const frame = decoder->get_next_frame();
+                fmt::print("{:5.3f}s", frame.time);
                 if (!frame.frame_type.empty())
                     fmt::print(" {:<2s}", frame.frame_type);
-                for (auto const& fb : frame.layers) {
+
+                for (auto const& image : frame.layers) {
                     fmt::print(
                         " [{}x{} {:.4s}",
-                        fb->width, fb->height, (char const*) &fb->fourcc
+                        image.width, image.height, (char const*) &image.fourcc
                     );
 
-                    if (fb->modifier) {
-                        auto const vendor = fb->modifier >> 56;
+                    if (image.modifier) {
+                        auto const vendor = image.modifier >> 56;
                         switch (vendor) {
 #define V(x) case DRM_FORMAT_MOD_VENDOR_##x: fmt::print(":{}", #x); break
                             V(NONE);
@@ -161,18 +162,18 @@ int main(int const argc, char const* const* const argv) {
                             default: fmt::print(":#{}", vendor);
                         }
                         fmt::print(
-                            ":{:x}", fb->modifier & ((1ull << 56) - 1)
+                            ":{:x}", image.modifier & ((1ull << 56) - 1)
                         );
                     }
 
-                    for (auto const& chan : fb->channels) {
+                    for (auto const& chan : image.channels) {
                         fmt::print(
-                            "{}{}bpp fd{:<2d}",
-                            (&chan != &fb->channels[0]) ? " | " : " ",
-                            8 * chan.bytes_per_line / fb->width, chan.dma_fd
+                            "{}{}bpp",
+                            (&chan != &image.channels[0]) ? " | " : " ",
+                            8 * chan.line_stride / image.width
                         );
-                        if (chan.start_offset > 0)
-                            fmt::print(" @{}k", chan.start_offset / 1024);
+                        if (chan.memory_offset > 0)
+                            fmt::print(" @{}k", chan.memory_offset / 1024);
                     }
 
                     fmt::print("]");
@@ -182,13 +183,13 @@ int main(int const argc, char const* const* const argv) {
                 fmt::print("\n");
 
                 std::vector<pivid::DisplayLayer> display_layers;
-                for (auto const& fb : frame.layers) {
+                for (auto const& image : frame.layers) {
                     pivid::DisplayLayer display_layer = {};
-                    display_layer.fb = fb;
-                    display_layer.fb_width = fb->width;
-                    display_layer.fb_height = fb->height;
-                    display_layer.out_width = mode.horiz.display;
-                    display_layer.out_height = mode.vert.display;
+                    display_layer.image = image;
+                    display_layer.image_width = image.width;
+                    display_layer.image_height = image.height;
+                    display_layer.screen_width = mode.horiz.display;
+                    display_layer.screen_height = mode.vert.display;
                     display_layers.push_back(display_layer);
                 }
 

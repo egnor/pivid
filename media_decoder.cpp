@@ -2,6 +2,7 @@
 
 #undef NDEBUG
 #include <assert.h>
+#include <sys/mman.h>
 
 #include <system_error>
 
@@ -59,11 +60,28 @@ T* check_alloc(T* item) {
 
 class LibavDrmBuffer : public MemoryBuffer {
   public:
-    LibavDrmBuffer(int fd, std::shared_ptr<AVFrame> ref) : fd(fd), frame(ref) {}
-    virtual int dma_fd() const { return fd; }
+    void init(std::shared_ptr<AVDRMFrameDescriptor const> av_drm, int index) {
+        auto const* obj = &av_drm->objects[index];
+        av_obj = std::shared_ptr<const AVDRMObjectDescriptor>{av_drm, obj};
+    }
+
+    ~LibavDrmBuffer() { if (mem) munmap(mem, av_obj->size); }
+    virtual int dma_fd() const { return av_obj->fd; }
+    virtual size_t buffer_size() const { return av_obj->size; }
+
+    virtual uint8_t* mapped() {
+        if (!mem) {
+            int const prot = PROT_READ|PROT_WRITE, flags = MAP_SHARED;
+            mem = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
+            if (!mem)
+                throw std::system_error(errno, std::system_category(), "Mmap");
+        }
+        return (uint8_t*) mem;
+    }
+
   private:
-    int fd;
-    std::shared_ptr<AVFrame> frame;
+    std::shared_ptr<AVDRMObjectDescriptor const> av_obj;
+    void* mem = nullptr;
 };
 
 class LibavMediaDecoder : public MediaDecoder {
@@ -77,13 +95,18 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual MediaInfo const& info() const { return media_info; }
 
+    virtual bool reached_eof() {
+        if (!eof_seen_from_codec) next_frame_ready();
+        return eof_seen_from_codec;
+    }
+
     virtual bool next_frame_ready() {
         assert(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
 
         for (;;) {
-            if (eof_seen_from_codec) return true;
+            if (eof_seen_from_codec) return false;
             if (av_frame->width && av_frame->height) return true;
 
             if (!eof_seen_from_file) {
@@ -134,28 +157,25 @@ class LibavMediaDecoder : public MediaDecoder {
         }
     }
 
-    virtual MediaFrame next_frame() {
-        MediaFrame decoded = {};
-        if (eof_seen_from_codec) {
-            decoded.at_eof = true;
-            decoded.time = last_frame_time;
-            return decoded;
-        }
+    virtual MediaFrame get_next_frame() {
+        MediaFrame out = {};
+        if (eof_seen_from_codec)
+            throw std::logic_error("Read past end of media");
 
         if (!av_frame || !av_frame->width || !av_frame->height)
-            throw std::logic_error("Frame not ready");
+            throw std::logic_error("Read unready media frame");
 
         auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
-        std::shared_ptr<AVFrame> shared_frame{av_frame, deleter};
-        av_frame = nullptr;  // Owned by shared_frame now.
+        std::shared_ptr<AVFrame> av_frame{this->av_frame, deleter};
+        this->av_frame = nullptr;  // Owned by shared_ptr now.
 
         auto const* stream = format_context->streams[stream_index];
-        decoded.time = shared_frame->pts * av_q2d(stream->time_base);
-        decoded.is_corrupt = (shared_frame->flags & AV_FRAME_FLAG_CORRUPT);
-        decoded.is_key_frame = shared_frame->key_frame;
-        switch (shared_frame->pict_type) {
+        out.time = av_frame->pts * av_q2d(stream->time_base);
+        out.is_corrupt = (av_frame->flags & AV_FRAME_FLAG_CORRUPT);
+        out.is_key_frame = av_frame->key_frame;
+        switch (av_frame->pict_type) {
             case AV_PICTURE_TYPE_NONE: break;
-#define P(x) case AV_PICTURE_TYPE_##x: decoded.frame_type = #x; break
+#define P(x) case AV_PICTURE_TYPE_##x: out.frame_type = #x; break
             P(I);
             P(P);
             P(B);
@@ -164,37 +184,41 @@ class LibavMediaDecoder : public MediaDecoder {
             P(SP);
             P(BI);
 #undef P
-            default: decoded.frame_type = "?";
+            default: out.frame_type = "?";
         }
 
-        auto av_drm = (AVDRMFrameDescriptor const*)(shared_frame->data[0]);
+        std::shared_ptr<AVDRMFrameDescriptor const> av_drm{
+            av_frame, (AVDRMFrameDescriptor const*) av_frame->data[0]
+        };
+
+        std::vector<std::shared_ptr<LibavDrmBuffer>> buffers;
+        for (int o = 0; o < av_drm->nb_objects; ++o) {
+            buffers.push_back(std::make_shared<LibavDrmBuffer>());
+            buffers.back()->init(av_drm, o);
+        }
+
         for (int l = 0; l < av_drm->nb_layers; ++l) {
             auto const& av_layer = av_drm->layers[l];
-
-            // Bundle the shared AVFrame with a FrameBuffer into the shared_ptr.
-            using FbPair = std::pair<std::shared_ptr<AVFrame>, FrameBuffer>;
-            auto ptr_fb = std::make_shared<FbPair>(shared_frame, FrameBuffer{});
-            auto fb = std::shared_ptr<FrameBuffer>(ptr_fb, &ptr_fb->second);
-            fb->fourcc = av_layer.format;
-            fb->width = shared_frame->width;
-            fb->height = shared_frame->height;
+            ImageBuffer image = {};
+            image.fourcc = av_layer.format;
+            image.width = av_frame->width;
+            image.height = av_frame->height;
 
             for (int p = 0; p < av_layer.nb_planes; ++p) {
                 auto const& av_plane = av_layer.planes[p];
                 auto const& av_obj = av_drm->objects[av_plane.object_index];
-                fb->modifier = av_obj.format_modifier;
-                fb->channels.push_back({
-                    .dma_fd = av_obj.fd,
-                    .memory_offset = (int) av_plane.offset,
-                    .bytes_per_line = (int) av_plane.pitch
+                image.modifier = av_obj.format_modifier;
+                image.channels.push_back({
+                    .memory = buffers[av_plane.object_index],
+                    .memory_offset = av_plane.offset,
+                    .line_stride = av_plane.pitch
                 });
             }
 
-            decoded.layers.push_back(std::move(fb));
+            out.layers.push_back(std::move(image));
         }
 
-        last_frame_time = decoded.time;
-        return decoded;
+        return out;
     }
 
     void init(std::string const& url) {
@@ -270,12 +294,11 @@ class LibavMediaDecoder : public MediaDecoder {
 
     AVPacket* av_packet = nullptr;
     AVFrame* av_frame = nullptr;
-    double last_frame_time = 0.0;
     bool eof_seen_from_file = false;
     bool eof_sent_to_codec = false;
     bool eof_seen_from_codec = false;
 
-    static extern "C" AVPixelFormat pixel_format_callback(
+    static AVPixelFormat pixel_format_callback(
         AVCodecContext* context, AVPixelFormat const* formats
     ) {
         for (auto const* f = formats; *f != AV_PIX_FMT_NONE; ++f) {

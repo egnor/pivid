@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -33,6 +34,14 @@ class GlobalFileDescriptor : public FileDescriptor {
 
     virtual ErrnoOr<int> ioctl(uint32_t nr, void* buf) {
         return run_sys([&] {return ::ioctl(fd, nr, buf);});
+    }
+
+    virtual ErrnoOr<std::shared_ptr<void>> mmap(
+        size_t len, int prot, int flags, off_t off
+    ) {
+        void* const mem = ::mmap(nullptr, len, prot, flags, fd, off);
+        if (!mem) return {errno, {}};
+        return {0, {mem, [len](void* m) {::munmap(m, len);}}};
     }
 
   private:

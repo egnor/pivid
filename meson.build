@@ -51,7 +51,7 @@ executable(
 )
 
 executable(
-    'pivid_test_decode', 'pivid_test_decode.cpp',
+    'pivid_test_playback', 'pivid_test_playback.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )

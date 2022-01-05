@@ -42,7 +42,7 @@ void inspect_media(AVFormatContext* const avc) {
         fmt::print(" {:.1f}sec", avc->duration * 1.0 / AV_TIME_BASE);
     if (avc->bit_rate > 0)
         fmt::print(" {}bps", avc->bit_rate);
-    fmt::print(" ({})\n", avc->iformat->long_name);
+    fmt::print(" ({})\n", avc->iformat->name);
 
     AVDictionaryEntry* entry = nullptr;
     while ((entry = av_dict_get(
@@ -253,16 +253,20 @@ int main(int argc, char** argv) {
     std::string media_file;
     std::string dump_prefix;
     bool print_frames = false;
+    bool libav_debug = false;
     double seek_before = NAN;
     double seek_after = NAN;
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
     app.add_option("--dump_prefix", dump_prefix, "Prefix for raw stream dump");
+    app.add_flag("--libav_debug", libav_debug, "Enable libav* debug logs");
     app.add_flag("--print_frames", print_frames, "Print individual frames");
     app.add_option("--seek_before", seek_before, "Find keyframe before time");
     app.add_option("--seek_after", seek_after, "Find keyframe after time");
     CLI11_PARSE(app, argc, argv);
+
+    if (libav_debug) av_log_set_level(AV_LOG_DEBUG);
 
     AVFormatContext* avc = nullptr;
     av_or_die(

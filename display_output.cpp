@@ -3,8 +3,10 @@
 #undef NDEBUG
 #include <assert.h>
 #include <drm/drm.h>
+#include <drm_fourcc.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
@@ -99,6 +101,48 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
     strncpy(out.name, mode.name.c_str(), sizeof(out.name) - 1);  // NUL term.
     return out;
 }
+
+//
+// DRM "dumb" memory buffer manager
+//
+
+class DrmDumbBuffer : public MemoryBuffer {
+  public:
+    void init(std::shared_ptr<FileDescriptor> drm_fd, int w, int h, int bpp) {
+        this->drm_fd = drm_fd;
+        ddat.height = h;
+        ddat.width = w;
+        ddat.bpp = bpp;
+        drm_fd->ioc<DRM_IOCTL_MODE_CREATE_DUMB>(&ddat).ex("Create DRM buffer");
+    }
+
+    virtual ~DrmDumbBuffer() {
+        if (!ddat.handle) return;
+        drm_mode_destroy_dumb dddat = {.handle = ddat.handle};
+        (void) drm_fd->ioc<DRM_IOCTL_MODE_DESTROY_DUMB>(&dddat);
+    }
+
+    virtual uint32_t drm_handle() const { return ddat.handle; }
+    virtual size_t buffer_size() const { return ddat.size; }
+    ptrdiff_t line_stride() const { return ddat.pitch; }
+
+    virtual uint8_t* mapped() {
+        if (!mem) {
+            drm_mode_map_dumb mdat = {};
+            mdat.handle = ddat.handle;
+            drm_fd->ioc<DRM_IOCTL_MODE_MAP_DUMB>(&mdat).ex("Map DRM buffer");
+            mem = drm_fd->mmap(
+                ddat.size, PROT_READ|PROT_WRITE, MAP_SHARED, mdat.offset
+            ).ex("Memory map DRM buffer");
+        }
+        return (uint8_t*) mem.get();
+    }
+
+  private:
+    std::shared_ptr<FileDescriptor> drm_fd;
+    drm_mode_create_dumb ddat = {};
+    std::shared_ptr<void> mem;
+};
 
 //
 // DisplayDriver implementation
@@ -252,6 +296,28 @@ class DrmDriver : public DisplayDriver {
         return out;
     }
 
+    virtual ImageBuffer make_buffer(int width, int height, int bpp) {
+        auto buf = std::make_shared<DrmDumbBuffer>();
+        buf->init(fd, width, height, bpp);
+
+        ImageBuffer::Channel ch = {};
+        ch.line_stride = buf->line_stride();
+        ch.memory = std::move(buf);
+
+        ImageBuffer image = {};
+        image.channels.push_back(std::move(ch));
+        image.width = width;
+        image.height = height;
+        switch (bpp) {
+            case 32: image.fourcc = DRM_FORMAT_ARGB8888; break;
+            case 24: image.fourcc = DRM_FORMAT_RGB888; break;
+            case 16: image.fourcc = DRM_FORMAT_RGB565; break;
+            default: break;  // Let the caller set the format.
+        }
+
+        return image;
+    }
+
     virtual bool ready_for_update(uint32_t connector_id) {
         drm_event_vblank ev = {};
         for (;;) {
@@ -375,26 +441,26 @@ class DrmDriver : public DisplayDriver {
                 if (plane->used_by_crtc != crtc)
                     obj_props[plane->id][&plane->CRTC_ID] = crtc->id;
 
-                auto fb_it = crtc->active.fb_ids.find(layer.fb);
+                auto fb_it = crtc->active.fb_ids.find(layer.image);
                 if (fb_it != crtc->active.fb_ids.end()) {
                     fb_it = next.fb_ids.insert(*fb_it).first;
                 } else {
-                    auto const fb = create_fb(*layer.fb);
-                    fb_it = next.fb_ids.insert({layer.fb, fb}).first;
+                    auto const fb = create_fb(layer.image);
+                    fb_it = next.fb_ids.insert({layer.image, fb}).first;
                 }
 
                 obj_props[plane->id][&plane->FB_ID] = *fb_it->second;
 
-                obj_props[plane->id][&plane->CRTC_X] = layer.out_x;
-                obj_props[plane->id][&plane->CRTC_Y] = layer.out_y;
-                obj_props[plane->id][&plane->CRTC_W] = layer.out_width;
-                obj_props[plane->id][&plane->CRTC_H] = layer.out_height;
+                obj_props[plane->id][&plane->CRTC_X] = layer.screen_x;
+                obj_props[plane->id][&plane->CRTC_Y] = layer.screen_y;
+                obj_props[plane->id][&plane->CRTC_W] = layer.screen_width;
+                obj_props[plane->id][&plane->CRTC_H] = layer.screen_height;
 
                 auto fixed = [](double d) -> int64_t { return d * 65536.0; };
-                obj_props[plane->id][&plane->SRC_X] = fixed(layer.fb_x);
-                obj_props[plane->id][&plane->SRC_Y] = fixed(layer.fb_y);
-                obj_props[plane->id][&plane->SRC_W] = fixed(layer.fb_width);
-                obj_props[plane->id][&plane->SRC_H] = fixed(layer.fb_height);
+                obj_props[plane->id][&plane->SRC_X] = fixed(layer.image_x);
+                obj_props[plane->id][&plane->SRC_Y] = fixed(layer.image_y);
+                obj_props[plane->id][&plane->SRC_W] = fixed(layer.image_width);
+                obj_props[plane->id][&plane->SRC_H] = fixed(layer.image_height);
             }
         }
 
@@ -460,10 +526,7 @@ class DrmDriver : public DisplayDriver {
     struct Crtc {
         struct State {
             std::vector<Plane*> using_planes;
-            std::map<
-                std::shared_ptr<FrameBuffer const>,
-                std::shared_ptr<uint32_t const>
-            > fb_ids;
+            std::map<ImageBuffer, std::shared_ptr<uint32_t const>> fb_ids;
             DisplayMode mode = {};
         };
 
@@ -548,34 +611,30 @@ class DrmDriver : public DisplayDriver {
         return {new uint32_t(cblob.blob_id), deleter};
     }
 
-    std::shared_ptr<uint32_t const> create_fb(FrameBuffer const& fb) {
+    std::shared_ptr<uint32_t const> create_fb(ImageBuffer const& image) {
         drm_mode_fb_cmd2 fbdat = {};
-        fbdat.width = fb.width;
-        fbdat.height = fb.height;
-        fbdat.pixel_format = fb.fourcc;
+        fbdat.width = image.width;
+        fbdat.height = image.height;
+        fbdat.pixel_format = image.fourcc;
         fbdat.flags = DRM_MODE_FB_MODIFIERS;
 
         size_t const max_channels = std::extent_v<decltype(fbdat.handles)>;
-        if (fb.channels.size() > max_channels) {
-            throw std::length_error(fmt::format(
-                "Too many channels for DRM framebuffer ({} > {})",
-                fb.channels.size(), max_channels
-            ));
-        }
+        if (image.channels.size() > max_channels)
+            throw std::length_error("Too many channels for DRM framebuffer");
 
         std::vector<std::shared_ptr<uint32_t const>> handles;
-        for (size_t c = 0; c < fb.channels.size(); ++c) {
+        for (size_t c = 0; c < image.channels.size(); ++c) {
             for (size_t pc = 0; pc < c && handles.size() <= c; ++pc) {
-                if (fb.channels[c].dma_fd == fb.channels[pc].dma_fd)
+                if (image.channels[c].memory == image.channels[pc].memory)
                     handles.push_back(handles[pc]);
             }
             if (handles.size() <= c)
-                handles.push_back(import_buffer(fb.channels[c].dma_fd));
+                handles.push_back(import_buffer(*image.channels[c].memory));
 
             fbdat.handles[c] = *handles.back();
-            fbdat.pitches[c] = fb.channels[c].bytes_per_line;
-            fbdat.offsets[c] = fb.channels[c].start_offset;
-            fbdat.modifier[c] = fb.modifier;
+            fbdat.pitches[c] = image.channels[c].line_stride;
+            fbdat.offsets[c] = image.channels[c].memory_offset;
+            fbdat.modifier[c] = image.modifier;
         }
 
         fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fbdat).ex("DRM framebuffer");
@@ -589,15 +648,22 @@ class DrmDriver : public DisplayDriver {
         return {new uint32_t(fbdat.fb_id), deleter};
     }
 
-    std::shared_ptr<uint32_t const> import_buffer(int dma_fd) {
-        drm_prime_handle hdat = {.handle = 0, .flags = 0, .fd = dma_fd};
-        fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("DRM buffer");
+    std::shared_ptr<uint32_t const> import_buffer(MemoryBuffer const& buf) {
+        auto drm_handle = buf.drm_handle();
+        if (drm_handle) return std::make_shared<uint32_t const>(drm_handle);
 
-        auto const fd = this->fd;
-        auto const deleter = [fd](uint32_t* const handle) {
+        auto dma_fd = buf.dma_fd();
+        if (dma_fd < 0) throw std::invalid_argument("No memory buffer handle");
+
+        drm_prime_handle hdat = {};
+        hdat.fd = dma_fd;
+        fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("Import DMA buffer");
+
+        auto const drm_fd = this->fd;
+        auto const deleter = [drm_fd](uint32_t* const handle) {
             drm_gem_close cdat = {.handle = *handle, .pad = 0};
             delete handle;
-            (void) fd->ioc<DRM_IOCTL_GEM_CLOSE>(cdat);
+            (void) drm_fd->ioc<DRM_IOCTL_GEM_CLOSE>(cdat);
         };
         return {new uint32_t(hdat.handle), deleter};
     }

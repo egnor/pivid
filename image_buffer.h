@@ -8,14 +8,17 @@ namespace pivid {
 class MemoryBuffer {
   public:
     virtual ~MemoryBuffer() {}
-    virtual int dma_fd() const = 0;
+    virtual size_t buffer_size() const = 0;
+    virtual int dma_fd() const { return -1; }
+    virtual uint32_t drm_handle() const { return 0; }
+    virtual uint8_t* mapped() { return nullptr; }
 };
 
-struct FrameBuffer {
+struct ImageBuffer {
     struct Channel {
         std::shared_ptr<MemoryBuffer> memory;
-        int memory_offset;
-        int bytes_per_line;
+        ptrdiff_t memory_offset;
+        ptrdiff_t line_stride;
         auto operator<=>(Channel const&) const = default;
     };
 
@@ -24,7 +27,7 @@ struct FrameBuffer {
     uint64_t modifier;
     int width;
     int height;
-    auto operator<=>(FrameBuffer const&) const = default;
+    auto operator<=>(ImageBuffer const&) const = default;
 };
 
 }  // namespace pivid

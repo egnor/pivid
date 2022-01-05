@@ -4,17 +4,16 @@
 #include <string>
 #include <vector>
 
-#include "frame_buffer.h"
+#include "image_buffer.h"
 
 namespace pivid {
 
 struct MediaFrame {
     double time;
-    std::vector<std::shared_ptr<FrameBuffer const>> layers;
+    std::vector<ImageBuffer> layers;
     std::string_view frame_type;
     bool is_key_frame;
     bool is_corrupt;
-    bool at_eof;
 };
 
 struct MediaInfo {
@@ -33,8 +32,9 @@ class MediaDecoder {
   public:
     virtual ~MediaDecoder() {}
     virtual MediaInfo const& info() const = 0;
+    virtual bool reached_eof() = 0;
     virtual bool next_frame_ready() = 0;
-    virtual MediaFrame next_frame() = 0;
+    virtual MediaFrame get_next_frame() = 0;
 };
 
 std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& url);
