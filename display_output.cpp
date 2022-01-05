@@ -122,10 +122,6 @@ class DrmDumbBuffer : public MemoryBuffer {
         (void) drm_fd->ioc<DRM_IOCTL_MODE_DESTROY_DUMB>(&dddat);
     }
 
-    virtual uint32_t drm_handle() const { return ddat.handle; }
-    virtual size_t buffer_size() const { return ddat.size; }
-    ptrdiff_t line_stride() const { return ddat.pitch; }
-
     virtual uint8_t* mapped() {
         if (!mem) {
             drm_mode_map_dumb mdat = {};
@@ -137,6 +133,10 @@ class DrmDumbBuffer : public MemoryBuffer {
         }
         return (uint8_t*) mem.get();
     }
+
+    virtual size_t buffer_size() const { return ddat.size; }
+    virtual uint32_t drm_handle() const { return ddat.handle; }
+    ptrdiff_t line_stride() const { return ddat.pitch; }
 
   private:
     std::shared_ptr<FileDescriptor> drm_fd;

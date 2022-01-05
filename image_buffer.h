@@ -8,10 +8,10 @@ namespace pivid {
 class MemoryBuffer {
   public:
     virtual ~MemoryBuffer() {}
+    virtual uint8_t* mapped() = 0;
     virtual size_t buffer_size() const = 0;
     virtual int dma_fd() const { return -1; }
     virtual uint32_t drm_handle() const { return 0; }
-    virtual uint8_t* mapped() { return nullptr; }
 };
 
 struct ImageBuffer {

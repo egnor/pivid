@@ -66,8 +66,6 @@ class LibavDrmBuffer : public MemoryBuffer {
     }
 
     ~LibavDrmBuffer() { if (mem) munmap(mem, av_obj->size); }
-    virtual int dma_fd() const { return av_obj->fd; }
-    virtual size_t buffer_size() const { return av_obj->size; }
 
     virtual uint8_t* mapped() {
         if (!mem) {
@@ -78,6 +76,9 @@ class LibavDrmBuffer : public MemoryBuffer {
         }
         return (uint8_t*) mem;
     }
+
+    virtual size_t buffer_size() const { return av_obj->size; }
+    virtual int dma_fd() const { return av_obj->fd; }
 
   private:
     std::shared_ptr<AVDRMObjectDescriptor const> av_obj;
