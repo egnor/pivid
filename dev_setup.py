@@ -66,7 +66,7 @@ if not conan_profile.is_file():
     ])
 
 for dir, ref in [
-    ("conan_ffmpeg+rpi", "ffmpeg/4.3+rpi@pivid/specific"),
+    ("ffmpeg_rpi_recipe", "ffmpeg/4.3+rpi@pivid/specific"),
 ]:
     print()
     print(f"=== {ref} recipe (conan export) ===")
