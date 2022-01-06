@@ -281,8 +281,8 @@ class DrmDriver : public DisplayDriver {
     DrmDriver(DrmDriver const&) = delete;
     DrmDriver& operator=(DrmDriver const&) = delete;
 
-    virtual std::vector<DisplayStatus> scan_outputs() {
-        std::vector<DisplayStatus> out;
+    virtual std::vector<DisplayConnector> scan_connectors() {
+        std::vector<DisplayConnector> out;
         for (auto const& id_conn : connectors) {
             drm_mode_get_connector cdat = {};
             cdat.connector_id = id_conn.first;
@@ -292,9 +292,9 @@ class DrmDriver : public DisplayDriver {
                 fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
             } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
 
-            DisplayStatus status = {};
-            status.connector_id = id_conn.first;
-            status.connector_name = id_conn.second.name;
+            DisplayConnector status = {};
+            status.id = id_conn.first;
+            status.name = id_conn.second.name;
             status.display_detected = (cdat.connection == 1);
 
             for (auto const& mode : modes) {

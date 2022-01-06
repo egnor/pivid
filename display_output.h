@@ -33,9 +33,9 @@ struct DisplayMode {
     auto operator<=>(DisplayMode const&) const = default;
 };
 
-struct DisplayStatus {
-    uint32_t connector_id;
-    std::string connector_name;
+struct DisplayConnector {
+    uint32_t id;
+    std::string name;
     bool display_detected;
     std::vector<DisplayMode> display_modes;
     DisplayMode active_mode;
@@ -50,7 +50,7 @@ struct DisplayLayer {
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
-    virtual std::vector<DisplayStatus> scan_outputs() = 0;
+    virtual std::vector<DisplayConnector> scan_connectors() = 0;
     virtual ImageBuffer make_buffer(int width, int height, int bpp) = 0;
 
     virtual bool ready_for_update(uint32_t connector_id) = 0;
