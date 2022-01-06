@@ -62,7 +62,6 @@ class DisplayDriver {
 };
 
 std::vector<DisplayDriverListing> list_display_drivers(UnixSystem* sys);
-
 std::unique_ptr<DisplayDriver> open_display_driver(
     UnixSystem* sys, std::string const& dev_file
 );

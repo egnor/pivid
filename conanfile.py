@@ -23,8 +23,8 @@ class PividConan(conans.ConanFile):
         for ffmpeg_without in [
             "bzip2", "freetype", "libalsa", "libfdk_aac", "libiconv",
             "libmp3lame", "libvpx", "libwebp", "libx264", "libx265",
-            "lzma", "openh264", "openjpeg", "opus", "programs", "pulse",
-            "vaapi", "vdpau", "vorbis", "xcb", "zlib",
+            "lzma", "openh264", "openjpeg", "opus", "programs",
+            "pulse", "vaapi", "vdpau", "vorbis", "xcb"
         ]:
             setattr(self.options["ffmpeg"], f"with_{ffmpeg_without}", False)
 

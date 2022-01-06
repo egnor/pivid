@@ -20,12 +20,10 @@ struct MediaInfo {
     std::string container_type;
     std::string codec_name;
     std::string pixel_format;
-    double start_time;
-    double duration;
-    double bit_rate;
-    double frame_rate;
-    int frame_count;
-    int width, height;
+    std::optional<int> width, height;
+    std::optional<double> duration;
+    std::optional<double> frame_rate;
+    std::optional<int64_t> bit_rate;
 };
 
 class MediaDecoder {

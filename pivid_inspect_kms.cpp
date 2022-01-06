@@ -288,9 +288,8 @@ void inspect_device(std::string const& path) {
 
         if (crtc->buffer_id != 0) {
             fmt::print(
-                "  * CRTC #{:<3} [FB #{}* ({},{})+({}x{})]",
-                id, crtc->buffer_id,
-                crtc->x, crtc->y, crtc->width, crtc->height
+                "  * CRTC #{:<3} [FB #{}* ({},{})]",
+                id, crtc->buffer_id, crtc->x, crtc->y
             );
         } else {
             fmt::print("    CRTC #{:<3}", id);

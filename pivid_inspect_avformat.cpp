@@ -18,6 +18,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
+#include <libavutil/log.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/rational.h>
 }
@@ -252,21 +253,21 @@ void dump_stream(
 int main(int argc, char** argv) {
     std::string media_file;
     std::string dump_prefix;
-    bool print_frames = false;
-    bool libav_debug = false;
     double seek_before = NAN;
     double seek_after = NAN;
+    bool debug_libav = false;
+    bool print_frames = false;
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
     app.add_option("--dump_prefix", dump_prefix, "Prefix for raw stream dump");
-    app.add_flag("--libav_debug", libav_debug, "Enable libav* debug logs");
-    app.add_flag("--print_frames", print_frames, "Print individual frames");
     app.add_option("--seek_before", seek_before, "Find keyframe before time");
     app.add_option("--seek_after", seek_after, "Find keyframe after time");
+    app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
+    app.add_flag("--print_frames", print_frames, "Print individual frames");
     CLI11_PARSE(app, argc, argv);
 
-    if (libav_debug) av_log_set_level(AV_LOG_DEBUG);
+    if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
 
     AVFormatContext* avc = nullptr;
     av_or_die(

@@ -102,19 +102,34 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
     return out;
 }
 
-//
-// DRM "dumb" memory buffer manager
-//
+uint32_t format_to_drm(uint32_t fourcc) {
+    // Note, ffmpeg/AVI/"standard" fourcc is big endian, DRM is little endian
+    switch (fourcc) {
+        case fourcc_code('0', 'R', 'G', 'B'): return DRM_FORMAT_BGRX8888;
+        case fourcc_code('A', 'R', 'G', 'B'): return DRM_FORMAT_BGRA8888;
+        case fourcc_code('A', 'B', 'G', 'R'): return DRM_FORMAT_RGBA8888;
+        case fourcc_code('0', 'B', 'G', 'R'): return DRM_FORMAT_RGBX8888;
+        case fourcc_code('R', 'G', 'B', '0'): return DRM_FORMAT_XBGR8888;
+        case fourcc_code('R', 'G', 'B', 'A'): return DRM_FORMAT_ABGR8888;
+        case fourcc_code('B', 'G', 'R', 'A'): return DRM_FORMAT_ARGB8888;
+        case fourcc_code('B', 'G', 'R', '0'): return DRM_FORMAT_XRGB8888;
+        case fourcc_code('R', 'G', 'B', 16):  return DRM_FORMAT_RGB565;
+        case fourcc_code('B', 'G', 'R', 16):  return DRM_FORMAT_BGR565;
+        case fourcc_code('R', 'G', 'B', 24):  return DRM_FORMAT_BGR888;
+        case fourcc_code('B', 'G', 'R', 24):  return DRM_FORMAT_RGB888;
+        case fourcc_code('Y', '4', '2', 'B'): return DRM_FORMAT_YUV422;
+        case fourcc_code('I', '4', '2', '0'): return DRM_FORMAT_YUV420;
+        case fourcc_code('N', 'V', '1', '2'): return DRM_FORMAT_NV12;
+        case fourcc_code('N', 'V', '2', '1'): return DRM_FORMAT_NV21;
+        default: return fourcc;
+    }
+}
 
 class DrmDumbBuffer : public MemoryBuffer {
   public:
-    void init(std::shared_ptr<FileDescriptor> drm_fd, int w, int h, int bpp) {
-        this->drm_fd = drm_fd;
-        ddat.height = h;
-        ddat.width = w;
-        ddat.bpp = bpp;
-        drm_fd->ioc<DRM_IOCTL_MODE_CREATE_DUMB>(&ddat).ex("Create DRM buffer");
-    }
+    DrmDumbBuffer() {}
+    DrmDumbBuffer(DrmDumbBuffer const&) = delete;
+    DrmDumbBuffer& operator=(DrmDumbBuffer const&) = delete;
 
     virtual ~DrmDumbBuffer() {
         if (!ddat.handle) return;
@@ -122,7 +137,13 @@ class DrmDumbBuffer : public MemoryBuffer {
         (void) drm_fd->ioc<DRM_IOCTL_MODE_DESTROY_DUMB>(&dddat);
     }
 
-    virtual uint8_t* mapped() {
+    virtual size_t size() const { return ddat.size; }
+    virtual uint8_t* write() { read(); ++writes; return (uint8_t*) mem.get(); }
+    virtual int write_count() const { return writes; }
+    virtual std::optional<uint32_t> drm_handle() const { return {ddat.handle}; }
+    ptrdiff_t line_stride() const { return ddat.pitch; }
+
+    virtual uint8_t const* read() {
         if (!mem) {
             drm_mode_map_dumb mdat = {};
             mdat.handle = ddat.handle;
@@ -131,17 +152,123 @@ class DrmDumbBuffer : public MemoryBuffer {
                 ddat.size, PROT_READ|PROT_WRITE, MAP_SHARED, mdat.offset
             ).ex("Memory map DRM buffer");
         }
-        return (uint8_t*) mem.get();
+        return (uint8_t const*) mem.get();
     }
 
-    virtual size_t buffer_size() const { return ddat.size; }
-    virtual uint32_t drm_handle() const { return ddat.handle; }
-    ptrdiff_t line_stride() const { return ddat.pitch; }
+    void init(std::shared_ptr<FileDescriptor> fd, int w, int h, int bpp) {
+        drm_fd = std::move(fd);
+        ddat.height = h;
+        ddat.width = w;
+        ddat.bpp = bpp;
+        drm_fd->ioc<DRM_IOCTL_MODE_CREATE_DUMB>(&ddat).ex("Create DRM buffer");
+    }
 
   private:
     std::shared_ptr<FileDescriptor> drm_fd;
     drm_mode_create_dumb ddat = {};
     std::shared_ptr<void> mem;
+    int writes = 0;
+};
+
+class DrmFrameBuffer {
+  public:
+    DrmFrameBuffer() {}
+    DrmFrameBuffer(DrmFrameBuffer const&) = delete;
+    DrmFrameBuffer& operator=(DrmFrameBuffer const&) = delete;
+
+    ~DrmFrameBuffer() {
+        if (fbdat.fb_id) (void) drm_fd->ioc<DRM_IOCTL_MODE_RMFB>(&fbdat.fb_id);
+        for (auto const handle : import_handles) {
+            drm_gem_close cdat = {.handle = handle, .pad = 0};
+            (void) drm_fd->ioc<DRM_IOCTL_GEM_CLOSE>(cdat);
+        }
+    }
+
+    uint32_t id() const { return fbdat.fb_id; }
+
+    void init(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& image) {
+        drm_fd = std::move(fd);
+        fbdat.width = image.width;
+        fbdat.height = image.height;
+        fbdat.pixel_format = format_to_drm(image.fourcc);
+        fbdat.flags = DRM_MODE_FB_MODIFIERS;
+
+        size_t const max_channels = std::extent_v<decltype(fbdat.handles)>;
+        if (image.channels.size() > max_channels)
+            throw std::length_error("Too many image channels for DRM");
+
+        for (size_t c = 0; c < image.channels.size(); ++c) {
+            auto const& channel = image.channels[c];
+            fbdat.pitches[c] = channel.line_stride;
+            fbdat.offsets[c] = channel.memory_offset;
+            fbdat.modifier[c] = image.modifier;
+            fbdat.handles[c] = channel.memory->drm_handle().value_or(0);
+
+            for (size_t pc = 0; pc < c && !fbdat.handles[c]; ++pc) {
+                if (channel.memory == image.channels[pc].memory)
+                    fbdat.handles[c] = fbdat.handles[pc];
+            }
+
+            if (!fbdat.handles[c]) {
+                drm_prime_handle hdat = {};
+                hdat.fd = channel.memory->dma_fd().value_or(-1);
+                if (hdat.fd >= 0) {
+                    drm_fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("DMA");
+                    import_handles.push_back(hdat.handle);
+                    fbdat.handles[c] = hdat.handle;
+                }
+            }
+
+            if (!fbdat.handles[c]) {
+                Copy copy = {};
+                copy.source = channel;
+                copy.buffer = std::make_shared<DrmDumbBuffer>();
+
+                auto const source_size = copy.source.memory->size();
+                auto const bpp = source_size / fbdat.width / fbdat.height;
+                copy.buffer->init(drm_fd, fbdat.width, fbdat.height, 8 * bpp);
+
+                fbdat.pitches[c] = copy.buffer->line_stride();
+                fbdat.offsets[c] = 0;
+                fbdat.handles[c] = *copy.buffer->drm_handle();
+                copies.push_back(std::move(copy));
+            }
+        }
+
+        refresh();
+        drm_fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fbdat).ex("DRM framebuffer");
+    }
+
+    void refresh() {
+        for (auto& c : copies) {
+            int const writes = c.source.memory->write_count();
+            if (c.copied_writes == writes) continue;
+
+            uint8_t* bmem = c.buffer->write();
+            uint8_t const* smem = c.source.memory->read();
+            for (uint32_t y = 0; y < fbdat.height; ++y) {
+                memcpy(
+                    bmem + y * c.buffer->line_stride(),
+                    smem + y * c.source.line_stride + c.source.memory_offset,
+                    std::min(c.buffer->line_stride(), c.source.line_stride)
+                );
+            }
+            c.copied_writes = writes;
+        }
+    }
+
+  private:
+    struct Copy {
+        ImageBuffer::Channel source;
+        std::shared_ptr<DrmDumbBuffer> buffer;
+        int height = 0;
+        int copied_writes = -1;
+    };
+
+    std::shared_ptr<FileDescriptor> drm_fd;
+    std::vector<uint32_t> import_handles;
+    std::vector<Copy> copies;
+    drm_mode_fb_cmd2 fbdat = {};
 };
 
 //
@@ -150,6 +277,252 @@ class DrmDumbBuffer : public MemoryBuffer {
 
 class DrmDriver : public DisplayDriver {
   public:
+    DrmDriver() {}
+    DrmDriver(DrmDriver const&) = delete;
+    DrmDriver& operator=(DrmDriver const&) = delete;
+
+    virtual std::vector<DisplayStatus> scan_outputs() {
+        std::vector<DisplayStatus> out;
+        for (auto const& id_conn : connectors) {
+            drm_mode_get_connector cdat = {};
+            cdat.connector_id = id_conn.first;
+            std::vector<drm_mode_modeinfo> modes;
+            do {
+                cdat.count_props = cdat.count_encoders = 0;
+                fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
+            } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
+
+            DisplayStatus status = {};
+            status.connector_id = id_conn.first;
+            status.connector_name = id_conn.second.name;
+            status.display_detected = (cdat.connection == 1);
+
+            for (auto const& mode : modes) {
+                if (!(mode.flags & DRM_MODE_FLAG_3D_MASK))
+                    status.display_modes.push_back(mode_from_drm(mode));
+            }
+
+            if (cdat.encoder_id) {
+                drm_mode_get_encoder edat = {};
+                edat.encoder_id = cdat.encoder_id;
+                fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
+                if (edat.crtc_id) {
+                    auto const id_crtc_iter = crtcs.find(edat.crtc_id);
+                    if (id_crtc_iter != crtcs.end())
+                        status.active_mode = id_crtc_iter->second.active.mode;
+                }
+            }
+
+            out.push_back(std::move(status));
+        }
+        return out;
+    }
+
+    virtual ImageBuffer make_buffer(int width, int height, int bpp) {
+        auto buf = std::make_shared<DrmDumbBuffer>();
+        buf->init(fd, width, height, bpp);
+
+        ImageBuffer::Channel ch = {};
+        ch.line_stride = buf->line_stride();
+        ch.memory = std::move(buf);
+
+        ImageBuffer image = {};
+        image.channels.push_back(std::move(ch));
+        image.width = width;
+        image.height = height;
+        return image;
+    }
+
+    virtual bool ready_for_update(uint32_t connector_id) {
+        drm_event_vblank ev = {};
+        for (;;) {
+            auto const ret = fd->read(&ev, sizeof(ev));
+            if (ret.err == EAGAIN) break;
+            if (ret.ex("Read DRM event") != sizeof(ev))
+                throw std::runtime_error("Bad DRM event size");
+
+            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) continue;
+            auto const id_crtc_iter = crtcs.find(ev.crtc_id);
+            if (id_crtc_iter == crtcs.end()) {
+                throw std::runtime_error(
+                    fmt::format("Unknown DRM CRTC flipped ({})", ev.crtc_id)
+                );
+            }
+
+            auto* const crtc = &id_crtc_iter->second;
+            if (!crtc->pending_flip) {
+                throw std::runtime_error(
+                    fmt::format("Unexpected DRM CRTC flipped ({})", ev.crtc_id)
+                );
+            }
+
+            if (crtc->used_by_conn && !crtc->pending_flip->mode.refresh_hz) {
+                assert(crtc->used_by_conn->using_crtc == crtc);
+                crtc->used_by_conn->using_crtc = nullptr;
+                crtc->used_by_conn = nullptr;
+            }
+
+            for (auto* plane : crtc->active.using_planes) {
+                assert(plane->used_by_crtc == crtc);
+                plane->used_by_crtc = nullptr;
+            }
+
+            for (auto* plane : crtc->pending_flip->using_planes) {
+                assert(plane->used_by_crtc == nullptr);
+                plane->used_by_crtc = crtc;
+            }
+
+            crtc->active = std::move(*crtc->pending_flip);
+            crtc->pending_flip.reset();
+        }
+
+        auto const id_conn_iter = connectors.find(connector_id);
+        if (id_conn_iter == connectors.end())
+            throw std::invalid_argument("Bad DRM connector ID");
+
+        auto const& conn = id_conn_iter->second;
+        if (conn.using_crtc)
+            return !conn.using_crtc->pending_flip;
+
+        for (auto const* const crtc : conn.usable_crtcs) {
+            if (!crtc->used_by_conn && !crtc->pending_flip)
+                return true;
+        }
+
+        return false;  // No CRTC available for this connector (yet?).
+    }
+
+    virtual void update_output(
+        uint32_t connector_id,
+        DisplayMode const& mode,
+        std::vector<DisplayLayer> const& layers
+    ) {
+        auto const id_conn_iter = connectors.find(connector_id);
+        if (id_conn_iter == connectors.end())
+            throw std::invalid_argument("Bad DRM connector ID");
+
+        auto* const conn = &id_conn_iter->second;
+        auto* crtc = conn->using_crtc;
+        if (crtc) {
+            if (crtc->pending_flip)
+                throw std::invalid_argument("Unready to update: " + conn->name);
+        } else {
+            if (!mode.refresh_hz) return;  // Was off, still off
+            for (auto* const c : conn->usable_crtcs) {
+                if (!c->used_by_conn && !c->pending_flip) {
+                    crtc = c;
+                    break;
+                }
+            }
+            if (!crtc)
+                throw std::invalid_argument("No DRM CRTC: " + conn->name);
+        }
+
+        // Build the atomic update and the state that will result.
+        std::map<uint32_t, std::map<PropId const*, uint64_t>> obj_props;
+        std::shared_ptr<uint32_t const> mode_blob;
+        Crtc::State next = {};
+
+        if (!mode.refresh_hz) {
+            obj_props[conn->id][&conn->CRTC_ID] = 0;
+            obj_props[crtc->id][&crtc->ACTIVE] = 0;
+            // Leave next state zeroed.
+        } else {
+            if (!conn->using_crtc) {
+                obj_props[conn->id][&conn->CRTC_ID] = crtc->id;
+                obj_props[crtc->id][&crtc->ACTIVE] = 1;
+            }
+
+            next.mode = mode;
+            if (crtc->active.mode != next.mode) {
+                mode_blob = create_blob(mode_to_drm(next.mode));
+                obj_props[crtc->id][&crtc->MODE_ID] = *mode_blob;
+            }
+
+            auto plane_iter = crtc->usable_planes.begin();
+            for (auto const& layer : layers) {
+                // Find an appropriate plane (Primary=1, Overlay=0)
+                uint64_t const wanted_type = (&layer == &layers[0] ? 1 : 0);
+                for (;; ++plane_iter) {
+                    if (plane_iter == crtc->usable_planes.end())
+                        throw std::runtime_error("No DRM plane: " + conn->name);
+
+                    if ((*plane_iter)->type.init_value != wanted_type) continue;
+                    if ((*plane_iter)->used_by_crtc == crtc) break;
+                    if (!(*plane_iter)->used_by_crtc) break;
+                }
+
+                auto const* plane = *plane_iter++;
+                auto const& image = layer.image;
+                auto const image_format = format_to_drm(image.fourcc);
+                if (!plane->formats.count(image_format)) {
+                    auto text = fmt::format(
+                        "Bad format \"{:.4s}\" for DRM plane #{}, supports:",
+                        (char const*) &image_format, plane->id
+                    );
+                    for (auto const fourcc : plane->formats)
+                        text += fmt::format(" {:.4s}", (char const *) &fourcc);
+                    throw std::invalid_argument(text);
+                }
+
+                if (plane->used_by_crtc != crtc)
+                    obj_props[plane->id][&plane->CRTC_ID] = crtc->id;
+
+                auto image_it = crtc->active.images.find(image);
+                if (image_it != crtc->active.images.end()) {
+                    image_it = next.images.insert(*image_it).first;
+                    image_it->second->refresh();
+                } else {
+                    auto fb = std::make_shared<DrmFrameBuffer>();
+                    fb->init(fd, image);
+                    image_it = next.images.insert({image, std::move(fb)}).first;
+                }
+
+                obj_props[plane->id][&plane->FB_ID] = image_it->second->id();
+
+                obj_props[plane->id][&plane->CRTC_X] = layer.screen_x;
+                obj_props[plane->id][&plane->CRTC_Y] = layer.screen_y;
+                obj_props[plane->id][&plane->CRTC_W] = layer.screen_width;
+                obj_props[plane->id][&plane->CRTC_H] = layer.screen_height;
+
+                auto fixed = [](double d) -> int64_t { return d * 65536.0; };
+                obj_props[plane->id][&plane->SRC_X] = fixed(layer.image_x);
+                obj_props[plane->id][&plane->SRC_Y] = fixed(layer.image_y);
+                obj_props[plane->id][&plane->SRC_W] = fixed(layer.image_width);
+                obj_props[plane->id][&plane->SRC_H] = fixed(layer.image_height);
+            }
+        }
+
+        std::vector<uint32_t> obj_ids;
+        std::vector<uint32_t> obj_prop_counts;
+        std::vector<uint32_t> prop_ids;
+        std::vector<uint64_t> prop_values;
+        for (auto const& obj_prop : obj_props) {
+            obj_ids.push_back(obj_prop.first);
+            obj_prop_counts.push_back(obj_prop.second.size());
+            for (auto const& prop_value : obj_prop.second) {
+               prop_ids.push_back(prop_value.first->prop_id);
+               prop_values.push_back(prop_value.second);
+            }
+        }
+
+        drm_mode_atomic atomic = {
+            .flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET,
+            .count_objs = (uint32_t) obj_ids.size(),
+            .objs_ptr = (uint64_t) obj_ids.data(),
+            .count_props_ptr = (uint64_t) obj_prop_counts.data(),
+            .props_ptr = (uint64_t) prop_ids.data(),
+            .prop_values_ptr = (uint64_t) prop_values.data(),
+            .reserved = 0,
+            .user_data = 0,
+        };
+
+        fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic).ex("Atomic DRM update");
+        crtc->pending_flip.emplace(std::move(next));
+        conn->using_crtc = crtc;
+        crtc->used_by_conn = conn;
+    }
+
     void open(UnixSystem* sys, std::string const& dev) {
         fd = sys->open(dev.c_str(), O_RDWR | O_NONBLOCK).ex(dev);
         fd->ioc<DRM_IOCTL_SET_MASTER>().ex("Become DRM master");
@@ -256,242 +629,24 @@ class DrmDriver : public DisplayDriver {
                 if (pdat.possible_crtcs & (1 << i))
                     crtcs[crtc_ids[i]].usable_planes.push_back(plane);
             }
-        }
-    }
 
-    virtual std::vector<DisplayStatus> scan_outputs() {
-        std::vector<DisplayStatus> out;
-        for (auto const& id_conn : connectors) {
-            drm_mode_get_connector cdat = {};
-            cdat.connector_id = id_conn.first;
-            std::vector<drm_mode_modeinfo> modes;
-            do {
-                cdat.count_props = cdat.count_encoders = 0;
-                fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
-            } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
+            if (plane->IN_FORMATS.init_value) {
+                drm_mode_get_blob bdat = {};
+                bdat.blob_id = plane->IN_FORMATS.init_value;
+                std::vector<uint8_t> blob_data;
+                do {
+                    fd->ioc<DRM_IOCTL_MODE_GETPROPBLOB>(&bdat).ex("DRM blob");
+                } while (size_vec(&bdat.data, &bdat.length, &blob_data));
 
-            DisplayStatus status = {};
-            status.connector_id = id_conn.first;
-            status.connector_name = id_conn.second.name;
-            status.display_detected = (cdat.connection == 1);
-
-            for (auto const& mode : modes) {
-                if (!(mode.flags & DRM_MODE_FLAG_3D_MASK))
-                    status.display_modes.push_back(mode_from_drm(mode));
-            }
-
-            if (cdat.encoder_id) {
-                drm_mode_get_encoder edat = {};
-                edat.encoder_id = cdat.encoder_id;
-                fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
-                if (edat.crtc_id) {
-                    auto const id_crtc_iter = crtcs.find(edat.crtc_id);
-                    if (id_crtc_iter != crtcs.end())
-                        status.active_mode = id_crtc_iter->second.active.mode;
+                auto const* blob_bytes = blob_data.data();
+                auto const* blob = (drm_format_modifier_blob const*) blob_bytes;
+                if (blob->version == FORMAT_BLOB_CURRENT) {
+                    auto const* fmt_bytes = blob_bytes + blob->formats_offset;
+                    auto const* fmts = (uint32_t const*) fmt_bytes;
+                    plane->formats.insert(fmts, fmts + blob->count_formats);
                 }
             }
-
-            out.push_back(std::move(status));
         }
-        return out;
-    }
-
-    virtual ImageBuffer make_buffer(int width, int height, int bpp) {
-        auto buf = std::make_shared<DrmDumbBuffer>();
-        buf->init(fd, width, height, bpp);
-
-        ImageBuffer::Channel ch = {};
-        ch.line_stride = buf->line_stride();
-        ch.memory = std::move(buf);
-
-        ImageBuffer image = {};
-        image.channels.push_back(std::move(ch));
-        image.width = width;
-        image.height = height;
-        switch (bpp) {
-            case 32: image.fourcc = DRM_FORMAT_ARGB8888; break;
-            case 24: image.fourcc = DRM_FORMAT_RGB888; break;
-            case 16: image.fourcc = DRM_FORMAT_RGB565; break;
-            default: break;  // Let the caller set the format.
-        }
-
-        return image;
-    }
-
-    virtual bool ready_for_update(uint32_t connector_id) {
-        drm_event_vblank ev = {};
-        for (;;) {
-            auto const ret = fd->read(&ev, sizeof(ev));
-            if (ret.err == EAGAIN) break;
-            if (ret.ex("Read DRM event") != sizeof(ev))
-                throw std::runtime_error("Bad DRM event size");
-
-            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) continue;
-            auto const id_crtc_iter = crtcs.find(ev.crtc_id);
-            if (id_crtc_iter == crtcs.end()) {
-                throw std::runtime_error(
-                    fmt::format("Unknown CRTC flipped ({})", ev.crtc_id)
-                );
-            }
-
-            auto* const crtc = &id_crtc_iter->second;
-            if (!crtc->pending_flip) {
-                throw std::runtime_error(
-                    fmt::format("Unexpected CRTC flipped ({})", ev.crtc_id)
-                );
-            }
-
-            if (crtc->used_by_conn && !crtc->pending_flip->mode.refresh_hz) {
-                assert(crtc->used_by_conn->using_crtc == crtc);
-                crtc->used_by_conn->using_crtc = nullptr;
-                crtc->used_by_conn = nullptr;
-            }
-
-            for (auto* plane : crtc->active.using_planes) {
-                assert(plane->used_by_crtc == crtc);
-                plane->used_by_crtc = nullptr;
-            }
-
-            for (auto* plane : crtc->pending_flip->using_planes) {
-                assert(plane->used_by_crtc == nullptr);
-                plane->used_by_crtc = crtc;
-            }
-
-            crtc->active = std::move(*crtc->pending_flip);
-            crtc->pending_flip.reset();
-        }
-
-        auto const id_conn_iter = connectors.find(connector_id);
-        if (id_conn_iter == connectors.end())
-            throw std::invalid_argument("Bad connector ID");
-
-        auto const& conn = id_conn_iter->second;
-        if (conn.using_crtc)
-            return !conn.using_crtc->pending_flip;
-
-        for (auto const* const crtc : conn.usable_crtcs) {
-            if (!crtc->used_by_conn && !crtc->pending_flip)
-                return true;
-        }
-
-        return false;  // No CRTC available for this connector (yet?).
-    }
-
-    virtual void update_output(
-        uint32_t connector_id,
-        DisplayMode const& mode,
-        std::vector<DisplayLayer> const& layers
-    ) {
-        auto const id_conn_iter = connectors.find(connector_id);
-        if (id_conn_iter == connectors.end())
-            throw std::invalid_argument("Bad connector ID");
-
-        auto* const conn = &id_conn_iter->second;
-        auto* crtc = conn->using_crtc;
-        if (crtc) {
-            if (crtc->pending_flip)
-                throw std::invalid_argument("Unready output: " + conn->name);
-        } else {
-            if (!mode.refresh_hz) return;  // Was off, still off
-            for (auto* const c : conn->usable_crtcs) {
-                if (!c->used_by_conn && !c->pending_flip) {
-                    crtc = c;
-                    break;
-                }
-            }
-            if (!crtc)
-                throw std::invalid_argument("Unready output: " + conn->name);
-        }
-
-        // Build the atomic update and the state that will result.
-        std::map<uint32_t, std::map<PropId const*, uint64_t>> obj_props;
-        std::shared_ptr<uint32_t const> mode_blob;
-        Crtc::State next = {};
-
-        if (!mode.refresh_hz) {
-            obj_props[conn->id][&conn->CRTC_ID] = 0;
-            obj_props[crtc->id][&crtc->ACTIVE] = 0;
-            // Leave next state zeroed.
-        } else {
-            if (!conn->using_crtc) {
-                obj_props[conn->id][&conn->CRTC_ID] = crtc->id;
-                obj_props[crtc->id][&crtc->ACTIVE] = 1;
-            }
-
-            next.mode = mode;
-            if (crtc->active.mode != next.mode) {
-                mode_blob = create_blob(mode_to_drm(next.mode));
-                obj_props[crtc->id][&crtc->MODE_ID] = *mode_blob;
-            }
-
-            auto plane_iter = crtc->usable_planes.begin();
-            for (auto const& layer : layers) {
-                // Find an appropriate plane (Primary=1, Overlay=0)
-                uint64_t const wanted_type = (&layer == &layers[0] ? 1 : 0);
-                for (;; ++plane_iter) {
-                    if (plane_iter == crtc->usable_planes.end())
-                        throw std::runtime_error("Planes busy: " + conn->name);
-
-                    if ((*plane_iter)->type.init_value != wanted_type) continue;
-                    if ((*plane_iter)->used_by_crtc == crtc) break;
-                    if (!(*plane_iter)->used_by_crtc) break;
-                }
-
-                auto const* plane = *plane_iter++;
-                if (plane->used_by_crtc != crtc)
-                    obj_props[plane->id][&plane->CRTC_ID] = crtc->id;
-
-                auto fb_it = crtc->active.fb_ids.find(layer.image);
-                if (fb_it != crtc->active.fb_ids.end()) {
-                    fb_it = next.fb_ids.insert(*fb_it).first;
-                } else {
-                    auto const fb = create_fb(layer.image);
-                    fb_it = next.fb_ids.insert({layer.image, fb}).first;
-                }
-
-                obj_props[plane->id][&plane->FB_ID] = *fb_it->second;
-
-                obj_props[plane->id][&plane->CRTC_X] = layer.screen_x;
-                obj_props[plane->id][&plane->CRTC_Y] = layer.screen_y;
-                obj_props[plane->id][&plane->CRTC_W] = layer.screen_width;
-                obj_props[plane->id][&plane->CRTC_H] = layer.screen_height;
-
-                auto fixed = [](double d) -> int64_t { return d * 65536.0; };
-                obj_props[plane->id][&plane->SRC_X] = fixed(layer.image_x);
-                obj_props[plane->id][&plane->SRC_Y] = fixed(layer.image_y);
-                obj_props[plane->id][&plane->SRC_W] = fixed(layer.image_width);
-                obj_props[plane->id][&plane->SRC_H] = fixed(layer.image_height);
-            }
-        }
-
-        std::vector<uint32_t> obj_ids;
-        std::vector<uint32_t> obj_prop_counts;
-        std::vector<uint32_t> prop_ids;
-        std::vector<uint64_t> prop_values;
-        for (auto const& obj_prop : obj_props) {
-            obj_ids.push_back(obj_prop.first);
-            obj_prop_counts.push_back(obj_prop.second.size());
-            for (auto const& prop_value : obj_prop.second) {
-               prop_ids.push_back(prop_value.first->prop_id);
-               prop_values.push_back(prop_value.second);
-            }
-        }
-
-        drm_mode_atomic atomic = {
-            .flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_ALLOW_MODESET,
-            .count_objs = (uint32_t) obj_ids.size(),
-            .objs_ptr = (uint64_t) obj_ids.data(),
-            .count_props_ptr = (uint64_t) obj_prop_counts.data(),
-            .props_ptr = (uint64_t) prop_ids.data(),
-            .prop_values_ptr = (uint64_t) prop_values.data(),
-            .reserved = 0,
-            .user_data = 0,
-        };
-
-        fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic).ex("Atomic DRM update");
-        crtc->pending_flip.emplace(std::move(next));
-        conn->using_crtc = crtc;
-        crtc->used_by_conn = conn;
     }
 
   private:
@@ -507,6 +662,7 @@ class DrmDriver : public DisplayDriver {
 
     struct Plane {
         uint32_t id = 0;
+        std::set<uint32_t> formats;
         std::map<strview, PropId*> prop_ids;
         PropId CRTC_ID{"CRTC_ID", &prop_ids};
         PropId CRTC_X{"CRTC_X", &prop_ids};
@@ -514,6 +670,7 @@ class DrmDriver : public DisplayDriver {
         PropId CRTC_W{"CRTC_W", &prop_ids};
         PropId CRTC_H{"CRTC_H", &prop_ids};
         PropId FB_ID{"FB_ID", &prop_ids};
+        PropId IN_FORMATS{"IN_FORMATS", &prop_ids};
         PropId SRC_X{"SRC_X", &prop_ids};
         PropId SRC_Y{"SRC_Y", &prop_ids};
         PropId SRC_W{"SRC_W", &prop_ids};
@@ -526,7 +683,7 @@ class DrmDriver : public DisplayDriver {
     struct Crtc {
         struct State {
             std::vector<Plane*> using_planes;
-            std::map<ImageBuffer, std::shared_ptr<uint32_t const>> fb_ids;
+            std::map<ImageBuffer, std::shared_ptr<DrmFrameBuffer>> images;
             DisplayMode mode = {};
         };
 
@@ -611,62 +768,6 @@ class DrmDriver : public DisplayDriver {
         return {new uint32_t(cblob.blob_id), deleter};
     }
 
-    std::shared_ptr<uint32_t const> create_fb(ImageBuffer const& image) {
-        drm_mode_fb_cmd2 fbdat = {};
-        fbdat.width = image.width;
-        fbdat.height = image.height;
-        fbdat.pixel_format = image.fourcc;
-        fbdat.flags = DRM_MODE_FB_MODIFIERS;
-
-        size_t const max_channels = std::extent_v<decltype(fbdat.handles)>;
-        if (image.channels.size() > max_channels)
-            throw std::length_error("Too many channels for DRM framebuffer");
-
-        std::vector<std::shared_ptr<uint32_t const>> handles;
-        for (size_t c = 0; c < image.channels.size(); ++c) {
-            for (size_t pc = 0; pc < c && handles.size() <= c; ++pc) {
-                if (image.channels[c].memory == image.channels[pc].memory)
-                    handles.push_back(handles[pc]);
-            }
-            if (handles.size() <= c)
-                handles.push_back(import_buffer(*image.channels[c].memory));
-
-            fbdat.handles[c] = *handles.back();
-            fbdat.pitches[c] = image.channels[c].line_stride;
-            fbdat.offsets[c] = image.channels[c].memory_offset;
-            fbdat.modifier[c] = image.modifier;
-        }
-
-        fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fbdat).ex("DRM framebuffer");
-
-        auto const fd = this->fd;
-        auto const deleter = [fd](uint32_t* const id) {
-            unsigned int fb_id = *id;
-            delete id;
-            (void) fd->ioc<DRM_IOCTL_MODE_RMFB>(&fb_id);
-        };
-        return {new uint32_t(fbdat.fb_id), deleter};
-    }
-
-    std::shared_ptr<uint32_t const> import_buffer(MemoryBuffer const& buf) {
-        auto drm_handle = buf.drm_handle();
-        if (drm_handle) return std::make_shared<uint32_t const>(drm_handle);
-
-        auto dma_fd = buf.dma_fd();
-        if (dma_fd < 0) throw std::invalid_argument("No memory buffer handle");
-
-        drm_prime_handle hdat = {};
-        hdat.fd = dma_fd;
-        fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("Import DMA buffer");
-
-        auto const drm_fd = this->fd;
-        auto const deleter = [drm_fd](uint32_t* const handle) {
-            drm_gem_close cdat = {.handle = *handle, .pad = 0};
-            delete handle;
-            (void) drm_fd->ioc<DRM_IOCTL_GEM_CLOSE>(cdat);
-        };
-        return {new uint32_t(hdat.handle), deleter};
-    }
 };
 
 }  // anonymous namespace

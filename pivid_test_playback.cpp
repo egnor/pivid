@@ -1,5 +1,9 @@
 // Simple command line tool to exercise video decoding and playback.
 
+#include <chrono>
+#include <cmath>
+#include <thread>
+
 #include <drm_fourcc.h>
 
 #include <CLI/App.hpp>
@@ -7,9 +11,9 @@
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
 
-#include <chrono>
-#include <cmath>
-#include <thread>
+extern "C" {
+#include <libavutil/log.h>
+}
 
 #include "display_output.h"
 #include "media_decoder.h"
@@ -22,6 +26,7 @@ int main(int const argc, char const* const* const argv) {
     std::string conn_arg;
     std::string mode_arg;
     std::string media_arg;
+    bool debug_libav = false;
     double sleep_arg = 0.0;
 
     CLI::App app("Decode and show a media file");
@@ -30,7 +35,10 @@ int main(int const argc, char const* const* const argv) {
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file or URL");
     app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
+    app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
+
+    if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
 
     try {
         auto* sys = pivid::global_system();
@@ -116,15 +124,17 @@ int main(int const argc, char const* const* const argv) {
             auto const decoder = pivid::new_media_decoder(media_arg);
             auto const& info = decoder->info();
             fmt::print(
-               "{} : {} : {}\n", 
+               "Format: {} : {} : {}\n", 
                info.container_type, info.codec_name, info.pixel_format
             );
 
-            if (info.duration) fmt::print("{:.1f}sec", info.duration);
-            if (info.frame_count) fmt::print(" ({} frames)", info.frame_count);
-            if (info.frame_rate) fmt::print(" @{:.2f}fps", info.frame_rate);
-            if (info.bit_rate) fmt::print(" {:.3f}Mbps", info.bit_rate * 1e-6);
-            fmt::print(" {}x{}\n", info.width, info.height);
+            fmt::print("Stream:");
+            if (info.width && info.height)
+                fmt::print(" {}x{}", *info.width, *info.height);
+            if (info.frame_rate) fmt::print(" @{:.2f}fps", *info.frame_rate);
+            if (info.duration) fmt::print(" {:.1f}sec", *info.duration);
+            if (info.bit_rate) fmt::print(" {:.3f}Mbps", *info.bit_rate * 1e-6);
+            fmt::print("\n\n");
 
             while (!decoder->reached_eof()) {
                 if (!decoder->next_frame_ready()) {
