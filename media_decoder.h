@@ -8,14 +8,6 @@
 
 namespace pivid {
 
-struct MediaFrame {
-    double time;
-    std::vector<ImageBuffer> layers;
-    std::string_view frame_type;
-    bool is_key_frame;
-    bool is_corrupt;
-};
-
 struct MediaInfo {
     std::string container_type;
     std::string codec_name;
@@ -24,6 +16,14 @@ struct MediaInfo {
     std::optional<double> duration;
     std::optional<double> frame_rate;
     std::optional<int64_t> bit_rate;
+};
+
+struct MediaFrame {
+    double time;
+    std::vector<ImageBuffer> layers;
+    std::string_view frame_type;
+    bool is_key_frame;
+    bool is_corrupt;
 };
 
 class MediaDecoder {
@@ -36,5 +36,8 @@ class MediaDecoder {
 };
 
 std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& url);
+
+std::string debug_string(MediaFrame const&);
+std::string debug_string(MediaInfo const&);
 
 }  // namespace pivid

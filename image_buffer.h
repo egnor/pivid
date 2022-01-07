@@ -2,6 +2,8 @@
 
 #include <compare>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace pivid {
 
@@ -31,5 +33,11 @@ struct ImageBuffer {
     int height;
     auto operator<=>(ImageBuffer const&) const = default;
 };
+
+std::shared_ptr<MemoryBuffer> plain_memory_buffer(size_t);
+
+std::string debug_size(size_t);
+std::string debug_string(MemoryBuffer const&);
+std::string debug_string(ImageBuffer const&);
 
 }  // namespace pivid

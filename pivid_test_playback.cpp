@@ -79,7 +79,7 @@ DisplayMode find_mode(
 
     fmt::print("=== Video modes ===\n");
     std::set<std::string> seen;
-    DisplayMode found = {};
+    DisplayMode found = mode_arg.empty() ? conn.active_mode : DisplayMode{};
     for (auto const& mode : conn.display_modes) {
         auto const mode_str = debug_string(mode);
         if (mode.name.empty() && mode_str.find(mode_arg) != std::string::npos)
@@ -87,7 +87,7 @@ DisplayMode find_mode(
 
         if (seen.insert(mode.name).second) {
             fmt::print(
-                "  {} {}{}\n",
+                "{} {}{}\n",
                 found.name == mode.name ? "=>" : "  ", mode_str,
                 conn.active_mode.name == mode.name ? " [on]" : ""
             );
@@ -104,72 +104,83 @@ std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
 
     fmt::print("=== Media file ({}) ===\n", media_arg);
     auto decoder = new_media_decoder(media_arg);
-    auto const& info = decoder->info();
-    fmt::print(
-       "Format: {} : {} : {}\n", 
-       info.container_type, info.codec_name, info.pixel_format
-    );
-
-    fmt::print("Stream:");
-    if (info.width && info.height)
-        fmt::print(" {}x{}", *info.width, *info.height);
-    if (info.frame_rate) fmt::print(" @{:.2f}fps", *info.frame_rate);
-    if (info.duration) fmt::print(" {:.1f}sec", *info.duration);
-    if (info.bit_rate) fmt::print(" {:.3f}Mbps", *info.bit_rate * 1e-6);
-    fmt::print("\n\n");
-
+    fmt::print("Format: {}\n\n", debug_string(decoder->info()));
     return decoder;
 }
 
-void print_frame(MediaFrame const& frame) {
-    fmt::print("{:5.3f}s", frame.time);
-    if (!frame.frame_type.empty())
-        fmt::print(" {:<2s}", frame.frame_type);
-
-    for (auto const& image : frame.layers) {
-        fmt::print(
-            " [{}x{} {:.4s}",
-            image.width, image.height, (char const*) &image.fourcc
-        );
-
-        if (image.modifier) {
-            auto const vendor = image.modifier >> 56;
-            switch (vendor) {
-#define V(x) case DRM_FORMAT_MOD_VENDOR_##x: fmt::print(":{}", #x); break
-                V(NONE);
-                V(INTEL);
-                V(AMD);
-                V(NVIDIA);
-                V(SAMSUNG);
-                V(QCOM);
-                V(VIVANTE);
-                V(BROADCOM);
-                V(ARM);
-                V(ALLWINNER);
-                V(AMLOGIC);
-#undef V
-                default: fmt::print(":#{}", vendor);
-            }
-            fmt::print(
-                ":{:x}", image.modifier & ((1ull << 56) - 1)
-            );
+void play_video(
+    std::unique_ptr<MediaDecoder> const& decoder,
+    std::unique_ptr<MediaDecoder> const& overlay,
+    std::unique_ptr<DisplayDriver> const& driver,
+    DisplayConnector const& conn,
+    DisplayMode const& mode
+) {
+    using namespace std::chrono_literals;
+    MediaFrame overlay_frame = {};
+    if (overlay) {
+        while (!overlay->next_frame_ready()) {
+            if (overlay->reached_eof())
+                throw std::runtime_error("No frames in overlay media");
+            std::this_thread::sleep_for(0.005s);
         }
-
-        for (auto const& chan : image.channels) {
-            fmt::print(
-                "{}{}bpp",
-                (&chan != &image.channels[0]) ? " | " : " ",
-                8 * chan.line_stride / image.width
-            );
-            if (chan.memory_offset > 0)
-                fmt::print(" @{}k", chan.memory_offset / 1024);
-        }
-
-        fmt::print("]");
+        overlay_frame = overlay->get_next_frame();
     }
-    if (frame.is_corrupt) fmt::print(" CORRUPT");
-    if (frame.is_key_frame) fmt::print(" KEY");
-    fmt::print("\n");
+
+    auto last_wall = std::chrono::steady_clock::now();
+    double last_frame = 0.0;
+    double behind = 0.0;
+    while (decoder && !decoder->reached_eof()) {
+        if (!decoder->next_frame_ready())
+            std::this_thread::sleep_for(0.005s);
+
+        auto const frame = decoder->get_next_frame();
+
+        if (driver) {
+            std::vector<DisplayLayer> display_layers;
+            for (auto const& image : frame.layers) {
+                DisplayLayer display_layer = {};
+                display_layer.image = image;
+                display_layer.image_width = image.width;
+                display_layer.image_height = image.height;
+                display_layer.screen_width = mode.horiz.display;
+                display_layer.screen_height = mode.vert.display;
+                display_layers.push_back(std::move(display_layer));
+            }
+
+            for (auto const& image : overlay_frame.layers) {
+                DisplayLayer display_layer = {};
+                display_layer.image = image;
+                display_layer.image_width = image.width;
+                display_layer.image_height = image.height;
+                display_layer.screen_x =
+                    (mode.horiz.display - image.width) / 2;
+                display_layer.screen_y =
+                    (mode.vert.display - image.height) / 2;
+                display_layer.screen_width = image.width;
+                display_layer.screen_height = image.height;
+                display_layers.push_back(std::move(display_layer));
+            }
+
+            while (!driver->ready_for_update(conn.id)) {  // Wait for flip.
+                decoder->next_frame_ready();  // Keep decoder running.
+                std::this_thread::sleep_for(0.005s);
+            }
+            driver->update_output(conn.id, mode, display_layers);
+        }
+
+        auto const wall = std::chrono::steady_clock::now();
+        auto const dw = std::chrono::duration<double>(wall - last_wall).count();
+        auto const df = frame.time - last_frame;
+        last_wall = wall;
+        last_frame = frame.time;
+        behind = std::max(0.0, behind + dw - df);
+        
+        fmt::print(
+            "{:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
+            dw * 1000, df * 1000, behind * 1000,
+            debug_string(frame)
+        );
+    }
 }
 
 // Main program, parses flags and calls the decoder loop.
@@ -178,6 +189,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string conn_arg;
     std::string mode_arg;
     std::string media_arg;
+    std::string overlay_arg;
     bool debug_libav = false;
     double sleep_arg = 0.0;
 
@@ -185,7 +197,8 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
     app.add_option("--connector", conn_arg, "Video output");
     app.add_option("--mode", mode_arg, "Video mode");
-    app.add_option("--media", media_arg, "Media file or URL");
+    app.add_option("--media", media_arg, "Media file to play");
+    app.add_option("--overlay", overlay_arg, "Image file to overlay");
     app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
@@ -193,46 +206,12 @@ extern "C" int main(int const argc, char const* const* const argv) {
     if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
 
     try {
-        using namespace std::chrono_literals;
         auto const driver = find_driver(dev_arg);
         auto const conn = find_connector(driver, conn_arg);
         auto const mode = find_mode(driver, conn, mode_arg);
         auto const decoder = find_media(media_arg);
-
-        if (driver && conn.id && !mode.name.empty() && !decoder) {
-            fmt::print("Setting mode \"{}\"...\n", mode.name);
-            driver->update_output(conn.id, mode, {});
-            while (!driver->ready_for_update(conn.id))
-                std::this_thread::sleep_for(0.01s);
-
-            fmt::print("  Mode set complete.\n\n");
-        }
-
-        while (decoder && !decoder->reached_eof()) {
-            if (!decoder->next_frame_ready())
-                std::this_thread::sleep_for(0.005s);
-
-            auto const frame = decoder->get_next_frame();
-            print_frame(frame);
-
-            if (driver) {
-                std::vector<DisplayLayer> display_layers;
-                for (auto const& image : frame.layers) {
-                    DisplayLayer display_layer = {};
-                    display_layer.image = image;
-                    display_layer.image_width = image.width;
-                    display_layer.image_height = image.height;
-                    display_layer.screen_width = mode.horiz.display;
-                    display_layer.screen_height = mode.vert.display;
-                    display_layers.push_back(display_layer);
-                }
-
-                while (!driver->ready_for_update(conn.id))
-                    std::this_thread::sleep_for(0.005s);
-
-                driver->update_output(conn.id, mode, display_layers);
-            }
-        }
+        auto const overlay = find_media(overlay_arg);
+        play_video(decoder, overlay, driver, conn, mode);
 
         if (sleep_arg > 0) {
             fmt::print("Sleeping {:.1f} seconds...\n", sleep_arg);

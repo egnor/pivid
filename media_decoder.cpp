@@ -386,4 +386,27 @@ std::unique_ptr<MediaDecoder> new_media_decoder(const std::string& url) {
     return decoder;
 }
 
+std::string debug_string(MediaInfo const& i) {
+    auto out = fmt::format(
+        "{}:{}:{}", i.container_type, i.codec_name, i.pixel_format
+    );
+
+    if (i.width && i.height) out += fmt::format(" {}x{}", *i.width, *i.height);
+    if (i.frame_rate) out += fmt::format(" @{:.2f}fps", *i.frame_rate);
+    if (i.duration) out += fmt::format(" {:.1f}sec", *i.duration);
+    if (i.bit_rate) out += fmt::format(" {:.3f}Mbps", *i.bit_rate * 1e-6);
+    return out;
+}
+
+std::string debug_string(MediaFrame const& f) {
+    auto out = fmt::format("{:5.3f}s", f.time);
+    if (!f.frame_type.empty())
+        out += fmt::format(" {:<2s}", f.frame_type);
+    for (size_t l = 0; l < f.layers.size(); ++l)
+        out += fmt::format(" {}{}", l ? "+ " : "", debug_string(f.layers[l]));
+    if (f.is_key_frame) out += fmt::format(" KEY");
+    if (f.is_corrupt) out += fmt::format(" CORRUPT");
+    return out;
+}
+
 }  // namespace pivid
