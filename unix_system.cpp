@@ -40,7 +40,7 @@ class GlobalFileDescriptor : public FileDescriptor {
         size_t len, int prot, int flags, off_t off
     ) {
         void* const mem = ::mmap(nullptr, len, prot, flags, fd, off);
-        if (!mem) return {errno, {}};
+        if (mem == MAP_FAILED) return {errno, {}};
         return {0, {mem, [len](void* m) {::munmap(m, len);}}};
     }
 

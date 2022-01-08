@@ -102,26 +102,26 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
     return out;
 }
 
-uint32_t format_to_drm(uint32_t fourcc) {
+uint32_t format_to_drm(uint32_t format) {
     // Note, ffmpeg/AVI/"standard" fourcc is big endian, DRM is little endian
-    switch (fourcc) {
-        case fourcc_code('0', 'R', 'G', 'B'): return DRM_FORMAT_BGRX8888;
-        case fourcc_code('A', 'R', 'G', 'B'): return DRM_FORMAT_BGRA8888;
-        case fourcc_code('A', 'B', 'G', 'R'): return DRM_FORMAT_RGBA8888;
-        case fourcc_code('0', 'B', 'G', 'R'): return DRM_FORMAT_RGBX8888;
-        case fourcc_code('R', 'G', 'B', '0'): return DRM_FORMAT_XBGR8888;
-        case fourcc_code('R', 'G', 'B', 'A'): return DRM_FORMAT_ABGR8888;
-        case fourcc_code('B', 'G', 'R', 'A'): return DRM_FORMAT_ARGB8888;
-        case fourcc_code('B', 'G', 'R', '0'): return DRM_FORMAT_XRGB8888;
-        case fourcc_code('R', 'G', 'B', 16):  return DRM_FORMAT_RGB565;
-        case fourcc_code('B', 'G', 'R', 16):  return DRM_FORMAT_BGR565;
-        case fourcc_code('R', 'G', 'B', 24):  return DRM_FORMAT_BGR888;
-        case fourcc_code('B', 'G', 'R', 24):  return DRM_FORMAT_RGB888;
-        case fourcc_code('Y', '4', '2', 'B'): return DRM_FORMAT_YUV422;
-        case fourcc_code('I', '4', '2', '0'): return DRM_FORMAT_YUV420;
-        case fourcc_code('N', 'V', '1', '2'): return DRM_FORMAT_NV12;
-        case fourcc_code('N', 'V', '2', '1'): return DRM_FORMAT_NV21;
-        default: return fourcc;
+    switch (format) {
+        case fourcc("0RGB"): return DRM_FORMAT_BGRX8888;
+        case fourcc("ARGB"): return DRM_FORMAT_BGRA8888;
+        case fourcc("ABGR"): return DRM_FORMAT_RGBA8888;
+        case fourcc("0BGR"): return DRM_FORMAT_RGBX8888;
+        case fourcc("RGB0"): return DRM_FORMAT_XBGR8888;
+        case fourcc("RGBA"): return DRM_FORMAT_ABGR8888;
+        case fourcc("BGRA"): return DRM_FORMAT_ARGB8888;
+        case fourcc("BGR0"): return DRM_FORMAT_XRGB8888;
+        case fourcc("RGB\x10"): return DRM_FORMAT_RGB565;
+        case fourcc("BGR\x10"): return DRM_FORMAT_BGR565;
+        case fourcc("RGB\x18"): return DRM_FORMAT_BGR888;
+        case fourcc("BGR\x18"): return DRM_FORMAT_RGB888;
+        case fourcc("I420"): return DRM_FORMAT_YUV420;
+        case fourcc("Y42B"): return DRM_FORMAT_YUV422;
+        case fourcc("NV12"): return DRM_FORMAT_NV12;
+        case fourcc("NV21"): return DRM_FORMAT_NV21;
+        default: return format;  // Might match!
     }
 }
 

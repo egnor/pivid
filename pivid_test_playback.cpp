@@ -104,13 +104,14 @@ std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
 
     fmt::print("=== Media file ({}) ===\n", media_arg);
     auto decoder = new_media_decoder(media_arg);
-    fmt::print("Format: {}\n\n", debug_string(decoder->info()));
+    fmt::print("{}\n\n", debug_string(decoder->info()));
     return decoder;
 }
 
 void play_video(
     std::unique_ptr<MediaDecoder> const& decoder,
     std::unique_ptr<MediaDecoder> const& overlay,
+    std::string const& tiff_arg,
     std::unique_ptr<DisplayDriver> const& driver,
     DisplayConnector const& conn,
     DisplayMode const& mode
@@ -129,10 +130,8 @@ void play_video(
     auto last_wall = std::chrono::steady_clock::now();
     double last_frame = 0.0;
     double behind = 0.0;
+    int frame_index = 0;
     while (decoder && !decoder->reached_eof()) {
-        if (!decoder->next_frame_ready())
-            std::this_thread::sleep_for(0.005s);
-
         auto const frame = decoder->get_next_frame();
 
         if (driver) {
@@ -174,13 +173,38 @@ void play_video(
         last_wall = wall;
         last_frame = frame.time;
         behind = std::max(0.0, behind + dw - df);
-        
         fmt::print(
             "{:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
             dw * 1000, df * 1000, behind * 1000,
             debug_string(frame)
         );
+
+        while (!decoder->next_frame_ready() && !decoder->reached_eof())
+            std::this_thread::sleep_for(0.005s);
+
+        if (!tiff_arg.empty()) {
+            auto dot_pos = tiff_arg.rfind('.');
+            if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
+            for (size_t l = 0; l < frame.layers.size(); ++l) {
+                auto path = tiff_arg.substr(0, dot_pos);
+                if (frame_index > 0 || decoder->next_frame_ready())
+                    path += fmt::format(".F{:05d}", frame_index);
+                if (frame.layers.size() > 1)
+                    path += fmt::format(".L{}", l);
+                path += tiff_arg.substr(dot_pos);
+
+                fmt::print("  saving: {}\n", path);
+                auto tiff = debug_tiff(frame.layers[l]);
+                std::ofstream ofs;
+                ofs.exceptions(~std::ofstream::goodbit);
+                ofs.open(path, std::ios::binary);
+                ofs.write((char const*) tiff.data(), tiff.size());
+            }
+        }
+
+        ++frame_index;
     }
+    fmt::print("\n");
 }
 
 // Main program, parses flags and calls the decoder loop.
@@ -190,6 +214,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
+    std::string tiff_arg;
     bool debug_libav = false;
     double sleep_arg = 0.0;
 
@@ -200,6 +225,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
     app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
+    app.add_option("--save_tiff", tiff_arg, "Save frames as .tiff");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
 
@@ -211,7 +237,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
         auto const mode = find_mode(driver, conn, mode_arg);
         auto const decoder = find_media(media_arg);
         auto const overlay = find_media(overlay_arg);
-        play_video(decoder, overlay, driver, conn, mode);
+        play_video(decoder, overlay, tiff_arg, driver, conn, mode);
 
         if (sleep_arg > 0) {
             fmt::print("Sleeping {:.1f} seconds...\n", sleep_arg);

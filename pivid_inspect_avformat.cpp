@@ -225,34 +225,8 @@ void print_frames(AVFormatContext* const avc) {
     fmt::print("\n");
 }
 
-void dump_stream(
-    AVFormatContext* const avc, AVStream* const stream,
-    std::string const& prefix
-) {
-    auto const filename = fmt::format(
-        "{}.{}.{}", prefix, stream->index,
-        avcodec_get_name(stream->codecpar->codec_id)
-    );
-
-    fmt::print("Dumping stream #{} => {} ...\n", stream->index, filename);
-    FILE* const out = fopen(filename.c_str(), "wb");
-    if (out == nullptr) {
-        fmt::print("*** {}: {}\n", filename, strerror(errno));
-        exit(1);
-    }
-
-    AVPacket packet = {};
-    while (av_read_frame(avc, &packet) >= 0) {
-        if (packet.stream_index != stream->index) continue;
-        fwrite(packet.data, packet.size, 1, out);
-    }
-
-    fclose(out);
-}
-
 int main(int argc, char** argv) {
     std::string media_file;
-    std::string dump_prefix;
     double seek_before = NAN;
     double seek_after = NAN;
     bool debug_libav = false;
@@ -260,7 +234,6 @@ int main(int argc, char** argv) {
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
-    app.add_option("--dump_prefix", dump_prefix, "Prefix for raw stream dump");
     app.add_option("--seek_before", seek_before, "Find keyframe before time");
     app.add_option("--seek_after", seek_after, "Find keyframe after time");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
@@ -279,13 +252,6 @@ int main(int argc, char** argv) {
     if (!std::isnan(seek_before)) ::seek_before(avc, seek_before);
     if (!std::isnan(seek_after)) ::seek_after(avc, seek_after);
     if (print_frames) ::print_frames(avc);
-
-    if (!dump_prefix.empty()) {
-        for (uint32_t si = 0; si < avc->nb_streams; ++si) {
-            dump_stream(avc, avc->streams[si], dump_prefix);
-        }
-        fmt::print("\n");
-    }
 
     avformat_close_input(&avc);
     return 0;

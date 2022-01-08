@@ -35,8 +35,9 @@ class MediaDecoder {
     virtual MediaFrame get_next_frame() = 0;
 };
 
-std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& url);
+std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& filename);
 
+std::vector<uint8_t> debug_tiff(ImageBuffer const&);
 std::string debug_string(MediaFrame const&);
 std::string debug_string(MediaInfo const&);
 

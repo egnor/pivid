@@ -34,6 +34,10 @@ struct ImageBuffer {
     auto operator<=>(ImageBuffer const&) const = default;
 };
 
+constexpr uint32_t fourcc(char const c[4]) {
+    return c[0] | (c[1] << 8) | (c[2] << 16) | (c[3] << 24);
+}
+
 std::shared_ptr<MemoryBuffer> plain_memory_buffer(size_t);
 
 std::string debug_size(size_t);

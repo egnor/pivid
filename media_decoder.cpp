@@ -2,6 +2,7 @@
 
 #undef NDEBUG
 #include <assert.h>
+#include <drm_fourcc.h>
 #include <sys/mman.h>
 
 #include <system_error>
@@ -14,6 +15,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
 #include <libavutil/hwcontext_drm.h>
+#include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 }
 
@@ -62,16 +64,17 @@ class LibavDrmFrameMemory : public MemoryBuffer {
   public:
     ~LibavDrmFrameMemory() { if (mem) munmap(mem, av_obj->size); }
     virtual size_t size() const { return av_obj->size; }
-    virtual uint8_t* write() { read(); ++writes; return (uint8_t*) mem; }
-    virtual int write_count() const { return writes; }
+    virtual uint8_t* write() { throw std::runtime_error("Write RO DRM buf"); }
+    virtual int write_count() const { return 0; }
     virtual std::optional<int> dma_fd() const { return {av_obj->fd}; }
 
     virtual uint8_t const* read() {
         if (!mem) {
-            int const prot = PROT_READ|PROT_WRITE, flags = MAP_SHARED;
-            mem = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
-            if (!mem)
+            int const prot = PROT_READ, flags = MAP_SHARED;
+            void* r = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
+            if (r == MAP_FAILED)
                 throw std::system_error(errno, std::system_category(), "Mmap");
+            mem = r;
         }
         return (uint8_t const*) mem;
     }
@@ -86,7 +89,6 @@ class LibavDrmFrameMemory : public MemoryBuffer {
   private:
     std::shared_ptr<AVDRMObjectDescriptor const> av_obj;
     void* mem = nullptr;
-    int writes = 0;
 };
 
 class LibavPlainFrameMemory : public MemoryBuffer {
@@ -123,9 +125,14 @@ std::vector<ImageBuffer> layers_from_av_drm(
     for (int l = 0; l < av_drm->nb_layers; ++l) {
         auto const& av_layer = av_drm->layers[l];
         ImageBuffer image = {};
-        image.fourcc = av_layer.format;
         image.width = width;
         image.height = height;
+
+        switch (av_layer.format) {
+            case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
+            case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
+            default: image.fourcc = av_layer.format;
+        }
 
         for (int p = 0; p < av_layer.nb_planes; ++p) {
             auto const& av_plane = av_layer.planes[p];
@@ -148,6 +155,7 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
     out.fourcc = avcodec_pix_fmt_to_codec_tag((AVPixelFormat) av_frame->format);
     out.width = av_frame->width;
     out.height = av_frame->height;
+
     for (int p = 0; p < AV_NUM_DATA_POINTERS; ++p) {
         if (!av_frame->data[p]) break;
         auto mem = std::make_shared<LibavPlainFrameMemory>();
@@ -227,34 +235,34 @@ class LibavMediaDecoder : public MediaDecoder {
             throw std::logic_error("Read unready media frame");
 
         auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
-        std::shared_ptr<AVFrame> av_frame{this->av_frame, deleter};
+        std::shared_ptr<AVFrame> av_frame{this->av_frame, std::move(deleter)};
         this->av_frame = nullptr;  // Owned by shared_ptr now.
 
         auto const* stream = format_context->streams[stream_index];
         return frame_from_av(std::move(av_frame), av_q2d(stream->time_base));
     }
 
-    void init(std::string const& url) {
+    void init(std::string const& fn) {
         check_av(
-            avformat_open_input(&format_context, url.c_str(), nullptr, nullptr),
-            "Open media", url
+            avformat_open_input(&format_context, fn.c_str(), nullptr, nullptr),
+            "Open media", fn
         );
 
         check_av(
             avformat_find_stream_info(format_context, nullptr),
-            "Find stream info", url
+            "Find stream info", fn
         );
 
         AVCodec* codec = nullptr;
         stream_index = check_av(
             av_find_best_stream(
                 format_context, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0
-            ), "Find video stream", url
+            ), "Find video stream", fn
         );
 
         if (codec == nullptr || stream_index < 0) {
             throw std::system_error(
-                AVERROR_DECODER_NOT_FOUND, libav_category(), url
+                AVERROR_DECODER_NOT_FOUND, libav_category(), fn
             );
         } else if (codec->id == AV_CODEC_ID_H264) {
             auto* m2m_codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
@@ -380,10 +388,76 @@ class LibavMediaDecoder : public MediaDecoder {
 
 }  // anonymous namespace
 
-std::unique_ptr<MediaDecoder> new_media_decoder(const std::string& url) {
+std::unique_ptr<MediaDecoder> new_media_decoder(const std::string& filename) {
     auto decoder = std::make_unique<LibavMediaDecoder>();
-    decoder->init(url);
+    decoder->init(filename);
     return decoder;
+}
+
+std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
+    AVCodec const* tiff_codec = avcodec_find_encoder(AV_CODEC_ID_TIFF);
+    if (!tiff_codec) throw std::runtime_error("No TIFF encoder found");
+
+    std::shared_ptr<AVCodecContext> context{
+        check_alloc(avcodec_alloc_context3(tiff_codec)),
+        [](AVCodecContext* c) { avcodec_free_context(&c); }
+    };
+    context->width = im.width;
+    context->height = im.height;
+    context->time_base = {1, 30};  // Arbitrary but required.
+    context->pix_fmt = AV_PIX_FMT_NONE;
+
+    auto const* formats = tiff_codec->pix_fmts;
+    for (int f = 0; context->pix_fmt == AV_PIX_FMT_NONE; ++f) {
+        if (formats[f] == AV_PIX_FMT_NONE) {
+            throw std::invalid_argument(fmt::format(
+                "Bad pixel format for TIFF ({:.4s})", (char const*) &im.fourcc
+            ));
+        }
+        if (avcodec_pix_fmt_to_codec_tag(formats[f]) == im.fourcc)
+            context->pix_fmt = formats[f];
+    }
+
+    check_av(
+        av_opt_set(context->priv_data, "compression_algo", "deflate", 0),
+        "TIFF compression", "deflate"
+    );
+
+    check_av(
+        avcodec_open2(context.get(), tiff_codec, nullptr),
+        "Encoding context", context->codec->name
+    );
+
+    std::shared_ptr<AVFrame> frame{
+        check_alloc(av_frame_alloc()), [](AVFrame* f) { av_frame_free(&f); }
+    };
+    frame->format = context->pix_fmt;
+    frame->width = im.width;
+    frame->height = im.height;
+
+    if (im.channels.size() > AV_NUM_DATA_POINTERS)
+        throw std::length_error("Too many image channels to encode");
+    for (size_t p = 0; p < im.channels.size(); ++p) {
+        auto const& chan = im.channels[p];
+        frame->data[p] = ((uint8_t*) chan.memory->read()) + chan.memory_offset;
+        frame->linesize[p] = chan.line_stride;
+    }
+
+    check_av(
+        avcodec_send_frame(context.get(), frame.get()),
+        "Encoding frame", context->codec->name
+    );
+
+    std::shared_ptr<AVPacket> packet{
+        check_alloc(av_packet_alloc()), [](AVPacket* p) { av_packet_free(&p); }
+    };
+
+    check_av(
+        avcodec_receive_packet(context.get(), packet.get()),
+        "Encoding packet", context->codec->name
+    );
+
+    return {packet->data, packet->data + packet->size};
 }
 
 std::string debug_string(MediaInfo const& i) {
