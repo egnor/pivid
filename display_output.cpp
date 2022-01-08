@@ -177,17 +177,37 @@ class DrmFrameBuffer {
     DrmFrameBuffer& operator=(DrmFrameBuffer const&) = delete;
 
     ~DrmFrameBuffer() {
-        if (fbdat.fb_id) (void) drm_fd->ioc<DRM_IOCTL_MODE_RMFB>(&fbdat.fb_id);
+        if (fb_id) (void) drm_fd->ioc<DRM_IOCTL_MODE_RMFB>(&fb_id);
         for (auto const handle : import_handles) {
             drm_gem_close cdat = {.handle = handle, .pad = 0};
             (void) drm_fd->ioc<DRM_IOCTL_GEM_CLOSE>(cdat);
         }
     }
 
-    uint32_t id() const { return fbdat.fb_id; }
+    uint32_t id() const { return fb_id; }
+
+    void refresh() {
+        for (auto& c : copies) {
+            int const writes = c.source.memory->write_count();
+            if (c.copied_writes == writes) continue;
+
+            uint8_t* bmem = c.buffer->write();
+            uint8_t const* smem = c.source.memory->read();
+            for (uint32_t y = 0; y < c.height; ++y) {
+                memcpy(
+                    bmem + y * c.buffer->line_stride(),
+                    smem + y * c.source.line_stride + c.source.memory_offset,
+                    std::min(c.buffer->line_stride(), c.source.line_stride)
+                );
+            }
+            c.copied_writes = writes;
+        }
+    }
 
     void init(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& image) {
         drm_fd = std::move(fd);
+
+        drm_mode_fb_cmd2 fbdat = {};
         fbdat.width = image.width;
         fbdat.height = image.height;
         fbdat.pixel_format = format_to_drm(image.fourcc);
@@ -220,9 +240,10 @@ class DrmFrameBuffer {
             }
 
             if (!fbdat.handles[c]) {
-                Copy copy = {};
+                ChannelCopy copy = {};
                 copy.source = channel;
                 copy.buffer = std::make_shared<DrmDumbBuffer>();
+                copy.height = fbdat.height;
 
                 auto const source_size = copy.source.memory->size();
                 auto const bpp = source_size / fbdat.width / fbdat.height;
@@ -239,26 +260,12 @@ class DrmFrameBuffer {
         drm_fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fbdat).ex("DRM framebuffer");
     }
 
-    void refresh() {
-        for (auto& c : copies) {
-            int const writes = c.source.memory->write_count();
-            if (c.copied_writes == writes) continue;
-
-            uint8_t* bmem = c.buffer->write();
-            uint8_t const* smem = c.source.memory->read();
-            for (uint32_t y = 0; y < fbdat.height; ++y) {
-                memcpy(
-                    bmem + y * c.buffer->line_stride(),
-                    smem + y * c.source.line_stride + c.source.memory_offset,
-                    std::min(c.buffer->line_stride(), c.source.line_stride)
-                );
-            }
-            c.copied_writes = writes;
-        }
-    }
-
   private:
-    struct Copy {
+    // TODO -- remove import_handles, use RAII that only lasts init() 
+    // TODO -- premultiply alpha for RGBA
+    // TODO -- palette lookup for PAL8
+
+    struct ChannelCopy {
         ImageBuffer::Channel source;
         std::shared_ptr<DrmDumbBuffer> buffer;
         int height = 0;
@@ -267,8 +274,8 @@ class DrmFrameBuffer {
 
     std::shared_ptr<FileDescriptor> drm_fd;
     std::vector<uint32_t> import_handles;
-    std::vector<Copy> copies;
-    drm_mode_fb_cmd2 fbdat = {};
+    std::vector<ChannelCopy> copies;
+    uint32_t fb_id = 0;
 };
 
 //
