@@ -9,7 +9,7 @@ Experimental video code for Linux / Raspberry Pi
 
 Notable programs:
 
-* `pivid_test_decode` - play an H.264 video file via KMS/DRM (stop X first)
+* `pivid_test_playback` - play a video file via KMS/DRM (stop X first)
 * `pivid_inspect_avformat` - print a summary of streams in a video file
 * `pivid_inspect_kms` - print capabilities & properties of KMS/DRM devices
 * `pivid_inspect_v4l2` - print capabilities & properties of V4L2 devices
