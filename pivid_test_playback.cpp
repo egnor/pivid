@@ -204,7 +204,7 @@ void play_video(
 
         ++frame_index;
     }
-    fmt::print("\n");
+    if (frame_index) fmt::print("\n");
 }
 
 // Main program, parses flags and calls the decoder loop.
