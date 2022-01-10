@@ -147,6 +147,15 @@ void print_properties(int const fd, uint32_t const id) {
                     auto const* fourcc = data + header->formats_offset + fi * 4;
                     fmt::print(" {:.4s}", fourcc);
                 }
+            } else {
+                fmt::print(" ?0x{:x}? ({}b)", header->version, blob->length);
+            }
+            drmModeFreePropertyBlob(blob);
+        } else if (name == "WRITEBACK_PIXEL_FORMATS") {
+            auto* const blob = drmModeGetPropertyBlob(fd, value);
+            for (size_t fi = 0; fi < blob->length / 4; ++fi) {
+                if (fi % 12 == 0) fmt::print("\n           ");
+                fmt::print(" {:.4s}", (char const*) blob->data + (fi * 4));
             }
             drmModeFreePropertyBlob(blob);
         } else {
@@ -174,6 +183,7 @@ void inspect_device(std::string const& path) {
     drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1);
     drmSetClientCap(fd, DRM_CLIENT_CAP_STEREO_3D, 1);
     drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+    drmSetClientCap(fd, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1);
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {

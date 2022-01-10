@@ -51,7 +51,6 @@ class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
     virtual std::vector<DisplayConnector> scan_connectors() = 0;
-    virtual ImageBuffer make_buffer(int width, int height, int bpp) = 0;
 
     virtual bool ready_for_update(uint32_t connector_id) = 0;
     virtual void update_output(

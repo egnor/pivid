@@ -338,20 +338,6 @@ class DrmDriver : public DisplayDriver {
         return out;
     }
 
-    virtual ImageBuffer make_buffer(int width, int height, int bpp) {
-        auto buf = std::make_shared<DrmDumbBuffer>(fd, width, height, bpp);
-        
-        ImageBuffer::Channel ch = {};
-        ch.line_stride = buf->line_stride();
-        ch.memory = std::move(buf);
-
-        ImageBuffer image = {};
-        image.channels.push_back(std::move(ch));
-        image.width = width;
-        image.height = height;
-        return image;
-    }
-
     virtual bool ready_for_update(uint32_t connector_id) {
         drm_event_vblank ev = {};
         for (;;) {
