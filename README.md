@@ -4,7 +4,7 @@ Experimental video code for Linux / Raspberry Pi
 ## Building
 1. Run `./dev_setup.py`. (Works On My Machine™, YMMV)
 2. Run `ninja -C build` to run the actual build (this is the only part to repeat after edits).
-3. Run binaries from `build` (like `build/pivid_test_decode`).
+3. Run binaries from `build` (like `build/pivid_test_playback`).
 4. If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 
 Notable programs:
@@ -33,6 +33,7 @@ Use `--help` to see usage (and/or read the source).
 * [kernel.org: Linux GPU Driver Userland Interfaces](https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html) - basic notes on the kernel/user interface
 * [kernel.org: KMS Properties](https://www.kernel.org/doc/html/v5.10/gpu/drm-kms.html#kms-properties) - exhaustive object property list
 * [kernel source: include/uapi/drm/drm.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm.h) and [drm_mode.h](https://github.com/torvalds/linux/blob/master/include/uapi/drm/drm_mode.h) - kernel/user headers
+* [kernel source: include/drm/drm_print.h](https://github.com/torvalds/linux/blob/master/include/drm/drm_print.h#L253) - debugging definitions 
 * [ST Micro: DRM/KMS Overview](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview) - decent general docs from a chip vendor
 * [ST Micro: How to trace and debug the framework](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview#How_to_trace_and_debug_the_framework) - an especially useful section
 * [NVIDIA Jetson Linux API: Direct Rendering Manager](https://docs.nvidia.com/jetson/l4t-multimedia/group__direct__rendering__manager.html) - API reference, a bit NVIDIA-specific
@@ -61,7 +62,7 @@ Notes on DRM and KMS:
 * [v4l2test](https://github.com/rdkcmf/v4l2test) - test/example of V4L2 H.264 decoding feeding KMS
 
 Notes on memory management:
-* GPUs have all kinds of memory architectures. The RPi is simple, everything is in system RAM (no dedicated GPU RAM).
+* GPUs have all kinds of memory architectures. (The RPi is simple, everything is in CPU RAM without dedicated GPU RAM.)
 * DRM/KMS requires you to create a "framebuffer" object, giving it a "buffer object" ("BO") handle (opaque int32).
 * How a "buffer object" is allocated and managed is dependent on the kernel GPU driver.
 * Most drivers use the "Graphics Execution Manager" (GEM), their buffer object handles are "GEM handles".
@@ -70,3 +71,4 @@ Notes on memory management:
 * The libgbm ("Generic Buffer Manager") library tries to abstract over those driver-specific interfaces.
 * "DRM-PRIME" is a fancy name for ioctl's (see libdrm `drmPrimeHandleToFD` and `drmPrimeFDToHandle`) to convert GEM handles to/from "dma-buf" descriptors.
 * These "dma-buf" descriptors can be used with other systems like V4L2, of course you have to get the data format right.
+* On the Raspberry Pi, DRM has no trouble importing dma-buf buffers from V4L2.

@@ -199,8 +199,6 @@ class DrmFrameBuffer {
   public:
     DrmFrameBuffer(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
         drm_fd = std::move(fd);
-
-        drm_mode_fb_cmd2 fbdat = {};
         fbdat.width = im.width;
         fbdat.height = im.height;
         fbdat.pixel_format = format_to_drm(im.fourcc);
@@ -233,7 +231,6 @@ class DrmFrameBuffer {
             if (!fbdat.handles[c]) {
                 ChannelCopy copy = {};
                 copy.source = channel;
-                copy.height = fbdat.height;
                 copy.buffer = std::make_shared<DrmDumbBuffer>(
                     drm_fd, fbdat.width, fbdat.height,
                     8 * copy.source.memory->size() / fbdat.width / fbdat.height
@@ -251,10 +248,10 @@ class DrmFrameBuffer {
     }
 
     ~DrmFrameBuffer() {
-        if (fb_id) (void) drm_fd->ioc<DRM_IOCTL_MODE_RMFB>(&fb_id);
+        if (fbdat.fb_id) (void) drm_fd->ioc<DRM_IOCTL_MODE_RMFB>(&fbdat.fb_id);
     }
 
-    uint32_t id() const { return fb_id; }
+    uint32_t id() const { return fbdat.fb_id; }
 
     void refresh() {
         for (auto& c : copies) {
@@ -263,7 +260,7 @@ class DrmFrameBuffer {
 
             uint8_t* bmem = c.buffer->write();
             uint8_t const* smem = c.source.memory->read();
-            for (int y = 0; y < c.height; ++y) {
+            for (size_t y = 0; y < fbdat.height; ++y) {
                 memcpy(
                     bmem + y * c.buffer->line_stride(),
                     smem + y * c.source.line_stride + c.source.memory_offset,
@@ -281,13 +278,12 @@ class DrmFrameBuffer {
     struct ChannelCopy {
         ImageBuffer::Channel source;
         std::shared_ptr<DrmDumbBuffer> buffer;
-        int height = 0;
         int copied_writes = -1;
     };
 
     std::shared_ptr<FileDescriptor> drm_fd;
     std::vector<ChannelCopy> copies;
-    uint32_t fb_id = 0;
+    drm_mode_fb_cmd2 fbdat = {};
 
     DrmFrameBuffer(DrmFrameBuffer const&) = delete;
     DrmFrameBuffer& operator=(DrmFrameBuffer const&) = delete;
