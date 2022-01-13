@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -52,8 +51,7 @@ class DisplayDriver {
     virtual ~DisplayDriver() {}
     virtual std::vector<DisplayConnector> scan_connectors() = 0;
 
-    virtual bool ready_for_update(uint32_t connector_id) = 0;
-    virtual void update_output(
+    virtual bool update_if_ready(
         uint32_t connector_id,
         DisplayMode const& mode,
         std::vector<DisplayLayer> const& layers

@@ -107,6 +107,18 @@ void print_properties(int const fd, uint32_t const id) {
         if (meta->flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
         fmt::print("{} =", name);
 
+        auto const print_fourccs = [](uint8_t const* data, int count) {
+            for (int fi = 0; fi < count; ++fi) {
+                if (fi % 12 == 0) fmt::print("\n           ");
+                fmt::print(" ");
+                for (int ci = 0; ci < 4; ++ci) {
+                    int const ch = data[ci + fi * 4];
+                    if (ch > 0 && ch < 32) fmt::print("{}", ch);
+                    if (ch > 32) fmt::print("{:c}", ch);
+                }
+            }
+        };
+
         // TODO handle RANGE and SIGNED_RANGE if we ever see any
         auto const value = props->prop_values[pi];
         if (meta->flags & DRM_MODE_PROP_BITMASK) {
@@ -139,24 +151,19 @@ void print_properties(int const fd, uint32_t const id) {
             }
         } else if (name == "IN_FORMATS") {
             auto* const blob = drmModeGetPropertyBlob(fd, value);
-            auto const data = (char const*) blob->data;
-            auto const header = (drm_format_modifier_blob const*) data;
+            auto const header = (drm_format_modifier_blob const*) blob->data;
             if (header->version == FORMAT_BLOB_CURRENT) {
-                for (uint32_t fi = 0; fi < header->count_formats; ++fi) {
-                    if (fi % 12 == 0) fmt::print("\n           ");
-                    auto const* fourcc = data + header->formats_offset + fi * 4;
-                    fmt::print(" {:.4s}", fourcc);
-                }
+                print_fourccs(
+                    (uint8_t const*) blob->data + header->formats_offset,
+                    header->count_formats
+                );
             } else {
                 fmt::print(" ?0x{:x}? ({}b)", header->version, blob->length);
             }
             drmModeFreePropertyBlob(blob);
         } else if (name == "WRITEBACK_PIXEL_FORMATS") {
             auto* const blob = drmModeGetPropertyBlob(fd, value);
-            for (size_t fi = 0; fi < blob->length / 4; ++fi) {
-                if (fi % 12 == 0) fmt::print("\n           ");
-                fmt::print(" {:.4s}", (char const*) blob->data + (fi * 4));
-            }
+            print_fourccs((uint8_t const*) blob->data, blob->length / 4);
             drmModeFreePropertyBlob(blob);
         } else {
             fmt::print(" <blob>");

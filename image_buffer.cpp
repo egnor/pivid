@@ -34,6 +34,16 @@ std::string debug_size(size_t s) {
     return fmt::format("{:.1f}G", s / 1073741824.0);
 }
 
+std::string debug_fourcc(uint32_t fourcc) {
+    std::string out;
+    for (int i = 0; i < 4; ++i) {
+        int const ch = (fourcc >> (i * 8)) & 0xFF;
+        if (ch > 32) out.append(1, ch);
+        if (ch > 0 && ch < 32) out.append(fmt::format("{}", ch));
+    }
+    return out;
+}
+
 std::string debug_string(MemoryBuffer const& mem) {
     std::string out = debug_size(mem.size());
     if (mem.dma_fd()) out += fmt::format(" fd{:<2d}", *mem.dma_fd());
@@ -43,26 +53,26 @@ std::string debug_string(MemoryBuffer const& mem) {
 
 std::string debug_string(ImageBuffer const& i) {
     std::string out = fmt::format(
-        "{}x{} {:.4s}", i.width, i.height, (char const*) &i.fourcc
+        "{}x{} {}", i.width, i.height, debug_fourcc(i.fourcc)
     );
 
     if (i.modifier) {
         auto const vendor = i.modifier >> 56;
         switch (vendor) {
 #define V(x, y) case DRM_FORMAT_MOD_VENDOR_##x: out += y; break
-            V(NONE, "");
-            V(INTEL, ":INTL");
-            V(AMD, ":AMD");
-            V(NVIDIA, ":NVID");
-            V(SAMSUNG, ":SAMS");
-            V(QCOM, ":QCOM");
-            V(VIVANTE, ":VIVA");
-            V(BROADCOM, ":BCOM");
-            V(ARM, ":ARM");
-            V(ALLWINNER, ":ALLW");
-            V(AMLOGIC, ":AML");
+          V(NONE, "");
+          V(INTEL, ":INTL");
+          V(AMD, ":AMD");
+          V(NVIDIA, ":NVID");
+          V(SAMSUNG, ":SAMS");
+          V(QCOM, ":QCOM");
+          V(VIVANTE, ":VIVA");
+          V(BROADCOM, ":BCOM");
+          V(ARM, ":ARM");
+          V(ALLWINNER, ":ALLW");
+          V(AMLOGIC, ":AML");
 #undef V
-            default: out += fmt::format(":{}", vendor);
+          default: out += fmt::format(":{}", vendor);
         }
         out += fmt::format(":{:x}", i.modifier & ((1ull << 56) - 1));
     }
@@ -75,8 +85,8 @@ std::string debug_string(ImageBuffer const& i) {
             out += " " + debug_string(*chan.memory) + " ";
         }
 
-        out += fmt::format("{}b", 8 * chan.line_stride / i.width);
-        if (chan.memory_offset) out += "@" + debug_size(chan.memory_offset);
+        out += fmt::format("{}b", 8 * chan.stride / i.width);
+        if (chan.offset) out += "@" + debug_size(chan.offset);
     }
 
     if (i.channels.empty()) out += " [no data]";

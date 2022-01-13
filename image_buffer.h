@@ -21,8 +21,8 @@ class MemoryBuffer {
 struct ImageBuffer {
     struct Channel {
         std::shared_ptr<MemoryBuffer> memory;
-        ptrdiff_t memory_offset;
-        ptrdiff_t line_stride;
+        ptrdiff_t offset;
+        ptrdiff_t stride;
         auto operator<=>(Channel const&) const = default;
     };
 
@@ -41,6 +41,7 @@ constexpr uint32_t fourcc(char const c[4]) {
 std::shared_ptr<MemoryBuffer> plain_memory_buffer(size_t);
 
 std::string debug_size(size_t);
+std::string debug_fourcc(uint32_t);
 std::string debug_string(MemoryBuffer const&);
 std::string debug_string(ImageBuffer const&);
 

@@ -129,9 +129,9 @@ std::vector<ImageBuffer> layers_from_av_drm(
         image.height = height;
 
         switch (av_layer.format) {
-            case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
-            case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
-            default: image.fourcc = av_layer.format;
+          case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
+          case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
+          default: image.fourcc = av_layer.format;
         }
 
         for (int p = 0; p < av_layer.nb_planes; ++p) {
@@ -140,8 +140,8 @@ std::vector<ImageBuffer> layers_from_av_drm(
             image.modifier = av_obj.format_modifier;
             image.channels.push_back({
                 .memory = buffers[av_plane.object_index],
-                .memory_offset = av_plane.offset,
-                .line_stride = av_plane.pitch,
+                .offset = av_plane.offset,
+                .stride = av_plane.pitch,
             });
         }
 
@@ -162,8 +162,8 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
         mem->init(av_frame, p);
         out.channels.push_back({
             .memory = std::move(mem),
-            .memory_offset = 0,
-            .line_stride = av_frame->linesize[p],
+            .offset = 0,
+            .stride = av_frame->linesize[p],
         });
     }
 
@@ -176,17 +176,17 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av_frame, double time_base) {
     out.is_corrupt = (av_frame->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av_frame->key_frame;
     switch (av_frame->pict_type) {
-        case AV_PICTURE_TYPE_NONE: break;
+      case AV_PICTURE_TYPE_NONE: break;
 #define P(x) case AV_PICTURE_TYPE_##x: out.frame_type = #x; break
-        P(I);
-        P(P);
-        P(B);
-        P(S);
-        P(SI);
-        P(SP);
-        P(BI);
+      P(I);
+      P(P);
+      P(B);
+      P(S);
+      P(SI);
+      P(SP);
+      P(BI);
 #undef P
-        default: out.frame_type = "?";
+      default: out.frame_type = "?";
     }
 
     if (av_frame->format == AV_PIX_FMT_DRM_PRIME) {
@@ -222,17 +222,10 @@ class LibavMediaDecoder : public MediaDecoder {
         return eof_seen_from_codec;
     }
 
-    virtual bool next_frame_ready() {
+    virtual std::optional<MediaFrame> get_frame_if_ready() {
         run_decoder();
-        return (!eof_seen_from_codec && av_frame->width && av_frame->height);
-    }
-
-    virtual MediaFrame get_next_frame() {
-        if (eof_seen_from_codec)
-            throw std::logic_error("Read past end of media");
-
-        if (!av_frame || !av_frame->width || !av_frame->height)
-            throw std::logic_error("Read unready media frame");
+        if (eof_seen_from_codec) return {};
+        if (!av_frame || !av_frame->width || !av_frame->height) return {};
 
         auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
         std::shared_ptr<AVFrame> av_frame{this->av_frame, std::move(deleter)};
@@ -411,7 +404,7 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
     for (int f = 0; context->pix_fmt == AV_PIX_FMT_NONE; ++f) {
         if (formats[f] == AV_PIX_FMT_NONE) {
             throw std::invalid_argument(fmt::format(
-                "Bad pixel format for TIFF ({:.4s})", (char const*) &im.fourcc
+                "Bad pixel format for TIFF ({})", debug_fourcc(im.fourcc)
             ));
         }
         if (avcodec_pix_fmt_to_codec_tag(formats[f]) == im.fourcc)
@@ -439,8 +432,8 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
         throw std::length_error("Too many image channels to encode");
     for (size_t p = 0; p < im.channels.size(); ++p) {
         auto const& chan = im.channels[p];
-        frame->data[p] = ((uint8_t*) chan.memory->read()) + chan.memory_offset;
-        frame->linesize[p] = chan.line_stride;
+        frame->data[p] = ((uint8_t*) chan.memory->read()) + chan.offset;
+        frame->linesize[p] = chan.stride;
     }
 
     check_av(

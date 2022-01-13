@@ -4,8 +4,6 @@
 #include <cmath>
 #include <thread>
 
-#include <drm_fourcc.h>
-
 #include <CLI/App.hpp>
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
@@ -117,14 +115,12 @@ void play_video(
     DisplayMode const& mode
 ) {
     using namespace std::chrono_literals;
-    MediaFrame overlay_frame = {};
-    if (overlay) {
-        while (!overlay->next_frame_ready()) {
-            if (overlay->reached_eof())
-                throw std::runtime_error("No frames in overlay media");
-            std::this_thread::sleep_for(0.005s);
-        }
-        overlay_frame = overlay->get_next_frame();
+    std::optional<MediaFrame> overlay_frame = {};
+    while (overlay && !overlay_frame) {
+        if (overlay->reached_eof())
+            throw std::runtime_error("No frames in overlay media");
+        overlay_frame = overlay->get_frame_if_ready();
+        if (!overlay_frame) std::this_thread::sleep_for(0.005s);
     }
 
     auto last_wall = std::chrono::steady_clock::now();
@@ -132,11 +128,15 @@ void play_video(
     double behind = 0.0;
     int frame_index = 0;
     while (decoder && !decoder->reached_eof()) {
-        auto const frame = decoder->get_next_frame();
+        auto const frame = decoder->get_frame_if_ready();
+        if (!frame) {
+            std::this_thread::sleep_for(0.005s);
+            continue;
+        }
 
         if (driver) {
             std::vector<DisplayLayer> display_layers;
-            for (auto const& image : frame.layers) {
+            for (auto const& image : frame->layers) {
                 DisplayLayer display_layer = {};
                 display_layer.image = image;
                 display_layer.image_width = image.width;
@@ -146,7 +146,7 @@ void play_video(
                 display_layers.push_back(std::move(display_layer));
             }
 
-            for (auto const& image : overlay_frame.layers) {
+            for (auto const& image : overlay_frame->layers) {
                 DisplayLayer display_layer = {};
                 display_layer.image = image;
                 display_layer.image_width = image.width;
@@ -160,41 +160,36 @@ void play_video(
                 display_layers.push_back(std::move(display_layer));
             }
 
-            while (!driver->ready_for_update(conn.id)) {  // Wait for flip.
-                decoder->next_frame_ready();  // Keep decoder running.
+            while (!driver->update_if_ready(conn.id, mode, display_layers)) {
+                decoder->reached_eof();  // Keep decoder running.
                 std::this_thread::sleep_for(0.005s);
             }
-            driver->update_output(conn.id, mode, display_layers);
         }
 
         auto const wall = std::chrono::steady_clock::now();
         auto const dw = std::chrono::duration<double>(wall - last_wall).count();
-        auto const df = frame.time - last_frame;
+        auto const df = frame->time - last_frame;
         last_wall = wall;
-        last_frame = frame.time;
+        last_frame = frame->time;
         behind = std::max(0.0, behind + dw - df);
         fmt::print(
             "{:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
             dw * 1000, df * 1000, behind * 1000,
-            debug_string(frame)
+            debug_string(*frame)
         );
-
-        while (!decoder->next_frame_ready() && !decoder->reached_eof())
-            std::this_thread::sleep_for(0.005s);
 
         if (!tiff_arg.empty()) {
             auto dot_pos = tiff_arg.rfind('.');
             if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
-            for (size_t l = 0; l < frame.layers.size(); ++l) {
+            for (size_t l = 0; l < frame->layers.size(); ++l) {
                 auto path = tiff_arg.substr(0, dot_pos);
-                if (frame_index > 0 || decoder->next_frame_ready())
-                    path += fmt::format(".F{:05d}", frame_index);
-                if (frame.layers.size() > 1)
+                path += fmt::format(".F{:05d}", frame_index);
+                if (frame->layers.size() > 1)
                     path += fmt::format(".L{}", l);
                 path += tiff_arg.substr(dot_pos);
 
                 fmt::print("  saving: {}\n", path);
-                auto tiff = debug_tiff(frame.layers[l]);
+                auto tiff = debug_tiff(frame->layers[l]);
                 std::ofstream ofs;
                 ofs.exceptions(~std::ofstream::goodbit);
                 ofs.open(path, std::ios::binary);
@@ -204,6 +199,7 @@ void play_video(
 
         ++frame_index;
     }
+
     if (frame_index) fmt::print("\n");
 }
 

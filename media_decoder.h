@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,8 +32,7 @@ class MediaDecoder {
     virtual ~MediaDecoder() {}
     virtual MediaInfo const& info() const = 0;
     virtual bool reached_eof() = 0;
-    virtual bool next_frame_ready() = 0;
-    virtual MediaFrame get_next_frame() = 0;
+    virtual std::optional<MediaFrame> get_frame_if_ready() = 0;
 };
 
 std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& filename);

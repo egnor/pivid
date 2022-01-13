@@ -105,23 +105,24 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
 uint32_t format_to_drm(uint32_t format) {
     // Note, ffmpeg/AVI/"standard" fourcc is big endian, DRM is little endian
     switch (format) {
-        case fourcc("0RGB"): return DRM_FORMAT_BGRX8888;
-        case fourcc("ARGB"): return DRM_FORMAT_BGRA8888;
-        case fourcc("ABGR"): return DRM_FORMAT_RGBA8888;
-        case fourcc("0BGR"): return DRM_FORMAT_RGBX8888;
-        case fourcc("RGB0"): return DRM_FORMAT_XBGR8888;
-        case fourcc("RGBA"): return DRM_FORMAT_ABGR8888;
-        case fourcc("BGRA"): return DRM_FORMAT_ARGB8888;
-        case fourcc("BGR0"): return DRM_FORMAT_XRGB8888;
-        case fourcc("RGB\x10"): return DRM_FORMAT_RGB565;
-        case fourcc("BGR\x10"): return DRM_FORMAT_BGR565;
-        case fourcc("RGB\x18"): return DRM_FORMAT_BGR888;
-        case fourcc("BGR\x18"): return DRM_FORMAT_RGB888;
-        case fourcc("I420"): return DRM_FORMAT_YUV420;
-        case fourcc("Y42B"): return DRM_FORMAT_YUV422;
-        case fourcc("NV12"): return DRM_FORMAT_NV12;
-        case fourcc("NV21"): return DRM_FORMAT_NV21;
-        default: return format;  // Might match!
+      case fourcc("0BGR"): return DRM_FORMAT_RGBX8888;
+      case fourcc("0RGB"): return DRM_FORMAT_BGRX8888;
+      case fourcc("ABGR"): return DRM_FORMAT_RGBA8888;
+      case fourcc("ARGB"): return DRM_FORMAT_BGRA8888;
+      case fourcc("BGR0"): return DRM_FORMAT_XRGB8888;
+      case fourcc("BGRA"): return DRM_FORMAT_ARGB8888;
+      case fourcc("BGR\x10"): return DRM_FORMAT_BGR565;
+      case fourcc("BGR\x18"): return DRM_FORMAT_RGB888;
+      case fourcc("I420"): return DRM_FORMAT_YUV420;
+      case fourcc("NV12"): return DRM_FORMAT_NV12;
+      case fourcc("NV21"): return DRM_FORMAT_NV21;
+      case fourcc("PAL\x08"): return DRM_FORMAT_C8;
+      case fourcc("RGB0"): return DRM_FORMAT_XBGR8888;
+      case fourcc("RGBA"): return DRM_FORMAT_ABGR8888;
+      case fourcc("RGB\x10"): return DRM_FORMAT_RGB565;
+      case fourcc("RGB\x18"): return DRM_FORMAT_BGR888;
+      case fourcc("Y42B"): return DRM_FORMAT_YUV422;
+      default: return format;  // Might match!
     }
 }
 
@@ -134,6 +135,7 @@ class DrmDumbBuffer : public MemoryBuffer {
         ddat.bpp = bpp;
         drm_fd->ioc<DRM_IOCTL_MODE_CREATE_DUMB>(&ddat).ex("Create DRM buffer");
     }
+
     virtual ~DrmDumbBuffer() {
         if (!ddat.handle) return;
         drm_mode_destroy_dumb dddat = {.handle = ddat.handle};
@@ -144,7 +146,7 @@ class DrmDumbBuffer : public MemoryBuffer {
     virtual uint8_t* write() { read(); ++writes; return (uint8_t*) mem.get(); }
     virtual int write_count() const { return writes; }
     virtual std::optional<uint32_t> drm_handle() const { return {ddat.handle}; }
-    ptrdiff_t line_stride() const { return ddat.pitch; }
+    ptrdiff_t stride() const { return ddat.pitch; }
 
     virtual uint8_t const* read() {
         if (!mem) {
@@ -211,8 +213,8 @@ class DrmFrameBuffer {
         std::vector<std::unique_ptr<DrmImportedBuffer>> imports;
         for (size_t c = 0; c < im.channels.size(); ++c) {
             auto const& channel = im.channels[c];
-            fbdat.pitches[c] = channel.line_stride;
-            fbdat.offsets[c] = channel.memory_offset;
+            fbdat.pitches[c] = channel.stride;
+            fbdat.offsets[c] = channel.offset;
             fbdat.modifier[c] = im.modifier;
             fbdat.handles[c] = channel.memory->drm_handle().value_or(0);
 
@@ -230,15 +232,15 @@ class DrmFrameBuffer {
 
             if (!fbdat.handles[c]) {
                 ChannelCopy copy = {};
-                copy.source = channel;
-                copy.buffer = std::make_shared<DrmDumbBuffer>(
+                copy.from = channel;
+                copy.to = std::make_shared<DrmDumbBuffer>(
                     drm_fd, fbdat.width, fbdat.height,
-                    8 * copy.source.memory->size() / fbdat.width / fbdat.height
+                    8 * copy.from.memory->size() / fbdat.width / fbdat.height
                 );
 
-                fbdat.pitches[c] = copy.buffer->line_stride();
+                fbdat.pitches[c] = copy.to->stride();
                 fbdat.offsets[c] = 0;
-                fbdat.handles[c] = *copy.buffer->drm_handle();
+                fbdat.handles[c] = *copy.to->drm_handle();
                 copies.push_back(std::move(copy));
             }
         }
@@ -255,18 +257,37 @@ class DrmFrameBuffer {
 
     void refresh() {
         for (auto& c : copies) {
-            int const writes = c.source.memory->write_count();
+            int const writes = c.from.memory->write_count();
             if (c.copied_writes == writes) continue;
 
-            uint8_t* bmem = c.buffer->write();
-            uint8_t const* smem = c.source.memory->read();
+            uint8_t const* const from = c.from.memory->read() + c.from.offset;
+            uint8_t* const to = c.to->write();
+            int const line_len = std::min(c.to->stride(), c.from.stride);
             for (size_t y = 0; y < fbdat.height; ++y) {
-                memcpy(
-                    bmem + y * c.buffer->line_stride(),
-                    smem + y * c.source.line_stride + c.source.memory_offset,
-                    std::min(c.buffer->line_stride(), c.source.line_stride)
-                );
+                uint8_t const* line_from = from + y * c.from.stride;
+                uint8_t* line_to = to + y * c.to->stride();
+                switch (fbdat.pixel_format) {
+                  case DRM_FORMAT_RGBA8888:
+                  case DRM_FORMAT_BGRA8888:
+                    for (int p = 0; p + 3 < line_len; p += 4) {
+                        uint8_t const alpha = line_to[p] = line_from[p];
+                        for (int q = p + 1; q < p + 4; ++q)
+                            line_to[q] = line_from[q] * alpha / 255;
+                    }
+                    break;
+                  case DRM_FORMAT_ARGB8888:
+                  case DRM_FORMAT_ABGR8888:
+                    for (int p = 0; p + 3 < line_len; p += 4) {
+                        uint8_t const alpha = line_to[p + 3] = line_from[p + 3];
+                        for (int q = p; q < p + 3; ++q)
+                            line_to[q] = line_from[q] * alpha / 255;
+                    }
+                    break;
+                  default:
+                    memcpy(line_to, line_from, line_len);
+                }
             }
+
             c.copied_writes = writes;
         }
     }
@@ -276,14 +297,14 @@ class DrmFrameBuffer {
     // TODO -- palette lookup for PAL8
 
     struct ChannelCopy {
-        ImageBuffer::Channel source;
-        std::shared_ptr<DrmDumbBuffer> buffer;
+        ImageBuffer::Channel from;
+        std::shared_ptr<DrmDumbBuffer> to;
         int copied_writes = -1;
     };
 
     std::shared_ptr<FileDescriptor> drm_fd;
-    std::vector<ChannelCopy> copies;
     drm_mode_fb_cmd2 fbdat = {};
+    std::vector<ChannelCopy> copies;
 
     DrmFrameBuffer(DrmFrameBuffer const&) = delete;
     DrmFrameBuffer& operator=(DrmFrameBuffer const&) = delete;
@@ -334,70 +355,13 @@ class DrmDriver : public DisplayDriver {
         return out;
     }
 
-    virtual bool ready_for_update(uint32_t connector_id) {
-        drm_event_vblank ev = {};
-        for (;;) {
-            auto const ret = fd->read(&ev, sizeof(ev));
-            if (ret.err == EAGAIN) break;
-            if (ret.ex("Read DRM event") != sizeof(ev))
-                throw std::runtime_error("Bad DRM event size");
-
-            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) continue;
-            auto const id_crtc_iter = crtcs.find(ev.crtc_id);
-            if (id_crtc_iter == crtcs.end()) {
-                throw std::runtime_error(
-                    fmt::format("Unknown DRM CRTC flipped ({})", ev.crtc_id)
-                );
-            }
-
-            auto* const crtc = &id_crtc_iter->second;
-            if (!crtc->pending_flip) {
-                throw std::runtime_error(
-                    fmt::format("Unexpected DRM CRTC flipped ({})", ev.crtc_id)
-                );
-            }
-
-            if (crtc->used_by_conn && !crtc->pending_flip->mode.refresh_hz) {
-                assert(crtc->used_by_conn->using_crtc == crtc);
-                crtc->used_by_conn->using_crtc = nullptr;
-                crtc->used_by_conn = nullptr;
-            }
-
-            for (auto* plane : crtc->active.using_planes) {
-                assert(plane->used_by_crtc == crtc);
-                plane->used_by_crtc = nullptr;
-            }
-
-            for (auto* plane : crtc->pending_flip->using_planes) {
-                assert(plane->used_by_crtc == nullptr);
-                plane->used_by_crtc = crtc;
-            }
-
-            crtc->active = std::move(*crtc->pending_flip);
-            crtc->pending_flip.reset();
-        }
-
-        auto const id_conn_iter = connectors.find(connector_id);
-        if (id_conn_iter == connectors.end())
-            throw std::invalid_argument("Bad DRM connector ID");
-
-        auto const& conn = id_conn_iter->second;
-        if (conn.using_crtc)
-            return !conn.using_crtc->pending_flip;
-
-        for (auto const* const crtc : conn.usable_crtcs) {
-            if (!crtc->used_by_conn && !crtc->pending_flip)
-                return true;
-        }
-
-        return false;  // No CRTC available for this connector (yet?).
-    }
-
-    virtual void update_output(
+    virtual bool update_if_ready(
         uint32_t connector_id,
         DisplayMode const& mode,
         std::vector<DisplayLayer> const& layers
     ) {
+        process_events();
+
         auto const id_conn_iter = connectors.find(connector_id);
         if (id_conn_iter == connectors.end())
             throw std::invalid_argument("Bad DRM connector ID");
@@ -405,18 +369,16 @@ class DrmDriver : public DisplayDriver {
         auto* const conn = &id_conn_iter->second;
         auto* crtc = conn->using_crtc;
         if (crtc) {
-            if (crtc->pending_flip)
-                throw std::invalid_argument("Unready to update: " + conn->name);
+            if (crtc->pending_flip) return false;
         } else {
-            if (!mode.refresh_hz) return;  // Was off, still off
+            if (!mode.refresh_hz) return true;  // Was off, stays off, trivial
             for (auto* const c : conn->usable_crtcs) {
                 if (!c->used_by_conn && !c->pending_flip) {
                     crtc = c;
                     break;
                 }
             }
-            if (!crtc)
-                throw std::invalid_argument("No DRM CRTC: " + conn->name);
+            if (!crtc) return false;  // No CRTC available (yet?)
         }
 
         // Build the atomic update and the state that will result.
@@ -458,11 +420,11 @@ class DrmDriver : public DisplayDriver {
                 auto const image_format = format_to_drm(image.fourcc);
                 if (!plane->formats.count(image_format)) {
                     auto text = fmt::format(
-                        "Bad format \"{:.4s}\" for DRM plane #{}, supports:",
-                        (char const*) &image_format, plane->id
+                        "Bad format \"{}\" for DRM plane #{}, supports:",
+                        debug_fourcc(image_format), plane->id
                     );
                     for (auto const fourcc : plane->formats)
-                        text += fmt::format(" {:.4s}", (char const *) &fourcc);
+                        text += fmt::format(" {}", debug_fourcc(fourcc));
                     throw std::invalid_argument(text);
                 }
 
@@ -521,6 +483,7 @@ class DrmDriver : public DisplayDriver {
         crtc->pending_flip.emplace(std::move(next));
         conn->using_crtc = crtc;
         crtc->used_by_conn = conn;
+        return true;
     }
 
     void open(UnixSystem* sys, std::string const& dev) {
@@ -572,29 +535,29 @@ class DrmDriver : public DisplayDriver {
             lookup_prop_ids(conn_id, &conn->prop_ids);
             switch (cdat.connector_type) {
 #define T(x) case DRM_MODE_CONNECTOR_##x: conn->name = #x; break
-                T(Unknown);
-                T(VGA);
-                T(DVII);
-                T(DVID);
-                T(DVIA);
-                T(Composite);
-                T(SVIDEO);
-                T(LVDS);
-                T(Component);
-                T(9PinDIN);
-                T(DisplayPort);
-                T(HDMIA);
-                T(HDMIB);
-                T(TV);
-                T(eDP);
-                T(VIRTUAL);
-                T(DSI);
-                T(DPI);
-                T(WRITEBACK);
-                T(SPI);
-                T(USB);
+              T(Unknown);
+              T(VGA);
+              T(DVII);
+              T(DVID);
+              T(DVIA);
+              T(Composite);
+              T(SVIDEO);
+              T(LVDS);
+              T(Component);
+              T(9PinDIN);
+              T(DisplayPort);
+              T(HDMIA);
+              T(HDMIB);
+              T(TV);
+              T(eDP);
+              T(VIRTUAL);
+              T(DSI);
+              T(DPI);
+              T(WRITEBACK);
+              T(SPI);
+              T(USB);
 #undef T
-                default: conn->name = fmt::format("[#{}]", cdat.connector_type);
+              default: conn->name = fmt::format("[#{}]", cdat.connector_type);
             }
             conn->name += fmt::format("-{}", cdat.connector_type_id);
 
@@ -713,6 +676,50 @@ class DrmDriver : public DisplayDriver {
     std::map<uint32_t, Crtc> crtcs;
     std::map<uint32_t, Connector> connectors;
     std::map<uint32_t, std::string> prop_names;
+
+    void process_events() {
+        drm_event_vblank ev = {};
+        for (;;) {
+            auto const ret = fd->read(&ev, sizeof(ev));
+            if (ret.err == EAGAIN) break;
+            if (ret.ex("Read DRM event") != sizeof(ev))
+                throw std::runtime_error("Bad DRM event size");
+
+            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) continue;
+            auto const id_crtc_iter = crtcs.find(ev.crtc_id);
+            if (id_crtc_iter == crtcs.end()) {
+                throw std::runtime_error(
+                    fmt::format("Unknown DRM CRTC flipped ({})", ev.crtc_id)
+                );
+            }
+
+            auto* const crtc = &id_crtc_iter->second;
+            if (!crtc->pending_flip) {
+                throw std::runtime_error(
+                    fmt::format("Unexpected DRM CRTC flipped ({})", ev.crtc_id)
+                );
+            }
+
+            if (crtc->used_by_conn && !crtc->pending_flip->mode.refresh_hz) {
+                assert(crtc->used_by_conn->using_crtc == crtc);
+                crtc->used_by_conn->using_crtc = nullptr;
+                crtc->used_by_conn = nullptr;
+            }
+
+            for (auto* plane : crtc->active.using_planes) {
+                assert(plane->used_by_crtc == crtc);
+                plane->used_by_crtc = nullptr;
+            }
+
+            for (auto* plane : crtc->pending_flip->using_planes) {
+                assert(plane->used_by_crtc == nullptr);
+                plane->used_by_crtc = crtc;
+            }
+
+            crtc->active = std::move(*crtc->pending_flip);
+            crtc->pending_flip.reset();
+        }
+    }
 
     void lookup_prop_ids(uint32_t obj_id, std::map<strview, PropId*> *map) {
         std::vector<uint32_t> prop_ids;
@@ -846,7 +853,7 @@ std::unique_ptr<DisplayDriver> open_display_driver(
 }
 
 //
-// Structure utilities 
+// Debugging utilities 
 //
 
 std::string debug_string(DisplayDriverListing const& d) {
