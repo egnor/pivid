@@ -8,6 +8,8 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
+#include <spdlog/cfg/helpers.h>
+#include <spdlog/spdlog.h>
 
 extern "C" {
 #include <libavutil/log.h>
@@ -35,9 +37,7 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
         ) {
             found = d.dev_file;
         }
-        fmt::print(
-            "{} {}\n", (found == d.dev_file) ? "=>" : "  ", debug_string(d)
-        );
+        fmt::print("{} {}\n", (found == d.dev_file) ? "=>" : "  ", debug(d));
     }
     fmt::print("\n");
 
@@ -45,13 +45,13 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     return open_display_driver(sys, found);
 }
 
-DisplayConnector find_connector(
+DisplayConnectorStatus find_connector(
     std::unique_ptr<DisplayDriver> const& driver, std::string const& conn_arg
 ) {
     if (!driver) return {};
 
     fmt::print("=== Video display connectors ===\n");
-    DisplayConnector found = {};
+    DisplayConnectorStatus found = {};
     for (auto const& conn : driver->scan_connectors()) {
         if (found.name.empty() && conn.name.find(conn_arg) != std::string::npos)
             found = conn;
@@ -70,7 +70,7 @@ DisplayConnector find_connector(
 
 DisplayMode find_mode(
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayConnector const& conn,
+    DisplayConnectorStatus const& conn,
     std::string const& mode_arg
 ) {
     if (!driver || !conn.id) return {};
@@ -79,8 +79,8 @@ DisplayMode find_mode(
     std::set<std::string> seen;
     DisplayMode found = mode_arg.empty() ? conn.active_mode : DisplayMode{};
     for (auto const& mode : conn.display_modes) {
-        auto const mode_str = debug_string(mode);
-        if (mode.name.empty() && mode_str.find(mode_arg) != std::string::npos)
+        std::string const mode_str = debug(mode);
+        if (found.name.empty() && mode_str.find(mode_arg) != std::string::npos)
             found = mode;
 
         if (seen.insert(mode.name).second) {
@@ -100,9 +100,8 @@ DisplayMode find_mode(
 std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
     if (media_arg.empty()) return {};
 
-    fmt::print("=== Media file ({}) ===\n", media_arg);
+    fmt::print("=== Playing media ({}) ===\n", media_arg);
     auto decoder = new_media_decoder(media_arg);
-    fmt::print("{}\n\n", debug_string(decoder->info()));
     return decoder;
 }
 
@@ -111,7 +110,7 @@ void play_video(
     std::unique_ptr<MediaDecoder> const& overlay,
     std::string const& tiff_arg,
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayConnector const& conn,
+    DisplayConnectorStatus const& conn,
     DisplayMode const& mode
 ) {
     using namespace std::chrono_literals;
@@ -123,10 +122,25 @@ void play_video(
         if (!overlay_frame) std::this_thread::sleep_for(0.005s);
     }
 
+    std::vector<DisplayLayer> overlays;
+    for (auto const& image : overlay_frame->images) {
+        DisplayLayer layer = {};
+        layer.source = driver->load_image(image);
+        layer.source_width = image.width;
+        layer.source_height = image.height;
+        layer.screen_x = (mode.horiz.display - image.width) / 2;
+        layer.screen_y = (mode.vert.display - image.height) / 2;
+        layer.screen_width = image.width;
+        layer.screen_height = image.height;
+        overlays.push_back(std::move(layer));
+    }
+
     auto last_wall = std::chrono::steady_clock::now();
     double last_frame = 0.0;
     double behind = 0.0;
     int frame_index = 0;
+
+    spdlog::trace("...getting first frame...");
     while (decoder && !decoder->reached_eof()) {
         auto const frame = decoder->get_frame_if_ready();
         if (!frame) {
@@ -135,37 +149,27 @@ void play_video(
         }
 
         if (driver) {
-            std::vector<DisplayLayer> display_layers;
-            for (auto const& image : frame->layers) {
-                DisplayLayer display_layer = {};
-                display_layer.image = image;
-                display_layer.image_width = image.width;
-                display_layer.image_height = image.height;
-                display_layer.screen_width = mode.horiz.display;
-                display_layer.screen_height = mode.vert.display;
-                display_layers.push_back(std::move(display_layer));
+            spdlog::trace("...showing frame...");
+            std::vector<DisplayLayer> layers;
+            for (auto const& image : frame->images) {
+                DisplayLayer layer = {};
+                layer.source = driver->load_image(image);
+                layer.source_width = image.width;
+                layer.source_height = image.height;
+                layer.screen_width = mode.horiz.display;
+                layer.screen_height = mode.vert.display;
+                layers.push_back(std::move(layer));
             }
 
-            for (auto const& image : overlay_frame->layers) {
-                DisplayLayer display_layer = {};
-                display_layer.image = image;
-                display_layer.image_width = image.width;
-                display_layer.image_height = image.height;
-                display_layer.screen_x =
-                    (mode.horiz.display - image.width) / 2;
-                display_layer.screen_y =
-                    (mode.vert.display - image.height) / 2;
-                display_layer.screen_width = image.width;
-                display_layer.screen_height = image.height;
-                display_layers.push_back(std::move(display_layer));
-            }
+            layers.insert(layers.end(), overlays.begin(), overlays.end());
 
-            while (!driver->update_if_ready(conn.id, mode, display_layers)) {
+            while (!driver->update_if_ready(conn.id, mode, layers)) {
                 decoder->reached_eof();  // Keep decoder running.
                 std::this_thread::sleep_for(0.005s);
             }
         }
 
+        spdlog::trace("...printing stats...");
         auto const wall = std::chrono::steady_clock::now();
         auto const dw = std::chrono::duration<double>(wall - last_wall).count();
         auto const df = frame->time - last_frame;
@@ -173,23 +177,23 @@ void play_video(
         last_frame = frame->time;
         behind = std::max(0.0, behind + dw - df);
         fmt::print(
-            "{:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
-            dw * 1000, df * 1000, behind * 1000,
-            debug_string(*frame)
+            "Frame {:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
+            dw * 1000, df * 1000, behind * 1000, debug(*frame)
         );
 
         if (!tiff_arg.empty()) {
+            spdlog::trace("...dumping TIFF...");
             auto dot_pos = tiff_arg.rfind('.');
             if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
-            for (size_t l = 0; l < frame->layers.size(); ++l) {
+            for (size_t i = 0; i < frame->images.size(); ++i) {
                 auto path = tiff_arg.substr(0, dot_pos);
                 path += fmt::format(".F{:05d}", frame_index);
-                if (frame->layers.size() > 1)
-                    path += fmt::format(".L{}", l);
+                if (frame->images.size() > 1)
+                    path += fmt::format(".I{}", i);
                 path += tiff_arg.substr(dot_pos);
 
                 fmt::print("  saving: {}\n", path);
-                auto tiff = debug_tiff(frame->layers[l]);
+                auto tiff = debug_tiff(frame->images[i]);
                 std::ofstream ofs;
                 ofs.exceptions(~std::ofstream::goodbit);
                 ofs.open(path, std::ios::binary);
@@ -198,15 +202,15 @@ void play_video(
         }
 
         ++frame_index;
+        spdlog::trace("...getting next frame (#{})...", frame_index);
     }
-
-    if (frame_index) fmt::print("\n");
 }
 
 // Main program, parses flags and calls the decoder loop.
 extern "C" int main(int const argc, char const* const* const argv) {
     std::string dev_arg = "gpu";
     std::string conn_arg;
+    std::string log_arg;
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
@@ -217,6 +221,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     CLI::App app("Decode and show a media file");
     app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
     app.add_option("--connector", conn_arg, "Video output");
+    app.add_option("--log", log_arg, "Log level/configuration");
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
@@ -224,6 +229,9 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--save_tiff", tiff_arg, "Save frames as .tiff");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
+
+    spdlog::set_pattern("%H:%M:%S.%e %4iu %^%L:%$ %v");
+    spdlog::cfg::helpers::load_levels(log_arg);
 
     if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
 

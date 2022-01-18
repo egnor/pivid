@@ -8,6 +8,7 @@
 #include <system_error>
 
 #include <fmt/core.h>
+#include <spdlog/spdlog.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -64,9 +65,7 @@ class LibavDrmFrameMemory : public MemoryBuffer {
   public:
     ~LibavDrmFrameMemory() { if (mem) munmap(mem, av_obj->size); }
     virtual size_t size() const { return av_obj->size; }
-    virtual uint8_t* write() { throw std::runtime_error("Write RO DRM buf"); }
-    virtual int write_count() const { return 0; }
-    virtual std::optional<int> dma_fd() const { return {av_obj->fd}; }
+    virtual int dma_fd() const { return av_obj->fd; }
 
     virtual uint8_t const* read() {
         if (!mem) {
@@ -95,8 +94,6 @@ class LibavPlainFrameMemory : public MemoryBuffer {
   public:
     virtual size_t size() const { return avf->linesize[index] * avf->height; }
     virtual uint8_t const* read() { return avf->data[index]; }
-    virtual uint8_t* write() { ++writes; return avf->data[index]; }
-    virtual int write_count() const { return writes; }
 
     void init(std::shared_ptr<AVFrame> avf, int index) {
         assert(index >= 0 && index < AV_NUM_DATA_POINTERS);
@@ -108,10 +105,9 @@ class LibavPlainFrameMemory : public MemoryBuffer {
   private:
     std::shared_ptr<AVFrame const> avf;
     int index = 0;
-    int writes = 0;
 };
 
-std::vector<ImageBuffer> layers_from_av_drm(
+std::vector<ImageBuffer> images_from_av_drm(
     std::shared_ptr<AVDRMFrameDescriptor const> av_drm,
     int width, int height
 ) {
@@ -171,6 +167,8 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 }
 
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> av_frame, double time_base) {
+    spdlog::trace("...converting frame...");
+
     MediaFrame out = {};
     out.time = av_frame->pts * time_base;
     out.is_corrupt = (av_frame->flags & AV_FRAME_FLAG_CORRUPT);
@@ -194,11 +192,13 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av_frame, double time_base) {
         int const width = av_frame->width, height = av_frame->height;
         auto const* pd = (AVDRMFrameDescriptor const*) av_frame->data[0];
         std::shared_ptr<AVDRMFrameDescriptor const> sd{std::move(av_frame), pd};
-        out.layers = layers_from_av_drm(std::move(sd), width, height);
+        out.images = images_from_av_drm(std::move(sd), width, height);
     } else {
-        out.layers.push_back(image_from_av_plain(std::move(av_frame)));
+        out.images.push_back(image_from_av_plain(std::move(av_frame)));
     }
 
+    if (spdlog::should_log(spdlog::level::level_enum::debug))
+        spdlog::debug("{}", debug(out));
     return out;
 }
 
@@ -236,6 +236,9 @@ class LibavMediaDecoder : public MediaDecoder {
     }
 
     void init(std::string const& fn) {
+        spdlog::trace("...opening media ({})...", fn);
+        media_info.filename = fn;
+
         check_av(
             avformat_open_input(&format_context, fn.c_str(), nullptr, nullptr),
             "Open media", fn
@@ -300,6 +303,8 @@ class LibavMediaDecoder : public MediaDecoder {
         } else if (format_context->bit_rate > 0) {
             media_info.bit_rate = format_context->bit_rate;
         }
+
+        spdlog::info("Opened: {}", debug(media_info));
     }
 
   private:
@@ -316,13 +321,16 @@ class LibavMediaDecoder : public MediaDecoder {
 
     void run_decoder() {
         assert(format_context && codec_context);
+        if (av_frame && av_frame->width && av_frame->height) return;
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
 
         while (!eof_seen_from_file) {
             if (av_packet->data == nullptr) {
+                spdlog::trace("...reading from file...");
                 auto const err = av_read_frame(format_context, av_packet);
                 if (err == AVERROR_EOF) {
+                    spdlog::debug("Read EOF: {}", media_info.filename);
                     eof_seen_from_file = true;
                     continue;
                 } else {
@@ -330,34 +338,51 @@ class LibavMediaDecoder : public MediaDecoder {
                     if (av_packet->stream_index != stream_index) {
                         av_packet_unref(av_packet);
                         assert(av_packet->data == nullptr);
+                        spdlog::trace("Ignored packet");
                         continue;
                     }
                 }
+                spdlog::trace("Read packet ({})", debug_size(av_packet->size));
             }
 
+            spdlog::trace("...trying to send packet to codec...");
             auto const err = avcodec_send_packet(codec_context, av_packet);
-            if (err == AVERROR(EAGAIN)) break;
-            check_av(err, "Decode packet", codec_context->codec->name);
-            av_packet_unref(av_packet);
-            assert(av_packet->data == nullptr);
+            if (err == AVERROR(EAGAIN)) {
+                spdlog::trace("(codec not ready for packet)");
+                break;
+            } else {
+                check_av(err, "Decode packet", codec_context->codec->name);
+                spdlog::trace("Sent packet to codec");
+                av_packet_unref(av_packet);
+                assert(av_packet->data == nullptr);
+            }
         }
 
         if (eof_seen_from_file && !eof_sent_to_codec) {
             assert(av_packet->data == nullptr);
+            spdlog::trace("...trying to send EOF to codec...");
             auto const err = avcodec_send_packet(codec_context, av_packet);
-            if (err != AVERROR(EAGAIN)) {
+            if (err == AVERROR(EAGAIN)) {
+                spdlog::trace("(codec not ready for EOF)");
+            } else {
                 if (err != AVERROR_EOF)
                     check_av(err, "Decode EOF", codec_context->codec->name);
+                spdlog::debug("Sent EOF to codec");
                 eof_sent_to_codec = true;
             }
         }
 
         if (!eof_seen_from_codec && !av_frame->width) {
+            spdlog::trace("...trying to get frame from codec...");
             auto const err = avcodec_receive_frame(codec_context, av_frame);
-            if (err == AVERROR_EOF) {
+            if (err == AVERROR(EAGAIN)) {
+                spdlog::trace("(codec has no frame ready)");
+            } else if (err == AVERROR_EOF) {
+                spdlog::info("Got EOF from codec: {}", media_info.filename);
                 eof_seen_from_codec = true;
-            } else if (err != AVERROR(EAGAIN)) {
+            } else {
                 check_av(err, "Decode frame", codec_context->codec->name);
+                spdlog::trace("Got frame from codec");
             }
         }
     }
@@ -373,8 +398,10 @@ class LibavMediaDecoder : public MediaDecoder {
             ) < 0) {
                 break;
             }
+            spdlog::trace("Negotiated DMA buffering with codec");
             return AV_PIX_FMT_DRM_PRIME;
         }
+        spdlog::debug("Using non-DMA buffering with codec");
         return context->sw_pix_fmt;  // Fall back to non-DRM output.
     }
 };
@@ -388,6 +415,7 @@ std::unique_ptr<MediaDecoder> new_media_decoder(const std::string& filename) {
 }
 
 std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
+    spdlog::trace("...encoding TIFF ({})...", debug(im));
     AVCodec const* tiff_codec = avcodec_find_encoder(AV_CODEC_ID_TIFF);
     if (!tiff_codec) throw std::runtime_error("No TIFF encoder found");
 
@@ -450,12 +478,14 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
         "Encoding packet", context->codec->name
     );
 
+    spdlog::debug("TIFF encoding complete ({})", debug_size(packet->size));
     return {packet->data, packet->data + packet->size};
 }
 
-std::string debug_string(MediaInfo const& i) {
+std::string debug(MediaInfo const& i) {
     auto out = fmt::format(
-        "{}:{}:{}", i.container_type, i.codec_name, i.pixel_format
+        "\"{}\" {}:{}:{}",
+        i.filename, i.container_type, i.codec_name, i.pixel_format
     );
 
     if (i.width && i.height) out += fmt::format(" {}x{}", *i.width, *i.height);
@@ -465,12 +495,12 @@ std::string debug_string(MediaInfo const& i) {
     return out;
 }
 
-std::string debug_string(MediaFrame const& f) {
+std::string debug(MediaFrame const& f) {
     auto out = fmt::format("{:5.3f}s", f.time);
     if (!f.frame_type.empty())
         out += fmt::format(" {:<2s}", f.frame_type);
-    for (size_t l = 0; l < f.layers.size(); ++l)
-        out += fmt::format(" {}{}", l ? "+ " : "", debug_string(f.layers[l]));
+    for (size_t l = 0; l < f.images.size(); ++l)
+        out += fmt::format(" {}{}", l ? "+ " : "", debug(f.images[l]));
     if (f.is_key_frame) out += fmt::format(" KEY");
     if (f.is_corrupt) out += fmt::format(" CORRUPT");
     return out;

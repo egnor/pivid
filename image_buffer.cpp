@@ -6,25 +6,6 @@
 
 namespace pivid {
 
-class PlainMemoryBuffer : public MemoryBuffer {
-  public:
-    virtual size_t size() const { return mem.size(); }
-    virtual uint8_t const* read() { return mem.data(); }
-    virtual uint8_t* write() { ++writes; return mem.data(); }
-    virtual int write_count() const { return writes; }
-    void init(size_t size) { mem.resize(size); }
-
-  private:
-    std::vector<uint8_t> mem;
-    int writes = 0;
-};
-
-std::shared_ptr<MemoryBuffer> plain_memory_buffer(size_t size) {
-    auto out = std::make_shared<PlainMemoryBuffer>();
-    out->init(size);
-    return out;
-}
-
 std::string debug_size(size_t s) {
     if (s < 1000) return fmt::format("{}B", s);
     if (s < 10240) return fmt::format("{:.1f}K", s / 1024.0);
@@ -44,14 +25,14 @@ std::string debug_fourcc(uint32_t fourcc) {
     return out;
 }
 
-std::string debug_string(MemoryBuffer const& mem) {
+std::string debug(MemoryBuffer const& mem) {
     std::string out = debug_size(mem.size());
-    if (mem.dma_fd()) out += fmt::format(" fd{:<2d}", *mem.dma_fd());
-    if (mem.drm_handle()) out += fmt::format(" h{:<2d}", *mem.drm_handle());
+    if (mem.dma_fd() >= 0) out += fmt::format(" f{:<2d}", mem.dma_fd());
+    if (mem.drm_handle()) out += fmt::format(" h{:<2d}", mem.drm_handle());
     return out;
 }
 
-std::string debug_string(ImageBuffer const& i) {
+std::string debug(ImageBuffer const& i) {
     std::string out = fmt::format(
         "{}x{} {}", i.width, i.height, debug_fourcc(i.fourcc)
     );
@@ -82,10 +63,10 @@ std::string debug_string(ImageBuffer const& i) {
         if (c > 0 && chan.memory == i.channels[c - 1].memory) {
             out += "|";
         } else {
-            out += " " + debug_string(*chan.memory) + " ";
+            out += " " + debug(*chan.memory) + " ";
         }
 
-        out += fmt::format("{}b", 8 * chan.stride / i.width);
+        out += fmt::format("{}", 8 * chan.stride / i.width);
         if (chan.offset) out += "@" + debug_size(chan.offset);
     }
 

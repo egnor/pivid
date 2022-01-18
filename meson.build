@@ -11,6 +11,7 @@ add_project_arguments('-Wno-pedantic', '-Wno-psabi', language: ['c', 'cpp'])
 util_deps = [
     dependency('CLI11'),
     dependency('fmt'),
+    dependency('spdlog'),
     meson.get_compiler('cpp').find_library('atomic'),
     meson.get_compiler('cpp').find_library('stdc++fs'),
 ]

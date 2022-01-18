@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <ostream>
 #include <vector>
 
 #include "image_buffer.h"
@@ -20,36 +21,35 @@ struct DisplayDriverListing {
 
 struct DisplayMode {
     struct Timings {
-        int display, sync_start, sync_end, total;
-        int doubling, sync_polarity;
-        auto operator<=>(Timings const&) const = default;
+        int display = 0, sync_start = 0, sync_end = 0, total = 0;
+        int doubling = 0, sync_polarity = 0;
     };
 
     std::string name;
-    int pixel_khz;
-    int refresh_hz;
+    int pixel_khz = 0;
+    int refresh_hz = 0;
     Timings horiz, vert;
-    auto operator<=>(DisplayMode const&) const = default;
 };
 
-struct DisplayConnector {
-    uint32_t id;
+struct DisplayConnectorStatus {
+    uint32_t id = 0;
     std::string name;
-    bool display_detected;
+    bool display_detected = false;
     std::vector<DisplayMode> display_modes;
     DisplayMode active_mode;
 };
 
 struct DisplayLayer {
-    ImageBuffer image;
-    double image_x, image_y, image_width, image_height;
-    int screen_x, screen_y, screen_width, screen_height;
+    double source_x = 0, source_y = 0, source_width = 0, source_height = 0;
+    int screen_x = 0, screen_y = 0, screen_width = 0, screen_height = 0;
+    std::shared_ptr<uint32_t const> source;
 };
 
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() {}
-    virtual std::vector<DisplayConnector> scan_connectors() = 0;
+    virtual std::vector<DisplayConnectorStatus> scan_connectors() = 0;
+    virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer) = 0;
 
     virtual bool update_if_ready(
         uint32_t connector_id,
@@ -63,7 +63,7 @@ std::unique_ptr<DisplayDriver> open_display_driver(
     UnixSystem* sys, std::string const& dev_file
 );
 
-std::string debug_string(DisplayDriverListing const&);
-std::string debug_string(DisplayMode const&);
+std::string debug(DisplayDriverListing const&);
+std::string debug(DisplayMode const&);
 
 }  // namespace pivid
