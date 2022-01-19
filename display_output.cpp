@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cmath>
 #include <map>
+#include <optional>
 #include <set>
 #include <system_error>
 #include <type_traits>
