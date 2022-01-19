@@ -420,7 +420,7 @@ class DrmDriver : public DisplayDriver {
         process_events();
         auto* crtc = conn->using_crtc;
         if (crtc && crtc->pending_flip) {
-            log->trace("> (last update pending, can't update)");
+            log->trace("> (last update hasn't flipped, can't update)");
             return false;
         }
 
@@ -437,7 +437,7 @@ class DrmDriver : public DisplayDriver {
                 }
             }
             if (!crtc) {
-                log->trace("> (no CRTC available for update)");
+                log->trace("> (no CRTC available, can't update)");
                 return false;
             }
         }
@@ -541,7 +541,7 @@ class DrmDriver : public DisplayDriver {
         log->trace("Committing DRM atomic update...");
         auto const ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
         if (ret.err == EAGAIN) {
-            log->trace("> (DRM update would block)");
+            log->trace("> (DRM would block, can't update)");
             return false;
         }
 
@@ -562,6 +562,9 @@ class DrmDriver : public DisplayDriver {
         ).ex("Enable DRM atomic modesetting");
         fd->ioc<DRM_IOCTL_SET_CLIENT_CAP>(
             drm_set_client_cap{DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1}
+        ).ex("Enable DRM universal planes");
+        fd->ioc<DRM_IOCTL_SET_CLIENT_CAP>(
+            drm_set_client_cap{DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1}
         ).ex("Enable DRM universal planes");
 
         drm_mode_card_res res = {};
@@ -736,6 +739,7 @@ class DrmDriver : public DisplayDriver {
         std::vector<Crtc*> usable_crtcs;
         PropId::Map prop_ids;
         PropId CRTC_ID{"CRTC_ID", &prop_ids};
+        PropId CRTC_ID{"WRITEBACK_FB_ID", &prop_ids};
 
         Crtc* using_crtc = nullptr;
     };
@@ -760,7 +764,7 @@ class DrmDriver : public DisplayDriver {
             if (ret.ex("Read DRM event") != sizeof(ev))
                 throw std::runtime_error("Bad DRM event size");
             if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) {
-                log->trace("> (ignoring uninteresting DRM event)");
+                log->trace("> (got other DRM event, ignoring)");
                 continue;
             }
 

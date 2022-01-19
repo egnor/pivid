@@ -231,7 +231,7 @@ class LibavMediaDecoder : public MediaDecoder {
                 log->trace("Checking for frame from codec...");
                 auto const err = avcodec_receive_frame(codec_context, av_frame);
                 if (err == AVERROR(EAGAIN)) {
-                    log->trace("> (codec needs more data)");
+                    log->trace("> (codec needs more data, can't get frame)");
                 } else if (err == AVERROR_EOF) {
                     log->info("Got EOF from codec");
                     eof_seen_from_codec = true;
@@ -257,7 +257,7 @@ class LibavMediaDecoder : public MediaDecoder {
                     } else {
                         av_packet_unref(av_packet);
                         assert(av_packet->data == nullptr);
-                        log->trace("> (ignoring packet from other stream)");
+                        log->trace("> (got other stream packet, ignoring)");
                     }
                 }
             }
@@ -269,7 +269,7 @@ class LibavMediaDecoder : public MediaDecoder {
                 );
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
-                    log->trace("> (codec not ready for data)");
+                    log->trace("> (app-to-codec buffer full, can't send data)");
                 } else {
                     check_av(err, "Decode packet", codec_context->codec->name);
                     log->trace("> Sent packet to codec");
@@ -283,7 +283,7 @@ class LibavMediaDecoder : public MediaDecoder {
                 log->trace("Sending EOF to codec...");
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
-                    log->trace("> (codec not ready for EOF)");
+                    log->trace("> (app-to-codec buffer full, can't send EOF)");
                 } else {
                     if (err != AVERROR_EOF)
                         check_av(err, "Decode EOF", codec_context->codec->name);
@@ -291,7 +291,10 @@ class LibavMediaDecoder : public MediaDecoder {
                     eof_sent_to_codec = true;
                 }
             }
-        } while (!av_frame->width || !(av_packet->data || eof_sent_to_codec));
+
+            // Stop when we got a frame *and* the codec won't accept writes
+            // (always leave the codec with data to chew on if possible).
+        } while (!(av_frame->width && (av_packet->data || eof_sent_to_codec)));
 
         auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
         std::shared_ptr<AVFrame> av_shared{this->av_frame, std::move(deleter)};
