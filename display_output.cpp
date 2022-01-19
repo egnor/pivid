@@ -739,7 +739,7 @@ class DrmDriver : public DisplayDriver {
         std::vector<Crtc*> usable_crtcs;
         PropId::Map prop_ids;
         PropId CRTC_ID{"CRTC_ID", &prop_ids};
-        PropId CRTC_ID{"WRITEBACK_FB_ID", &prop_ids};
+        PropId WRITEBACK_FB_ID{"WRITEBACK_FB_ID", &prop_ids};
 
         Crtc* using_crtc = nullptr;
     };
