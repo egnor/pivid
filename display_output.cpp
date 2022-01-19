@@ -277,7 +277,7 @@ class DrmFrameBuffer {
         this->fd = std::move(fd);
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fbdat).ex("DRM framebuffer");
         if (log->should_log(spdlog::level::level_enum::debug))
-            log->debug("fb={}: {}", fbdat.fb_id, debug(im));
+            log->debug("Loaded fb={}: {}", fbdat.fb_id, debug(im));
     }
 
     ~DrmFrameBuffer() {
@@ -462,7 +462,7 @@ class DrmDriver : public DisplayDriver {
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
                 if (log->should_log(spdlog::level::level_enum::debug)) {
                     log->debug(
-                        "Setting {} crtc={} {}",
+                        "Setting {} crtc={}: {}",
                         conn->name, crtc->id, debug(mode)
                     );
                 }
