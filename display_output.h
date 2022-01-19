@@ -47,7 +47,7 @@ struct DisplayLayer {
 
 class DisplayDriver {
   public:
-    virtual ~DisplayDriver() {}
+    virtual ~DisplayDriver() = default;
     virtual std::vector<DisplayConnectorStatus> scan_connectors() = 0;
     virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer) = 0;
 

@@ -29,7 +29,7 @@ struct [[nodiscard]] ErrnoOr {
 
 class FileDescriptor {
   public:
-    virtual ~FileDescriptor() {}
+    virtual ~FileDescriptor() = default;
     virtual int raw_fd() const = 0;
     virtual ErrnoOr<int> read(void* buf, size_t len) = 0;
     virtual ErrnoOr<int> ioctl(uint32_t nr, void* data) = 0;
@@ -59,7 +59,7 @@ class FileDescriptor {
 
 class UnixSystem {
   public:
-    virtual ~UnixSystem() {}
+    virtual ~UnixSystem() = default;
 
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const&, int flags, mode_t mode = 0

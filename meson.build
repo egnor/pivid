@@ -6,7 +6,10 @@ project('pivid', ['c', 'cpp'], version: '0.0',
     ]
 )
 
-add_project_arguments('-Wno-pedantic', '-Wno-psabi', language: ['c', 'cpp'])
+add_project_arguments(
+    '-Wno-pedantic', '-Wno-psabi', '-DSPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE',
+    language: ['c', 'cpp']
+)
 
 util_deps = [
     dependency('CLI11'),

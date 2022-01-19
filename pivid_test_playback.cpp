@@ -8,17 +8,23 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
-#include <spdlog/cfg/helpers.h>
-#include <spdlog/spdlog.h>
 
 extern "C" {
 #include <libavutil/log.h>
 }
 
 #include "display_output.h"
+#include "logging_policy.h"
 #include "media_decoder.h"
 
 namespace pivid {
+
+namespace {
+
+std::shared_ptr<spdlog::logger> const& main_logger() {
+    static const auto logger = make_logger("main");
+    return logger;
+}
 
 std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     if (dev_arg == "none" || dev_arg == "/dev/null" || dev_arg == "") return {};
@@ -114,25 +120,26 @@ void play_video(
     DisplayMode const& mode
 ) {
     using namespace std::chrono_literals;
-    std::optional<MediaFrame> overlay_frame = {};
-    while (overlay && !overlay_frame) {
-        if (overlay->reached_eof())
-            throw std::runtime_error("No frames in overlay media");
-        overlay_frame = overlay->get_frame_if_ready();
-        if (!overlay_frame) std::this_thread::sleep_for(0.005s);
-    }
+    auto const log = main_logger();
 
     std::vector<DisplayLayer> overlays;
-    for (auto const& image : overlay_frame->images) {
-        DisplayLayer layer = {};
-        layer.source = driver->load_image(image);
-        layer.source_width = image.width;
-        layer.source_height = image.height;
-        layer.screen_x = (mode.horiz.display - image.width) / 2;
-        layer.screen_y = (mode.vert.display - image.height) / 2;
-        layer.screen_width = image.width;
-        layer.screen_height = image.height;
-        overlays.push_back(std::move(layer));
+    if (overlay) {
+        log->trace("Loading overlay image...");
+        std::optional<MediaFrame> overlay_frame = overlay->next_frame();
+        if (!overlay_frame)
+            throw std::runtime_error("No frames in overlay media");
+
+        for (auto const& image : overlay_frame->images) {
+            DisplayLayer layer = {};
+            layer.source = driver->load_image(image);
+            layer.source_width = image.width;
+            layer.source_height = image.height;
+            layer.screen_x = (mode.horiz.display - image.width) / 2;
+            layer.screen_y = (mode.vert.display - image.height) / 2;
+            layer.screen_width = image.width;
+            layer.screen_height = image.height;
+            overlays.push_back(std::move(layer));
+        }
     }
 
     auto last_wall = std::chrono::steady_clock::now();
@@ -140,16 +147,12 @@ void play_video(
     double behind = 0.0;
     int frame_index = 0;
 
-    spdlog::trace("...getting first frame...");
-    while (decoder && !decoder->reached_eof()) {
-        auto const frame = decoder->get_frame_if_ready();
-        if (!frame) {
-            std::this_thread::sleep_for(0.005s);
-            continue;
-        }
+    log->trace("Getting first video frame...");
+    while (decoder) {
+        auto const frame = decoder->next_frame();
+        if (!frame) break;
 
         if (driver) {
-            spdlog::trace("...showing frame...");
             std::vector<DisplayLayer> layers;
             for (auto const& image : frame->images) {
                 DisplayLayer layer = {};
@@ -164,12 +167,12 @@ void play_video(
             layers.insert(layers.end(), overlays.begin(), overlays.end());
 
             while (!driver->update_if_ready(conn.id, mode, layers)) {
-                decoder->reached_eof();  // Keep decoder running.
-                std::this_thread::sleep_for(0.005s);
+                log->trace("Sleeping for display ({})...", conn.name);
+                std::this_thread::sleep_for(0.001s);
             }
         }
 
-        spdlog::trace("...printing stats...");
+        log->trace("Printing stats...");
         auto const wall = std::chrono::steady_clock::now();
         auto const dw = std::chrono::duration<double>(wall - last_wall).count();
         auto const df = frame->time - last_frame;
@@ -182,29 +185,34 @@ void play_video(
         );
 
         if (!tiff_arg.empty()) {
-            spdlog::trace("...dumping TIFF...");
             auto dot_pos = tiff_arg.rfind('.');
             if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
             for (size_t i = 0; i < frame->images.size(); ++i) {
+                log->trace("Encoding TIFF...");
                 auto path = tiff_arg.substr(0, dot_pos);
                 path += fmt::format(".F{:05d}", frame_index);
                 if (frame->images.size() > 1)
                     path += fmt::format(".I{}", i);
                 path += tiff_arg.substr(dot_pos);
-
-                fmt::print("  saving: {}\n", path);
                 auto tiff = debug_tiff(frame->images[i]);
+
+                log->trace("Writing TIFF...");
                 std::ofstream ofs;
                 ofs.exceptions(~std::ofstream::goodbit);
                 ofs.open(path, std::ios::binary);
                 ofs.write((char const*) tiff.data(), tiff.size());
+                log->trace("Saving: {}", path);
             }
         }
 
         ++frame_index;
-        spdlog::trace("...getting next frame (#{})...", frame_index);
+        log->trace("Getting next video frame (#{})...", frame_index);
     }
+
+    log->debug("End of media file reached");
 }
+
+}  // namespace
 
 // Main program, parses flags and calls the decoder loop.
 extern "C" int main(int const argc, char const* const* const argv) {
@@ -230,9 +238,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
 
-    spdlog::set_pattern("%H:%M:%S.%e %4iu %^%L:%$ %v");
-    spdlog::cfg::helpers::load_levels(log_arg);
-
+    configure_logging(log_arg);
     if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
 
     try {

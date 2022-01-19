@@ -9,7 +9,7 @@ namespace pivid {
 
 class MemoryBuffer {
   public:
-    virtual ~MemoryBuffer() {}
+    virtual ~MemoryBuffer() = default;
     virtual size_t size() const = 0;
     virtual uint8_t const* read() = 0;
     virtual int dma_fd() const { return -1; }

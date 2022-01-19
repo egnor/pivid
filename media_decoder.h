@@ -30,10 +30,9 @@ struct MediaFrame {
 
 class MediaDecoder {
   public:
-    virtual ~MediaDecoder() {}
+    virtual ~MediaDecoder() = default;
     virtual MediaInfo const& info() const = 0;
-    virtual bool reached_eof() = 0;
-    virtual std::optional<MediaFrame> get_frame_if_ready() = 0;
+    virtual std::optional<MediaFrame> next_frame() = 0;
 };
 
 std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& filename);
