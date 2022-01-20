@@ -59,16 +59,11 @@ Notes on DRM and KMS:
 * [kernel.org: Buffer Sharing and Synchronization](https://www.kernel.org/doc/html/v5.10/driver-api/dma-buf.html#userspace-interface-notes) - kernel buffer management (and user interface)
 * [kernel.org: Linux GPU Memory Management - PRIME buffer sharing](https://www.kernel.org/doc/html/v5.10/gpu/drm-mm.html#prime-buffer-sharing) - exporting GPU buffers as "dma-buf" objects
 * [kernel.org: Video for Linux - Streaming I/O (DMA buffer importing)](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dmabuf.html) - using "dma-buf" objects in V4L2
-* [v4l2test](https://github.com/rdkcmf/v4l2test) - test/example of V4L2 H.264 decoding feeding KMS
+* [hello_drmprime](https://github.com/jc-kynesim/hello_drmprime) - nice example of hardware H.264/H.265 sending to DRM/KMS with zero copy
 
 Notes on memory management:
 * GPUs have all kinds of memory architectures. (The RPi is simple, everything is in CPU RAM without dedicated GPU RAM.)
-* DRM/KMS requires you to create a "framebuffer" object, giving it a "buffer object" ("BO") handle (opaque int32).
-* How a "buffer object" is allocated and managed is dependent on the kernel GPU driver.
-* Most drivers use the "Graphics Execution Manager" (GEM), their buffer object handles are "GEM handles".
-* Most drivers support "dumb buffers", allowing simple creation of a buffer in system RAM.
-* Many drivers have more elaborate driver-specific interfaces for allocating various kinds of memory.
-* The libgbm ("Generic Buffer Manager") library tries to abstract over those driver-specific interfaces.
-* "DRM-PRIME" is a fancy name for ioctl's (see libdrm `drmPrimeHandleToFD` and `drmPrimeFDToHandle`) to convert GEM handles to/from "dma-buf" descriptors.
-* These "dma-buf" descriptors can be used with other systems like V4L2, of course you have to get the data format right.
-* On the Raspberry Pi, DRM has no trouble importing dma-buf buffers from V4L2.
+* DRM/KMS requires you to define a "framebuffer", giving it one or more "buffer objects" (aka "GEM handles") (opaque int32).
+* "DRM-PRIME" is a fancy name for ioctl's (`DRM_IOCTL_PRIME_FD_TO_HANDLE` and vice versa) to convert GEM handles to/from "dma-buf" descriptors.
+* On the Pi, memory is simple, so buffers allocated anywhere (V4L2, DRM, etc) can be used anywhere else (shared via "dma-buf").
+* Of course you need to get the data format right.
