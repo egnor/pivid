@@ -39,10 +39,20 @@ struct DisplayConnectorStatus {
     DisplayMode active_mode;
 };
 
-struct DisplayLayer {
-    double source_x = 0, source_y = 0, source_width = 0, source_height = 0;
-    int screen_x = 0, screen_y = 0, screen_width = 0, screen_height = 0;
-    std::shared_ptr<uint32_t const> source;
+struct DisplayRequest {
+    struct Layer {
+        double source_x = 0, source_y = 0, source_width = 0, source_height = 0;
+        int screen_x = 0, screen_y = 0, screen_width = 0, screen_height = 0;
+        std::shared_ptr<uint32_t const> loaded_image;
+    };
+
+    uint32_t connector_id;
+    DisplayMode mode;
+    std::vector<Layer> layers;
+};
+
+struct DisplayRequestDone {
+    std::optional<ImageBuffer> readback;
 };
 
 class DisplayDriver {
@@ -51,16 +61,16 @@ class DisplayDriver {
     virtual std::vector<DisplayConnectorStatus> scan_connectors() = 0;
     virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer) = 0;
 
-    virtual bool update_if_ready(
-        uint32_t connector_id,
-        DisplayMode const& mode,
-        std::vector<DisplayLayer> const& layers
-    ) = 0;
+    virtual void request_update(DisplayRequest const&) = 0;
+    virtual std::optional<DisplayRequestDone> is_request_done(uint32_t id) = 0;
 };
 
-std::vector<DisplayDriverListing> list_display_drivers(UnixSystem* sys);
+std::vector<DisplayDriverListing> list_display_drivers(
+    std::shared_ptr<UnixSystem> const& sys
+);
+
 std::unique_ptr<DisplayDriver> open_display_driver(
-    UnixSystem* sys, std::string const& dev_file
+    std::shared_ptr<UnixSystem> sys, std::string const& dev_file
 );
 
 std::string debug(DisplayDriverListing const&);

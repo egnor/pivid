@@ -60,16 +60,18 @@ class FileDescriptor {
 class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
+    virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
+    virtual ErrnoOr<std::string> realpath(std::string const&) const = 0;
+    virtual ErrnoOr<std::vector<std::string>> list(
+        std::string const& dir
+    ) const = 0;
 
+    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) = 0;
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const&, int flags, mode_t mode = 0
     ) = 0;
-
-    virtual ErrnoOr<std::vector<std::string>> list(std::string const& dir) = 0;
-    virtual ErrnoOr<struct stat> stat(std::string const&) = 0;
-    virtual ErrnoOr<std::string> realpath(std::string const&) = 0;
 };
 
-UnixSystem* global_system();
+std::shared_ptr<UnixSystem> global_system();
 
 }  // namespace pivid

@@ -30,8 +30,8 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     if (dev_arg == "none" || dev_arg == "/dev/null" || dev_arg == "") return {};
 
     fmt::print("=== Video drivers ===\n");
+    auto sys = global_system();
     std::string found;
-    auto* sys = global_system();
     for (auto const& d : list_display_drivers(sys)) {
         if (
             found.empty() && (
@@ -122,7 +122,7 @@ void play_video(
     using namespace std::chrono_literals;
     auto const log = main_logger();
 
-    std::vector<DisplayLayer> overlays;
+    std::vector<DisplayRequest::Layer> overlays;
     if (overlay) {
         log->trace("Loading overlay image...");
         std::optional<MediaFrame> overlay_frame = overlay->next_frame();
@@ -130,8 +130,8 @@ void play_video(
             throw std::runtime_error("No frames in overlay media");
 
         for (auto const& image : overlay_frame->images) {
-            DisplayLayer layer = {};
-            layer.source = driver->load_image(image);
+            DisplayRequest::Layer layer = {};
+            layer.loaded_image = driver->load_image(image);
             layer.source_width = image.width;
             layer.source_height = image.height;
             layer.screen_x = (mode.horiz.display - image.width) / 2;
@@ -153,23 +153,30 @@ void play_video(
         if (!frame) break;
 
         if (driver) {
-            std::vector<DisplayLayer> layers;
+            DisplayRequest request;
+            request.connector_id = conn.id;
+            request.mode = mode;
+
             for (auto const& image : frame->images) {
-                DisplayLayer layer = {};
-                layer.source = driver->load_image(image);
+                DisplayRequest::Layer layer = {};
+                layer.loaded_image = driver->load_image(image);
                 layer.source_width = image.width;
                 layer.source_height = image.height;
                 layer.screen_width = mode.horiz.display;
                 layer.screen_height = mode.vert.display;
-                layers.push_back(std::move(layer));
+                request.layers.push_back(std::move(layer));
             }
 
-            layers.insert(layers.end(), overlays.begin(), overlays.end());
+            request.layers.insert(
+                request.layers.end(), overlays.begin(), overlays.end()
+            );
 
-            while (!driver->update_if_ready(conn.id, mode, layers)) {
+            while (!driver->is_request_done(conn.id)) {
                 log->trace("Sleeping for display ({})...", conn.name);
                 std::this_thread::sleep_for(0.001s);
             }
+
+            driver->request_update(request);
         }
 
         log->trace("Printing stats...");
@@ -207,6 +214,11 @@ void play_video(
 
         ++frame_index;
         log->trace("Getting next video frame (#{})...", frame_index);
+    }
+
+    while (!driver->is_request_done(conn.id)) {
+        log->trace("Sleeping for final display ({})...", conn.name);
+        std::this_thread::sleep_for(0.001s);
     }
 
     log->debug("End of media file reached");

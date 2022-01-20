@@ -50,7 +50,9 @@ class GlobalFileDescriptor : public FileDescriptor {
 
 class GlobalSystem : public UnixSystem {
   public:
-    virtual ErrnoOr<std::vector<std::string>> list(std::string const& dir) {
+    virtual ErrnoOr<std::vector<std::string>> list(
+        std::string const& dir
+    ) const {
         std::unique_ptr<DIR, int (*)(DIR*)> dp(opendir(dir.c_str()), closedir);
         if (!dp) return {errno, {}};
 
@@ -60,32 +62,36 @@ class GlobalSystem : public UnixSystem {
         return ret;
     }
 
-    virtual ErrnoOr<struct stat> stat(std::string const& path) {
+    virtual ErrnoOr<struct stat> stat(std::string const& path) const {
         ErrnoOr<struct stat> ret;
         ret.err = run_sys([&] {return ::stat(path.c_str(), &ret.value);}).err;
         return ret;
     }
 
-    virtual ErrnoOr<std::string> realpath(std::string const& path) {
+    virtual ErrnoOr<std::string> realpath(std::string const& path) const {
         char buf[PATH_MAX];
         if (!::realpath(path.c_str(), buf)) return {errno, {}};
         return {0, buf};
+    }
+
+    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) {
+        return std::make_shared<GlobalFileDescriptor>(raw_fd);
     }
 
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const& path, int flags, mode_t mode
     ) {
         auto const r = run_sys([&] {return ::open(path.c_str(), flags, mode);});
-        if (r.err) return {r.err, {}};
-        return {0, std::make_shared<GlobalFileDescriptor>(r.value)};
+        if (r.value < 0) return {r.err ? r.err : EBADF, {}};
+        return {0, adopt(r.value)};
     }
 };
 
 }  // namespace
 
-UnixSystem* global_system() {
-    static GlobalSystem system;
-    return &system;
+std::shared_ptr<UnixSystem> global_system() {
+    static const auto system = std::make_shared<GlobalSystem>();
+    return system;
 }
 
 }  // namespace pivid
