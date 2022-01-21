@@ -1,3 +1,6 @@
+// Logging-related utilities for configuring spdlog the way we like it
+// (see https://github.com/gabime/spdlog).
+
 #pragma once
 
 #include <string>
@@ -7,11 +10,17 @@
 
 namespace pivid {
 
+// Configures the logger output format with our preferred pattern.
+// Sets log levels based on a string, typically a command line --log arg,
+// to allow "--log=info,display=trace,media=debug" type parameters.
 inline void configure_logging(std::string config) {
     spdlog::set_pattern("%H:%M:%S.%e %4iu %^%L [%n] %v%$");
     spdlog::cfg::helpers::load_levels(config);
 }
 
+// Creates a new logger that shares the same "sinks" as the default logger.
+// Used to create named loggers for subcomponents that can have their
+// log levels adjusted separately but all write in the same output stream.
 inline std::shared_ptr<spdlog::logger> make_logger(char const* name) {
     auto const& s = spdlog::default_logger()->sinks();
     auto logger = std::make_shared<spdlog::logger>(name, s.begin(), s.end());
