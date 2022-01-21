@@ -940,7 +940,7 @@ std::vector<DisplayDriverListing> list_display_drivers(
 
         // See kernel.org/doc/html/v5.10/gpu/drm-uapi.html
         drm_set_version set_ver = {1, 4, -1, -1};
-        fd->ioc<DRM_IOCTL_SET_VERSION>(&set_ver).ex("Set version");
+        (void) fd->ioc<DRM_IOCTL_SET_VERSION>(&set_ver);
 
         std::vector<char> name, date, desc;
         drm_version ver = {};
