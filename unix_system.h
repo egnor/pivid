@@ -1,3 +1,6 @@
+// Interfaces used for basic Unix system I/O.
+// May be replaced by mocks for testing.
+
 #pragma once
 
 #undef NDEBUG
@@ -16,17 +19,23 @@
 
 namespace pivid {
 
+// The return from a system call, with an errno *or* some return value.
 template <typename T>
 struct [[nodiscard]] ErrnoOr {
     int err = 0;
     T value = {};
-    T ex(std::string_view w) const {
+
+    // Throws for nonzero errno (with a description string), or returns value
+    T ex(std::string_view what) const {
         static auto const& cat = std::system_category();
-        if (err) throw std::system_error(err, cat, std::string{w});
+        if (err) throw std::system_error(err, cat, std::string{what});
         return value;
     }
 };
 
+// Interface to the operations on a Unix file descriptor.
+// The functions manage retry on EINTR, and return ErrnoOr values.
+// Returned by UnixSystem::open() and UnixSystem::adopt().
 class FileDescriptor {
   public:
     virtual ~FileDescriptor() = default;
@@ -35,12 +44,14 @@ class FileDescriptor {
     virtual ErrnoOr<int> ioctl(uint32_t nr, void* data) = 0;
     virtual ErrnoOr<std::shared_ptr<void>> mmap(size_t, int, int, off_t) = 0;
 
+    // Executes a no-parameter ioctl, checking ioctl type.
     template <uint32_t nr>
     ErrnoOr<int> ioc() {
         static_assert(_IOC_DIR(nr) == _IOC_NONE && _IOC_SIZE(nr) == 0);
         return this->ioctl(nr, nullptr);
     }
 
+    // Executes a kernel-to-user ioctl, checking object size & ioctl type.
     template <uint32_t nr, typename T>
     ErrnoOr<int> ioc(T const& v) {
         static_assert(std::is_standard_layout<T>::value);
@@ -48,6 +59,7 @@ class FileDescriptor {
         return this->ioctl(nr, (void*) &v);
     }
 
+    // Executes a user-to-kernel-and-back ioctl, checking size & ioctl type.
     template <uint32_t nr, typename T>
     ErrnoOr<int> ioc(T* v) {
         static_assert(std::is_standard_layout<T>::value);
@@ -57,21 +69,29 @@ class FileDescriptor {
     }
 };
 
+// Interface to the Unix system.
+// A singleton (returned by global_system()) unless replaced by a mock.
 class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
+
+    // Filesystem I/O system calls.
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
     virtual ErrnoOr<std::string> realpath(std::string const&) const = 0;
     virtual ErrnoOr<std::vector<std::string>> list(
         std::string const& dir
     ) const = 0;
 
+    // Adopts a raw file descriptor. Takes ownership of closing the file.
     virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) = 0;
+
+    // Opens a filesystem file and returns a file descriptor.
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const&, int flags, mode_t mode = 0
     ) = 0;
 };
 
+// Returns the singleton Unix access interface.
 std::shared_ptr<UnixSystem> global_system();
 
 }  // namespace pivid

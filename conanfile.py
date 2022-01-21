@@ -1,3 +1,5 @@
+# See https://docs.conan.io/en/latest/reference/conanfile.html
+
 import conans
 import os.path
 import shutil
@@ -16,7 +18,7 @@ class PividConan(conans.ConanFile):
     ]
 
     def configure(self):
-        # Trim things we don't use from ffmpeg to simplify the build.
+        # Trim ffmpeg to the things we actually use.
         self.options["ffmpeg"].for_pivid = True
         self.options["ffmpeg"].postproc = False
         self.options["ffmpeg"].shared = False
@@ -28,7 +30,7 @@ class PividConan(conans.ConanFile):
         ]:
             setattr(self.options["ffmpeg"], f"with_{ffmpeg_without}", False)
 
-        # Likewise, trim driver-specific support we don't use from libdrm.
+        # Also trim driver-specific support we don't use from libdrm.
         self.options["libdrm"].shared = False
         for libdrm_disable in [
             "amdgpu", "etnaviv", "exynos", "freedreno", "freedreno-kgsl",

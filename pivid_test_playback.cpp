@@ -216,7 +216,7 @@ void play_video(
         log->trace("Getting next video frame (#{})...", frame_index);
     }
 
-    while (!driver->is_request_done(conn.id)) {
+    while (driver && !driver->is_request_done(conn.id)) {
         log->trace("Sleeping for final display ({})...", conn.name);
         std::this_thread::sleep_for(0.001s);
     }

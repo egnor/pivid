@@ -8,7 +8,7 @@ from subprocess import check_call, check_output
 # GENERAL BUILD / DEPENDENCY STRATEGY
 # - Use Meson (mesonbuild.com) and Ninja (ninja-build.org) to build C++
 # - Use Conan (conan.io) to install C++ dependencies (ffmpeg, etc)
-# - Use pip / pypi (pypi.org) for Python dependencies (like conan, meson, etc)
+# - Use pip in venv (pypi.org) for Python dependencies (like conan, meson, etc)
 # - Reluctantly use system packages (apt) for things not covered above
 
 source_dir = Path(__file__).resolve().parent
@@ -16,7 +16,7 @@ build_dir = source_dir / "build"
 
 print("=== System packages (sudo apt install ...) ===")
 apt_packages = [
-    # TODO: Make the libraries into Conan dependencies
+    # TODO: Make libudev and libv4l into Conan dependencies
     "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev", "python3"
 ]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
@@ -33,7 +33,6 @@ print()
 print(f"=== Python packages (pip install ...) ===")
 venv_dir = build_dir / "python_venv"
 venv_bin = venv_dir / "bin"
-
 if not venv_dir.is_dir():
     venv.create(venv_dir, symlinks=True, with_pip=True)
     check_call(["direnv", "allow", source_dir])
@@ -50,7 +49,6 @@ print(f"=== C++ package manager (conan init) ===")
 conan_bin = venv_bin / "conan"
 conan_profile = build_dir / "conan-profile.txt"
 conan_install = build_dir / "conan-install"
-# https://github.com/conan-io/conan-center-index/issues/8467
 os.environ["CONAN_V2_MODE"] = "1"
 os.environ["CONAN_USER_HOME"] = str(build_dir)
 
@@ -77,7 +75,7 @@ print(f"=== C++ dependencies (conan install) ===")
 check_call([
     conan_bin, "install",
     f"--profile={conan_profile}",
-    # "--settings=build_type=Debug",
+    # "--settings=build_type=Debug",  # Uncomment & re-run to build debug
     "--settings=ffmpeg:build_type=Release",  # ffmpeg ARM won't build Debug
     f"--install-folder={conan_install}",
     "--build=outdated",

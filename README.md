@@ -4,8 +4,15 @@ Experimental video code for Linux / Raspberry Pi
 ## Building
 1. Run `./dev_setup.py`. (Works On My Machine™, YMMV)
 2. Run `ninja -C build` to run the actual build (this is the only part to repeat after edits).
-3. Run binaries from `build` (like `build/pivid_test_playback`).
-4. If things get weird, `rm -rf build` and start over with `dev_setup.py`.
+3. On Raspberry Pi, edit `/boot/config.txt` as follows:
+```
+#dtoverlay=vc4-fkms-v3d  # Comment/remove old dtoverlay=vc4* lines
+# Use full KMS and H.265 (HEVC) decoding, 512M CMA for frames
+dtoverlay=vc4-kms-v3d,cma-512
+dtoverlay=rpivid-v4l2
+```
+4. Run binaries from `build` (like `build/pivid_test_playback`).
+5. If things get weird, `rm -rf build` and start over with `dev_setup.py`.
 
 Notable programs:
 

@@ -55,8 +55,6 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
 
     return {
         .name = drm.name,
-        .pixel_khz = int(drm.clock), 
-        .refresh_hz = int(drm.vrefresh), 
         .horiz = {
             .display = drm.hdisplay,
             .sync_start = drm.hsync_start,
@@ -73,6 +71,8 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
             .doubling = sign(DRM_MODE_FLAG_INTERLACE, DRM_MODE_FLAG_DBLSCAN),
             .sync_polarity = sign(DRM_MODE_FLAG_NVSYNC, DRM_MODE_FLAG_PVSYNC),
         },
+        .pixel_khz = int(drm.clock), 
+        .refresh_hz = int(drm.vrefresh), 
     };
 }
 
