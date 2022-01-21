@@ -938,7 +938,7 @@ std::vector<DisplayDriverListing> list_display_drivers(
         listing.system_path = (sys_path.substr(0, 13) == "/sys/devices/")
             ? sys_path.substr(13) : sys_path;
 
-        // See https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html
+        // See kernel.org/doc/html/v5.10/gpu/drm-uapi.html
         drm_set_version set_ver = {1, 4, -1, -1};
         fd->ioc<DRM_IOCTL_SET_VERSION>(&set_ver).ex("Set version");
 

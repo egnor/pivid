@@ -61,7 +61,7 @@ void scan_devices() {
             fmt::print("{}", path);
             if (!dev_path.empty()) fmt::print(": {}", dev_path);
 
-            // See https://www.kernel.org/doc/html/v5.10/gpu/drm-uapi.html
+            // See kernel.org/doc/html/v5.10/gpu/drm-uapi.html
             drmSetVersion api_version = {1, 4, -1, -1};
             drmSetInterfaceVersion(fd, &api_version);
             auto* const busid = drmGetBusid(fd);

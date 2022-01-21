@@ -19,32 +19,25 @@ class MemoryBuffer {
     virtual uint32_t drm_handle() const { return 0; }  // DRM buffer handle
 };
 
-// Implementation of MemoryBuffer in an ordinary userspace vector.
-class PlainMemoryBuffer : public MemoryBuffer {
-  public:
-    PlainMemoryBuffer(size_t size) { mem.resize(size); }
-    virtual size_t size() const { return mem.size(); }
-    virtual uint8_t const* read() { return mem.data(); }
-    uint8_t* write() { return mem.data(); }
-  private:
-    std::vector<uint8_t> mem;
-};
-
 // Description of a pixel image stored in one or more MemoryBuffer objects.
-// Returned from MediaDecoder::next_frame() (in MediaFrame) or built "by hand",
-// supplied to DisplayDriver::load_image().
+// Returned from MediaDecoder::next_frame() (in MediaFrame) or built "by hand";
+// passed to DisplayDriver::load_image().
+//
+// Image format is described with FourCC (fourcc.org) as used by ffmpeg:
+// github.com/jc-kynesim/rpi-ffmpeg/blob/release/4.3/rpi_main/libavcodec/raw.c
+// and format "modifiers" as defined by the Linux kernel:
+// kernel.org/doc/html/latest/gpu/drm-kms.html#format-modifiers
 struct ImageBuffer {
     // Some image formats (like YUV420) use multiple channels (aka "planes").
+    // Channels may use different buffers or offsets within the same buffer.
     struct Channel {
         std::shared_ptr<MemoryBuffer> memory;  // Channel data is stored here
-        ptrdiff_t offset = 0;                  // Offset within memory
-        ptrdiff_t stride = 0;                  // Bytes between lines
+        ptrdiff_t offset = 0;                  // Start offset within buffer
+        ptrdiff_t stride = 0;                  // Offset between scanlines
     };
 
-    // Image format uses FourCC (fourcc.org) and DRM "modifiers" as in
-    // https://www.kernel.org/doc/html/latest/gpu/drm-kms.html#format-modifiers
-    uint32_t fourcc = 0;    // Generally from the ffmpeg format list
-    uint64_t modifier = 0;  // See the DRM document above
+    uint32_t fourcc = 0;    // Image pixel layout, like fourcc("RGBA")
+    uint64_t modifier = 0;  // Modifier to image pixel layout
     int width = 0;          // The pixel size of the image
     int height = 0;
     std::vector<Channel> channels;  // Channel count depends on the format

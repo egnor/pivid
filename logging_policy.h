@@ -1,5 +1,5 @@
 // Logging-related utilities for configuring spdlog the way we like it
-// (see https://github.com/gabime/spdlog).
+// (see github.com/gabime/spdlog).
 
 #pragma once
 
