@@ -323,38 +323,42 @@ class LibavMediaDecoder : public MediaDecoder {
             "Find stream info", fn
         );
 
-        AVCodec* codec = nullptr;
+        AVCodec* default_codec = nullptr;
         stream_index = check_av(
             av_find_best_stream(
-                format_context, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0
+                format_context, AVMEDIA_TYPE_VIDEO, -1, -1, &default_codec, 0
             ), "Find video stream", fn
         );
 
-        if (codec == nullptr || stream_index < 0) {
-            throw std::system_error(
-                AVERROR_DECODER_NOT_FOUND, libav_category(), fn
+        if (default_codec == nullptr || stream_index < 0)
+            check_av(AVERROR_DECODER_NOT_FOUND, "Find codec", fn);
+
+        AVCodec* preferred_codec = nullptr;
+        if (default_codec->id == AV_CODEC_ID_H264)
+            preferred_codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
+
+        int open_err = AVERROR_DECODER_NOT_FOUND;
+        auto const* stream = format_context->streams[stream_index];
+        for (auto* try_codec : {preferred_codec, default_codec}) {
+            if (!try_codec) continue;
+            codec_context = check_alloc(avcodec_alloc_context3(try_codec));
+            check_av(
+                avcodec_parameters_to_context(codec_context, stream->codecpar),
+                "Codec parameters", try_codec->name
             );
-        } else if (codec->id == AV_CODEC_ID_H264) {
-            auto* m2m_codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
-            if (m2m_codec) codec = m2m_codec;
+
+            codec_context->thread_count = 4;
+            codec_context->get_format = pixel_format_callback;
+            open_err = avcodec_open2(codec_context, try_codec, nullptr);
+            if (open_err >= 0) break;
+
+            avcodec_free_context(&codec_context);
         }
 
-        assert(stream_index >= 0);
-        auto const* str = format_context->streams[stream_index];
-        codec_context = check_alloc(avcodec_alloc_context3(codec));
-        check_av(
-            avcodec_parameters_to_context(codec_context, str->codecpar),
-            "Codec parameters", codec->name
-        );
+        check_av(open_err, "Open codec", default_codec->name);
+        assert(codec_context);
 
-        codec_context->thread_count = 4;
-        codec_context->get_format = pixel_format_callback;
-        check_av(
-            avcodec_open2(codec_context, codec, nullptr),
-            "Open codec", codec->name
-        );
-
-        double const time_base = av_q2d(str->time_base);
+        double const time_base = av_q2d(stream->time_base);
         media_info.container_type = format_context->iformat->name;
         media_info.codec_name = codec_context->codec->name;
         media_info.pixel_format = av_get_pix_fmt_name(codec_context->pix_fmt);
@@ -364,14 +368,14 @@ class LibavMediaDecoder : public MediaDecoder {
             media_info.height = codec_context->height;
         }
 
-        if (str->duration > 0) {
-            media_info.duration = str->duration * time_base;
+        if (stream->duration > 0) {
+            media_info.duration = stream->duration * time_base;
         } else if (format_context->duration > 0) {
             media_info.duration = format_context->duration * 1.0 / AV_TIME_BASE;
         }
 
-        if (str->avg_frame_rate.num > 0)
-            media_info.frame_rate = av_q2d(str->avg_frame_rate);
+        if (stream->avg_frame_rate.num > 0)
+            media_info.frame_rate = av_q2d(stream->avg_frame_rate);
 
         if (codec_context->bit_rate > 0) {
             media_info.bit_rate = codec_context->bit_rate;
