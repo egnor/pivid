@@ -122,7 +122,7 @@ void play_video(
     using namespace std::chrono_literals;
     auto const log = main_logger();
 
-    std::vector<DisplayRequest::Layer> overlays;
+    std::vector<DisplayUpdateRequest::Layer> overlays;
     if (overlay) {
         log->trace("Loading overlay image...");
         std::optional<MediaFrame> overlay_frame = overlay->next_frame();
@@ -130,7 +130,7 @@ void play_video(
             throw std::runtime_error("No frames in overlay media");
 
         for (auto const& image : overlay_frame->images) {
-            DisplayRequest::Layer layer = {};
+            DisplayUpdateRequest::Layer layer = {};
             layer.loaded_image = driver->load_image(image);
             layer.source_width = image.width;
             layer.source_height = image.height;
@@ -153,12 +153,12 @@ void play_video(
         if (!frame) break;
 
         if (driver) {
-            DisplayRequest request;
+            DisplayUpdateRequest request;
             request.connector_id = conn.id;
             request.mode = mode;
 
             for (auto const& image : frame->images) {
-                DisplayRequest::Layer layer = {};
+                DisplayUpdateRequest::Layer layer = {};
                 layer.loaded_image = driver->load_image(image);
                 layer.source_width = image.width;
                 layer.source_height = image.height;
@@ -171,7 +171,7 @@ void play_video(
                 request.layers.end(), overlays.begin(), overlays.end()
             );
 
-            while (!driver->is_request_done(conn.id)) {
+            while (!driver->is_update_done(conn.id)) {
                 log->trace("Sleeping for display ({})...", conn.name);
                 std::this_thread::sleep_for(0.001s);
             }
@@ -216,9 +216,9 @@ void play_video(
         log->trace("Getting next video frame (#{})...", frame_index);
     }
 
-    while (driver && !driver->is_request_done(conn.id)) {
+    while (driver && !driver->is_update_done(conn.id)) {
         log->trace("Sleeping for final display ({})...", conn.name);
-        std::this_thread::sleep_for(0.001s);
+        std::this_thread::sleep_for(0.005s);
     }
 
     log->debug("End of media file reached");

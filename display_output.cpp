@@ -20,6 +20,7 @@
 #include <system_error>
 #include <type_traits>
 
+#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 #include "logging_policy.h"
@@ -405,7 +406,7 @@ class DrmDriver : public DisplayDriver {
         return std::shared_ptr<const uint32_t>(fb, fb->id());
     }
 
-    virtual void request_update(DisplayRequest const& request) {
+    virtual void request_update(DisplayUpdateRequest const& request) {
         auto* const conn = &connectors.at(request.connector_id);
         log->trace("Starting {} update...", conn->name);
 
@@ -566,14 +567,16 @@ class DrmDriver : public DisplayDriver {
         crtc->used_by_conn = conn;
     }
 
-    virtual std::optional<DisplayRequestDone> is_request_done(uint32_t id) {
+    virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) {
         auto* const conn = &connectors.at(id);
         log->trace("Checking {} completion...", conn->name);
         process_events();
 
+        DisplayUpdateDone done = {};
+        done.update_time = conn->pageflip_time;
         if (!conn->using_crtc) {
             log->trace("> (connector not active)");
-            return DisplayRequestDone{};
+            return done;
         }
 
         if (conn->using_crtc->pending_flip) {
@@ -581,7 +584,9 @@ class DrmDriver : public DisplayDriver {
             return {};
         }
 
-        return DisplayRequestDone{};
+        // TODO: Handle writeback, once it works
+        // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
+        return done;
     }
 
     void open(std::shared_ptr<UnixSystem> sys, std::string const& dev) {
@@ -780,6 +785,7 @@ class DrmDriver : public DisplayDriver {
         PropId WRITEBACK_OUT_FENCE_PTR{"WRITEBACK_OUT_FENCE_PTR", &opt_ids};
 
         Crtc* using_crtc = nullptr;
+        std::chrono::steady_clock::time_point pageflip_time;
     };
 
     std::shared_ptr<spdlog::logger> const log = display_logger();
@@ -810,14 +816,23 @@ class DrmDriver : public DisplayDriver {
             auto* const crtc = &crtcs.at(ev.crtc_id);
             if (!crtc->pending_flip) {
                 throw std::runtime_error(
-                    fmt::format("Unexpected DRM CRTC flipped ({})", crtc->id)
+                    fmt::format("Unexpected DRM CRTC pageflip ({})", crtc->id)
                 );
             }
 
             auto* conn = crtc->used_by_conn;
             assert(conn);
 
-            log->debug("Update complete (vsync flip): {}", conn->name);
+            auto const usec_int = uint64_t(1000000) * ev.tv_sec + ev.tv_usec;
+            std::chrono::microseconds const usec{usec_int};
+            conn->pageflip_time = std::chrono::steady_clock::time_point{usec};
+
+            if (log->should_log(spdlog::level::level_enum::debug)) {
+                std::chrono::duration<double> const seconds =
+                    conn->pageflip_time.time_since_epoch();
+                log->debug("Update pageflip: {} {:.6}", conn->name, seconds);
+            }
+
             if (!crtc->pending_flip->mode.vrefresh) {
                 assert(conn->using_crtc == crtc);
                 conn->using_crtc = nullptr;

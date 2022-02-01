@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <optional>
@@ -44,7 +45,7 @@ struct DisplayConnectorStatus {
 // Update parameters to define a connector's video mode & screen contents.
 // Passed to request_update(), where it takes effect at the next vsync.
 // All images on screen must be given every time (they are not "sticky"). 
-struct DisplayRequest {
+struct DisplayUpdateRequest {
     // One image (or portion thereof) and its lacement on screen.
     struct Layer {
         double source_x = 0, source_y = 0, source_width = 0, source_height = 0;
@@ -57,11 +58,11 @@ struct DisplayRequest {
     std::vector<Layer> layers;  // In Z-order from bottom to top
 };
 
-// Reply when a DisplayRequest has actually taken place. Returned by
+// Reply when a DisplayUpdateRequest has actually taken place. Returned by
 // DisplayDriver::is_request_done() after the vsync when the update goes live.
-struct DisplayRequestDone {
+struct DisplayUpdateDone {
     std::optional<ImageBuffer> writeback;  // Output for WRITEBACK-* connectors
-    // TODO maybe also the timestamp of the vsync event?
+    std::chrono::steady_clock::time_point update_time; 
 };
 
 // Interface to a GPU device. Normally one per system, handling all outputs.
@@ -73,17 +74,17 @@ class DisplayDriver {
     // Returns the ID, name, and current status of all connectors.
     virtual std::vector<DisplayConnectorStatus> scan_connectors() = 0;
 
-    // Imports an image into the GPU for use in DisplayRequest.
+    // Imports an image into the GPU for use in DisplayUpdateRequest.
     // If not suitable for direct access, the image may be copied/converted.
     virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer) = 0;
 
     // Updates a connector's video mode & screen contents at the next vsync.
-    // Any previous update must have completed (check is_request_done()).
-    virtual void request_update(DisplayRequest const&) = 0;
+    // Any previous update must have completed (check is_update_done()).
+    virtual void request_update(DisplayUpdateRequest const&) = 0;
 
     // If the previous request_update() for the connector is complete,
-    // returns a DisplayRequestDone object, otherwise {} if still pending.
-    virtual std::optional<DisplayRequestDone> is_request_done(uint32_t id) = 0;
+    // returns a DisplayUpdateRequest object, otherwise {} if still pending.
+    virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) = 0;
 };
 
 // Description of a GPU device. Returned by list_device_drivers().
