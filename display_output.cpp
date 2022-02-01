@@ -110,25 +110,26 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
 
 uint32_t format_to_drm(uint32_t format) {
     // Note, ffmpeg/AVI/"standard" fourcc is big endian, DRM is little endian
+    // We use "rgb" for premultiplied-alpha components, which DRM expects.
     switch (format) {
-      case fourcc("0BGR"): return DRM_FORMAT_RGBX8888;
-      case fourcc("0RGB"): return DRM_FORMAT_BGRX8888;
-      case fourcc("ABGR"): return DRM_FORMAT_RGBA8888;
-      case fourcc("ARGB"): return DRM_FORMAT_BGRA8888;
-      case fourcc("BGR0"): return DRM_FORMAT_XRGB8888;
-      case fourcc("BGRA"): return DRM_FORMAT_ARGB8888;
-      case fourcc("BGR\x10"): return DRM_FORMAT_BGR565;
-      case fourcc("BGR\x18"): return DRM_FORMAT_RGB888;
-      case fourcc("I420"): return DRM_FORMAT_YUV420;
-      case fourcc("NV12"): return DRM_FORMAT_NV12;
-      case fourcc("NV21"): return DRM_FORMAT_NV21;
-      case fourcc("PAL\x08"): return DRM_FORMAT_C8;
-      case fourcc("RGB0"): return DRM_FORMAT_XBGR8888;
-      case fourcc("RGBA"): return DRM_FORMAT_ABGR8888;
-      case fourcc("RGB\x10"): return DRM_FORMAT_RGB565;
-      case fourcc("RGB\x18"): return DRM_FORMAT_BGR888;
-      case fourcc("Y42B"): return DRM_FORMAT_YUV422;
-      default: return format;  // Might match!
+        case fourcc("0BGR"): return DRM_FORMAT_RGBX8888;
+        case fourcc("0RGB"): return DRM_FORMAT_BGRX8888;
+        case fourcc("Abgr"): return DRM_FORMAT_RGBA8888;
+        case fourcc("Argb"): return DRM_FORMAT_BGRA8888;
+        case fourcc("BGR0"): return DRM_FORMAT_XRGB8888;
+        case fourcc("bgrA"): return DRM_FORMAT_ARGB8888;
+        case fourcc("BGR\x10"): return DRM_FORMAT_BGR565;
+        case fourcc("BGR\x18"): return DRM_FORMAT_RGB888;
+        case fourcc("I420"): return DRM_FORMAT_YUV420;
+        case fourcc("NV12"): return DRM_FORMAT_NV12;
+        case fourcc("NV21"): return DRM_FORMAT_NV21;
+        case fourcc("PAL\x08"): return DRM_FORMAT_C8;
+        case fourcc("RGB0"): return DRM_FORMAT_XBGR8888;
+        case fourcc("rgbA"): return DRM_FORMAT_ABGR8888;
+        case fourcc("RGB\x10"): return DRM_FORMAT_RGB565;
+        case fourcc("RGB\x18"): return DRM_FORMAT_BGR888;
+        case fourcc("Y42B"): return DRM_FORMAT_YUV422;
+        default: return format;  // Might match!
     }
 }
 
@@ -136,41 +137,41 @@ void to_premultiplied_rgba(
     uint32_t format, int width, uint8_t const* from, uint8_t* to
 ) {
     switch (format) {
-      case fourcc("ABGR"):
-        for (int x = 0; x < width; ++x) {
-            uint8_t const alpha = to[3 + 4 * x] = from[4 * x];
-            to[0 + 4 * x] = from[3 + 4 * x] * alpha / 255;
-            to[1 + 4 * x] = from[2 + 4 * x] * alpha / 255;
-            to[2 + 4 * x] = from[1 + 4 * x] * alpha / 255;
-        }
-        break;
+        case fourcc("ABGR"):
+            for (int x = 0; x < width; ++x) {
+                uint8_t const alpha = to[3 + 4 * x] = from[4 * x];
+                to[0 + 4 * x] = from[3 + 4 * x] * alpha / 255;
+                to[1 + 4 * x] = from[2 + 4 * x] * alpha / 255;
+                to[2 + 4 * x] = from[1 + 4 * x] * alpha / 255;
+            }
+            break;
 
-      case fourcc("ARGB"):
-        for (int x = 0; x < width; ++x) {
-            uint8_t const alpha = to[3 + 4 * x] = from[4 * x];
-            to[0 + 4 * x] = from[1 + 4 * x] * alpha / 255;
-            to[1 + 4 * x] = from[2 + 4 * x] * alpha / 255;
-            to[2 + 4 * x] = from[3 + 4 * x] * alpha / 255;
-        }
-        break;
+        case fourcc("ARGB"):
+            for (int x = 0; x < width; ++x) {
+                uint8_t const alpha = to[3 + 4 * x] = from[4 * x];
+                to[0 + 4 * x] = from[1 + 4 * x] * alpha / 255;
+                to[1 + 4 * x] = from[2 + 4 * x] * alpha / 255;
+                to[2 + 4 * x] = from[3 + 4 * x] * alpha / 255;
+            }
+            break;
 
-      case fourcc("RGBA"):
-        for (int x = 0; x < width; ++x) {
-            uint8_t const alpha = to[3 + 4 * x] = from[3 + 4 * x];
-            to[0 + 4 * x] = from[0 + 4 * x] * alpha / 255;
-            to[1 + 4 * x] = from[1 + 4 * x] * alpha / 255;
-            to[2 + 4 * x] = from[2 + 4 * x] * alpha / 255;
-        }
-        break;
+        case fourcc("RGBA"):
+            for (int x = 0; x < width; ++x) {
+                uint8_t const alpha = to[3 + 4 * x] = from[3 + 4 * x];
+                to[0 + 4 * x] = from[0 + 4 * x] * alpha / 255;
+                to[1 + 4 * x] = from[1 + 4 * x] * alpha / 255;
+                to[2 + 4 * x] = from[2 + 4 * x] * alpha / 255;
+            }
+            break;
 
-      case fourcc("BGRA"):
-        for (int x = 0; x < width; ++x) {
-            uint8_t const alpha = to[3 + 4 * x] = from[3 + 4 * x];
-            to[0 + 4 * x] = from[2 + 4 * x] * alpha / 255;
-            to[1 + 4 * x] = from[1 + 4 * x] * alpha / 255;
-            to[2 + 4 * x] = from[0 + 4 * x] * alpha / 255;
-        }
-        break;
+        case fourcc("BGRA"):
+            for (int x = 0; x < width; ++x) {
+                uint8_t const alpha = to[3 + 4 * x] = from[3 + 4 * x];
+                to[0 + 4 * x] = from[2 + 4 * x] * alpha / 255;
+                to[1 + 4 * x] = from[1 + 4 * x] * alpha / 255;
+                to[2 + 4 * x] = from[0 + 4 * x] * alpha / 255;
+            }
+            break;
     }
 }
 
@@ -347,35 +348,101 @@ class DrmDriver : public DisplayDriver {
     }
 
     virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer im) {
-        log->trace("Loading {}x{} image...", im.width, im.height);
+        if (log->should_log(spdlog::level::level_enum::trace)) {
+            auto const fmt = debug_fourcc(im.fourcc);
+            log->trace("Loading {}x{} {} image...", im.width, im.height, fmt);
+        }
+
         switch (im.fourcc) {
-          case fourcc("ABGR"):
-          case fourcc("ARGB"):
-          case fourcc("BGRA"):
-          case fourcc("RGBA"):
-            if (im.channels.size() != 1)
-                throw std::invalid_argument("Bad channel count for RGBA image");
-
-            // Assume a DRM handle means it's been converted.
-            if (!im.channels[0].memory->drm_handle()) {
-                log->trace("> (copying and converting RGBA...)");
-                auto buf = std::make_shared<DrmDumbBuffer>(
-                    fd, im.width, im.height, 32
-                );
-
-                auto const& chan = im.channels[0];
-                for (int y = 0; y < im.height; ++y) {
-                    to_premultiplied_rgba(
-                        im.fourcc, im.width,
-                        chan.memory->read() + y * chan.stride + chan.offset,
-                        buf->write() + y * buf->stride()
-                    );
+            case fourcc("ABGR"):
+            case fourcc("ARGB"):
+            case fourcc("BGRA"):
+            case fourcc("RGBA"): {
+                log->trace("> (premultiplying alpha...)");
+                if (im.channels.size() != 1) {
+                    throw std::invalid_argument(fmt::format(
+                        "Bad channel count ({}) for {}",
+                        im.channels.size(), debug_fourcc(im.fourcc)
+                    ));
                 }
 
-                im.fourcc = fourcc("RGBA");
+                auto const& chan = im.channels[0];
+                int const w = im.width, h = im.height;
+                size_t const min_size = chan.offset + chan.stride * h;
+                if (chan.memory->size() < min_size || chan.stride < 4 * w) {
+                    throw std::invalid_argument(fmt::format(
+                        "Bad buffer size ({}/{}) for {}x{} {} @{}",
+                        debug_size(chan.memory->size()),
+                        debug_size(chan.stride), w, h, debug_fourcc(im.fourcc),
+                        debug_size(chan.offset)
+                    ));
+                }
+
+                auto buf = std::make_shared<DrmDumbBuffer>(fd, w, h, 32);
+                for (int y = 0; y < h; ++y) {
+                    int const from_offset = y * chan.stride + chan.offset;
+                    uint8_t const* from = chan.memory->read() + from_offset;
+                    uint8_t* to = buf->write() + y * buf->stride();
+                    to_premultiplied_rgba(im.fourcc, w, from, to);
+                }
+
+                im.fourcc = fourcc("rgbA");
                 im.channels[0].offset = 0;
                 im.channels[0].stride = buf->stride();
                 im.channels[0].memory = std::move(buf);
+                break;
+            }
+
+            case fourcc("PAL\x08"): {
+                log->trace("> (expanding PAL8 to premultiplied rgbA...)");
+                if (im.channels.size() != 2) {
+                    throw std::invalid_argument(fmt::format(
+                        "Bad channel count ({}) for PAL8", im.channels.size()
+                    ));
+                }
+
+                auto const& chan = im.channels[0];
+                int const w = im.width, h = im.height;
+                size_t const min_size = chan.offset + chan.stride * h;
+                if (chan.memory->size() < min_size || chan.stride < w) {
+                    throw std::invalid_argument(fmt::format(
+                        "Bad buffer size ({}/{}) for {}x{} PAL8 @{}",
+                        debug_size(chan.memory->size()),
+                        debug_size(chan.stride), w, h, debug_size(chan.offset)
+                    ));
+                }
+
+                auto const& pch = im.channels[1];
+                size_t const min_pch_size = pch.offset + 256 * 4;
+                if (pch.memory->size() < min_pch_size) {
+                    throw std::invalid_argument(fmt::format(
+                        "Bad palette size ({}) for PAL8 @{}",
+                        debug_size(pch.memory->size()), debug_size(pch.offset)
+                    ));
+                }
+
+                // TODO: On big-endian, this would be ARGB.
+                // https://ffmpeg.org/doxygen/3.3/pixfmt_8h.html
+                uint8_t pal[256 * 4];
+                to_premultiplied_rgba(
+                    fourcc("BGRA"), 256, pch.memory->read() + pch.offset, pal
+                );
+
+                auto buf = std::make_shared<DrmDumbBuffer>(fd, w, h, 32);
+                for (int y = 0; y < h; ++y) {
+                    int const from_offset = y * chan.stride + chan.offset;
+                    uint8_t const* from = chan.memory->read() + from_offset;
+                    uint8_t* to = buf->write() + y * buf->stride();
+                    for (int x = 0; x < w; ++x)
+                        std::memcpy(to + 4 * x, pal + 4 * from[x], 4);
+                }
+
+                im.fourcc = fourcc("rgbA");
+                im.channels.resize(1);
+                im.channels[0].offset = 0;
+                im.channels[0].stride = buf->stride();
+                im.channels[0].memory = std::move(buf);
+                break;
             }
         }
 
@@ -410,10 +477,9 @@ class DrmDriver : public DisplayDriver {
         auto* const conn = &connectors.at(request.connector_id);
         log->trace("Starting {} update...", conn->name);
 
-        process_events();
         auto* crtc = conn->using_crtc;
         if (crtc && crtc->pending_flip)
-            throw std::invalid_argument("Update request before previous done");
+            throw std::invalid_argument("Update requested before prev done");
 
         if (!crtc && !request.mode.refresh_hz) {
             log->trace("> (connector remains disabled, no change)");
@@ -570,22 +636,26 @@ class DrmDriver : public DisplayDriver {
     virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) {
         auto* const conn = &connectors.at(id);
         log->trace("Checking {} completion...", conn->name);
-        process_events();
+
+        if (conn->using_crtc && conn->using_crtc->pending_flip) {
+            process_events();
+            if (conn->using_crtc && conn->using_crtc->pending_flip) {
+                log->trace("> (previous update incomplete)");
+                return {};
+            }
+        }
 
         DisplayUpdateDone done = {};
-        done.update_time = conn->pageflip_time;
         if (!conn->using_crtc) {
-            log->trace("> (connector not active)");
-            return done;
+            log->trace("> (connector off, no update pending)");
+        } else if (conn->using_crtc->active.writeback) {
+            done.writeback = conn->using_crtc->active.writeback->image;
+            log->trace("> (update done with writeback)");
+        } else {
+            log->trace("> (update done)");
         }
 
-        if (conn->using_crtc->pending_flip) {
-            log->trace("> (previous update incomplete)");
-            return {};
-        }
-
-        // TODO: Handle writeback, once it works
-        // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
+        done.update_time = conn->pageflip_time;
         return done;
     }
 
@@ -643,29 +713,29 @@ class DrmDriver : public DisplayDriver {
             lookup_prop_ids(conn_id, &conn->opt_ids);
             switch (cdat.connector_type) {
 #define T(x) case DRM_MODE_CONNECTOR_##x: conn->name = #x; break
-              T(Unknown);
-              T(VGA);
-              T(DVII);
-              T(DVID);
-              T(DVIA);
-              T(Composite);
-              T(SVIDEO);
-              T(LVDS);
-              T(Component);
-              T(9PinDIN);
-              T(DisplayPort);
-              T(HDMIA);
-              T(HDMIB);
-              T(TV);
-              T(eDP);
-              T(VIRTUAL);
-              T(DSI);
-              T(DPI);
-              T(WRITEBACK);
-              T(SPI);
-              T(USB);
+                T(Unknown);
+                T(VGA);
+                T(DVII);
+                T(DVID);
+                T(DVIA);
+                T(Composite);
+                T(SVIDEO);
+                T(LVDS);
+                T(Component);
+                T(9PinDIN);
+                T(DisplayPort);
+                T(HDMIA);
+                T(HDMIB);
+                T(TV);
+                T(eDP);
+                T(VIRTUAL);
+                T(DSI);
+                T(DPI);
+                T(WRITEBACK);
+                T(SPI);
+                T(USB);
 #undef T
-              default: conn->name = fmt::format("[#{}]", cdat.connector_type);
+                default: conn->name = fmt::format("[#{}]", cdat.connector_type);
             }
             conn->name += fmt::format("-{}", cdat.connector_type_id);
 
@@ -797,9 +867,9 @@ class DrmDriver : public DisplayDriver {
     std::map<uint32_t, std::string> prop_names;
 
     void process_events() {
+        log->trace("Checking for DRM events...");
         drm_event_vblank ev = {};
         for (;;) {
-            log->trace("Checking for DRM events...");
             auto const ret = fd->read(&ev, sizeof(ev));
             if (ret.err == EAGAIN) {
                 log->trace("> (no DRM events pending)");
@@ -809,7 +879,7 @@ class DrmDriver : public DisplayDriver {
             if (ret.ex("Read DRM event") != sizeof(ev))
                 throw std::runtime_error("Bad DRM event size");
             if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) {
-                log->trace("> (got other DRM event, ignoring)");
+                log->trace("> (ignoring non-pageflip DRM event)");
                 continue;
             }
 
@@ -822,6 +892,9 @@ class DrmDriver : public DisplayDriver {
 
             auto* conn = crtc->used_by_conn;
             assert(conn);
+
+            // TODO: Check for writeback fence, once it works
+            // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
 
             auto const usec_int = uint64_t(1000000) * ev.tv_sec + ev.tv_usec;
             std::chrono::microseconds const usec{usec_int};

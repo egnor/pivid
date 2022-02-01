@@ -41,32 +41,34 @@ std::string debug(ImageBuffer const& i) {
         auto const vendor = i.modifier >> 56;
         switch (vendor) {
 #define V(x, y) case DRM_FORMAT_MOD_VENDOR_##x: out += y; break
-          V(NONE, "");
-          V(INTEL, ":INTL");
-          V(AMD, ":AMD");
-          V(NVIDIA, ":NVID");
-          V(SAMSUNG, ":SAMS");
-          V(QCOM, ":QCOM");
-          V(VIVANTE, ":VIVA");
-          V(BROADCOM, ":BCOM");
-          V(ARM, ":ARM");
-          V(ALLWINNER, ":ALLW");
-          V(AMLOGIC, ":AML");
+            V(NONE, "");
+            V(INTEL, ":INTL");
+            V(AMD, ":AMD");
+            V(NVIDIA, ":NVID");
+            V(SAMSUNG, ":SAMS");
+            V(QCOM, ":QCOM");
+            V(VIVANTE, ":VIVA");
+            V(BROADCOM, ":BCOM");
+            V(ARM, ":ARM");
+            V(ALLWINNER, ":ALLW");
+            V(AMLOGIC, ":AML");
 #undef V
-          default: out += fmt::format(":{}", vendor);
+            default: out += fmt::format(":{}", vendor);
         }
         out += fmt::format(":{:x}", i.modifier & ((1ull << 56) - 1));
     }
 
     for (size_t c = 0; c < i.channels.size(); ++c) {
         auto const& chan = i.channels[c];
-        if (c > 0 && chan.memory == i.channels[c - 1].memory) {
-            out += "|";
+        if (c == 0) {
+            out += " " + debug(*chan.memory) + ":";
+        } else if (chan.memory == i.channels[c - 1].memory) {
+            out += ",";
         } else {
-            out += " " + debug(*chan.memory) + " ";
+            out += "|" + debug(*chan.memory) + ":";
         }
 
-        out += fmt::format("{}", 8 * chan.stride / i.width);
+        out += fmt::format("{}b", 8 * chan.stride / i.width);
         if (chan.offset) out += "@" + debug_size(chan.offset);
     }
 
@@ -75,4 +77,3 @@ std::string debug(ImageBuffer const& i) {
 }
 
 }  // namespace pivid
-

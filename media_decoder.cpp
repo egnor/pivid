@@ -96,7 +96,11 @@ class LibavDrmFrameMemory : public MemoryBuffer {
 
 class LibavPlainFrameMemory : public MemoryBuffer {
   public:
-    virtual size_t size() const { return avf->linesize[index] * avf->height; }
+    virtual size_t size() const {
+        if (avf->format == AV_PIX_FMT_PAL8 && index == 1) return AVPALETTE_SIZE;
+        return avf->linesize[index] * avf->height;
+    }
+
     virtual uint8_t const* read() { return avf->data[index]; }
 
     void init(std::shared_ptr<AVFrame> avf, int index) {
@@ -129,9 +133,9 @@ std::vector<ImageBuffer> images_from_av_drm(
         image.height = height;
 
         switch (av_layer.format) {
-          case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
-          case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
-          default: image.fourcc = av_layer.format;
+            case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
+            case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
+            default: image.fourcc = av_layer.format;
         }
 
         for (int p = 0; p < av_layer.nb_planes; ++p) {
@@ -176,17 +180,17 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, double time_base) {
     out.is_corrupt = (frame->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = frame->key_frame;
     switch (frame->pict_type) {
-      case AV_PICTURE_TYPE_NONE: break;
+        case AV_PICTURE_TYPE_NONE: break;
 #define P(x) case AV_PICTURE_TYPE_##x: out.frame_type = #x; break
-      P(I);
-      P(P);
-      P(B);
-      P(S);
-      P(SI);
-      P(SP);
-      P(BI);
+        P(I);
+        P(P);
+        P(B);
+        P(S);
+        P(SI);
+        P(SP);
+        P(BI);
 #undef P
-      default: out.frame_type = "?";
+        default: out.frame_type = "?";
     }
 
     if (frame->format == AV_PIX_FMT_DRM_PRIME) {
