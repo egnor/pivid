@@ -27,7 +27,7 @@ std::shared_ptr<spdlog::logger> const& main_logger() {
 }
 
 std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
-    if (dev_arg == "none" || dev_arg == "/dev/null" || dev_arg == "") return {};
+    if (dev_arg == "none" || dev_arg == "/dev/null") return {};
 
     fmt::print("=== Video drivers ===\n");
     auto sys = global_system();
@@ -228,7 +228,7 @@ void play_video(
 
 // Main program, parses flags and calls the decoder loop.
 extern "C" int main(int const argc, char const* const* const argv) {
-    std::string dev_arg = "gpu";
+    std::string dev_arg;
     std::string conn_arg;
     std::string log_arg;
     std::string mode_arg;
