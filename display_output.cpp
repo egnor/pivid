@@ -336,6 +336,7 @@ class DrmDriver : public DisplayDriver {
                 edat.encoder_id = cdat.encoder_id;
                 fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
                 if (edat.crtc_id) {
+                    // We are DRM master, so assume no sneaky mode changes.
                     auto const& drm_mode = crtcs.at(edat.crtc_id).active.mode;
                     status.active_mode = mode_from_drm(drm_mode);
                 }
@@ -482,7 +483,7 @@ class DrmDriver : public DisplayDriver {
             throw std::invalid_argument("Update requested before prev done");
 
         if (!crtc && !request.mode.refresh_hz) {
-            log->trace("> (connector remains disabled, no change)");
+            log->trace("> (connector remains off, no change)");
             return;
         }
 
@@ -503,7 +504,7 @@ class DrmDriver : public DisplayDriver {
         int32_t writeback_fence_fd = -1;
 
         if (!request.mode.refresh_hz) {
-            log->debug("{} :: [disabling]", conn->name);
+            log->debug("{} :: [turning off]", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
             props[crtc->id][&crtc->ACTIVE] = 0;
             // Leave next state zeroed.
@@ -511,8 +512,11 @@ class DrmDriver : public DisplayDriver {
             next.mode = mode_to_drm(request.mode);
             static_assert(sizeof(crtc->active.mode) == sizeof(next.mode));
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
-                if (log->should_log(spdlog::level::level_enum::debug))
-                    log->debug("{} :: {}", conn->name, debug(request.mode));
+                if (log->should_log(spdlog::level::level_enum::debug)) {
+                    auto const old_mode = mode_from_drm(crtc->active.mode);
+                    log->debug("{} OLD {}", conn->name, debug(old_mode));
+                    log->debug("{} NEW {}", conn->name, debug(request.mode));
+                }
                 mode_blob = create_blob(next.mode);
                 props[crtc->id][&crtc->MODE_ID] = *mode_blob;
             }
@@ -692,8 +696,8 @@ class DrmDriver : public DisplayDriver {
             auto* crtc = &crtcs[crtc_id];
             crtc->id = crtc_id;
             require_prop_ids(crtc_id, &crtc->prop_ids);
-            if (ccdat.mode_valid)
-                crtc->active.mode = ccdat.mode;
+            if (ccdat.mode_valid)  // Round-trip to ensure struct memcmp().
+                crtc->active.mode = mode_to_drm(mode_from_drm(ccdat.mode));
         }
 
         for (auto const conn_id : conn_ids) {
@@ -1076,6 +1080,7 @@ std::string debug(DisplayDriverListing const& d) {
 }
 
 std::string debug(DisplayMode const& m) {
+    if (!m.refresh_hz) return "OFF";
     return fmt::format(
         "{:5.1f}MHz{} {:3}[{:3}{}]{:<3} {:>4}x"
         "{:4}{} {:2}[{:2}{}]{:<2} {:2}Hz \"{}\"",
