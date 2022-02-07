@@ -309,9 +309,9 @@ class DrmDriver : public DisplayDriver {
   public:
     DrmDriver() {}
 
-    virtual std::vector<DisplayConnectorStatus> scan_connectors() {
+    virtual std::vector<DisplayStatus> scan_connectors() {
         log->trace("Scanning connectors...");
-        std::vector<DisplayConnectorStatus> out;
+        std::vector<DisplayStatus> out;
         for (auto const& id_conn : connectors) {
             drm_mode_get_connector cdat = {};
             cdat.connector_id = id_conn.first;
@@ -321,7 +321,7 @@ class DrmDriver : public DisplayDriver {
                 fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
             } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
 
-            DisplayConnectorStatus status = {};
+            DisplayStatus status = {};
             status.id = id_conn.first;
             status.name = id_conn.second.name;
             status.display_detected = (cdat.connection == 1);
@@ -474,7 +474,7 @@ class DrmDriver : public DisplayDriver {
         return std::shared_ptr<const uint32_t>(fb, fb->id());
     }
 
-    virtual void request_update(DisplayUpdateRequest const& request) {
+    virtual void show_frame(DisplayFrame const& request) {
         auto* const conn = &connectors.at(request.connector_id);
         log->trace("Starting {} update...", conn->name);
 
@@ -549,10 +549,10 @@ class DrmDriver : public DisplayDriver {
             }
 
             auto plane_iter = crtc->usable_planes.begin();
-            for (size_t li = 0; li < request.layers.size(); ++li) {
+            for (size_t ci = 0; ci < request.contents.size(); ++ci) {
                 // Find an appropriate plane (Primary=1, Overlay=0)
-                auto const& layer = request.layers[li];
-                uint64_t const wanted_type = li ? 0 : 1;
+                auto const& content = request.contents[ci];
+                uint64_t const wanted_type = ci ? 0 : 1;
                 for (;; ++plane_iter) {
                     if (plane_iter == crtc->usable_planes.end())
                         throw std::runtime_error("No DRM plane: " + conn->name);
@@ -563,9 +563,9 @@ class DrmDriver : public DisplayDriver {
                 }
 
                 auto* plane = *plane_iter++;
-                int fb_id = *layer.loaded_image;
+                int fb_id = *content.loaded_image;
                 next.using_planes.push_back(plane);
-                next.images.push_back(std::move(layer.loaded_image));
+                next.images.push_back(std::move(content.loaded_image));
 
                 if (log->should_log(spdlog::level::level_enum::debug)) {
                     log->debug(
@@ -578,14 +578,14 @@ class DrmDriver : public DisplayDriver {
                 (*plane_props)[&plane->FB_ID] = fb_id;
 
                 auto fix = [](double d) -> int64_t { return d * 65536.0; };
-                (*plane_props)[&plane->SRC_X] = fix(layer.source_x);
-                (*plane_props)[&plane->SRC_Y] = fix(layer.source_y);
-                (*plane_props)[&plane->SRC_W] = fix(layer.source_width);
-                (*plane_props)[&plane->SRC_H] = fix(layer.source_height);
-                (*plane_props)[&plane->CRTC_X] = layer.screen_x;
-                (*plane_props)[&plane->CRTC_Y] = layer.screen_y;
-                (*plane_props)[&plane->CRTC_W] = layer.screen_width;
-                (*plane_props)[&plane->CRTC_H] = layer.screen_height;
+                (*plane_props)[&plane->SRC_X] = fix(content.from_x);
+                (*plane_props)[&plane->SRC_Y] = fix(content.from_y);
+                (*plane_props)[&plane->SRC_W] = fix(content.from_width);
+                (*plane_props)[&plane->SRC_H] = fix(content.from_height);
+                (*plane_props)[&plane->CRTC_X] = content.to_x;
+                (*plane_props)[&plane->CRTC_Y] = content.to_y;
+                (*plane_props)[&plane->CRTC_W] = content.to_width;
+                (*plane_props)[&plane->CRTC_H] = content.to_height;
             }
         }
 
@@ -637,7 +637,7 @@ class DrmDriver : public DisplayDriver {
         crtc->used_by_conn = conn;
     }
 
-    virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) {
+    virtual std::optional<DisplayFrameStatus> is_frame_shown(uint32_t id) {
         auto* const conn = &connectors.at(id);
         log->trace("Checking {} completion...", conn->name);
 
@@ -649,18 +649,18 @@ class DrmDriver : public DisplayDriver {
             }
         }
 
-        DisplayUpdateDone done = {};
+        DisplayFrameStatus status = {};
         if (!conn->using_crtc) {
             log->trace("> (connector off, no update pending)");
         } else if (conn->using_crtc->active.writeback) {
-            done.writeback = conn->using_crtc->active.writeback->image;
+            status.writeback = conn->using_crtc->active.writeback->image;
             log->trace("> (update done with writeback)");
         } else {
             log->trace("> (update done)");
         }
 
-        done.update_time = conn->pageflip_time;
-        return done;
+        status.update_time = conn->pageflip_time;
+        return status;
     }
 
     void open(std::shared_ptr<UnixSystem> sys, std::string const& dev) {

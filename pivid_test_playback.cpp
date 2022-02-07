@@ -51,13 +51,13 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     return open_display_driver(sys, found);
 }
 
-DisplayConnectorStatus find_connector(
+DisplayStatus find_connector(
     std::unique_ptr<DisplayDriver> const& driver, std::string const& conn_arg
 ) {
     if (!driver) return {};
 
     fmt::print("=== Video display connectors ===\n");
-    DisplayConnectorStatus found = {};
+    DisplayStatus found = {};
     for (auto const& conn : driver->scan_connectors()) {
         if (found.name.empty() && conn.name.find(conn_arg) != std::string::npos)
             found = conn;
@@ -76,7 +76,7 @@ DisplayConnectorStatus find_connector(
 
 DisplayMode find_mode(
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayConnectorStatus const& conn,
+    DisplayStatus const& conn,
     std::string const& mode_arg
 ) {
     if (!driver || !conn.id) return {};
@@ -116,13 +116,13 @@ void play_video(
     std::unique_ptr<MediaDecoder> const& overlay,
     std::string const& tiff_arg,
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayConnectorStatus const& conn,
+    DisplayStatus const& conn,
     DisplayMode const& mode
 ) {
     using namespace std::chrono_literals;
     auto const log = main_logger();
 
-    std::vector<DisplayUpdateRequest::Layer> overlays;
+    std::vector<DisplayFrame::Content> overlays;
     if (overlay) {
         log->trace("Loading overlay image...");
         std::optional<MediaFrame> overlay_frame = overlay->next_frame();
@@ -130,15 +130,15 @@ void play_video(
             throw std::runtime_error("No frames in overlay media");
 
         for (auto const& image : overlay_frame->images) {
-            DisplayUpdateRequest::Layer layer = {};
-            layer.loaded_image = driver->load_image(image);
-            layer.source_width = image.width;
-            layer.source_height = image.height;
-            layer.screen_x = (mode.horiz.display - image.width) / 2;
-            layer.screen_y = (mode.vert.display - image.height) / 2;
-            layer.screen_width = image.width;
-            layer.screen_height = image.height;
-            overlays.push_back(std::move(layer));
+            DisplayFrame::Content content = {};
+            content.loaded_image = driver->load_image(image);
+            content.from_width = image.width;
+            content.from_height = image.height;
+            content.to_x = (mode.horiz.display - image.width) / 2;
+            content.to_y = (mode.vert.display - image.height) / 2;
+            content.to_width = image.width;
+            content.to_height = image.height;
+            overlays.push_back(std::move(content));
         }
     }
 
@@ -149,59 +149,59 @@ void play_video(
 
     log->trace("Getting first video frame...");
     while (decoder) {
-        auto const frame = decoder->next_frame();
-        if (!frame) break;
+        auto const media_frame = decoder->next_frame();
+        if (!media_frame) break;
 
         if (driver) {
-            DisplayUpdateRequest request;
-            request.connector_id = conn.id;
-            request.mode = mode;
+            DisplayFrame display_frame;
+            display_frame.connector_id = conn.id;
+            display_frame.mode = mode;
 
-            for (auto const& image : frame->images) {
-                DisplayUpdateRequest::Layer layer = {};
-                layer.loaded_image = driver->load_image(image);
-                layer.source_width = image.width;
-                layer.source_height = image.height;
-                layer.screen_width = mode.horiz.display;
-                layer.screen_height = mode.vert.display;
-                request.layers.push_back(std::move(layer));
+            for (auto const& image : media_frame->images) {
+                DisplayFrame::Content content = {};
+                content.loaded_image = driver->load_image(image);
+                content.from_width = image.width;
+                content.from_height = image.height;
+                content.to_width = mode.horiz.display;
+                content.to_height = mode.vert.display;
+                display_frame.contents.push_back(std::move(content));
             }
 
-            request.layers.insert(
-                request.layers.end(), overlays.begin(), overlays.end()
+            display_frame.contents.insert(
+                display_frame.contents.end(), overlays.begin(), overlays.end()
             );
 
-            while (!driver->is_update_done(conn.id)) {
+            while (!driver->is_frame_shown(conn.id)) {
                 log->trace("Sleeping for display ({})...", conn.name);
                 std::this_thread::sleep_for(0.001s);
             }
 
-            driver->request_update(request);
+            driver->show_frame(display_frame);
         }
 
         log->trace("Printing stats...");
         auto const wall = std::chrono::steady_clock::now();
         auto const dw = std::chrono::duration<double>(wall - last_wall).count();
-        auto const df = frame->time - last_frame;
+        auto const df = media_frame->time - last_frame;
         last_wall = wall;
-        last_frame = frame->time;
+        last_frame = media_frame->time;
         behind = std::max(0.0, behind + dw - df);
         fmt::print(
             "Frame {:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
-            dw * 1000, df * 1000, behind * 1000, debug(*frame)
+            dw * 1000, df * 1000, behind * 1000, debug(*media_frame)
         );
 
         if (!tiff_arg.empty()) {
             auto dot_pos = tiff_arg.rfind('.');
             if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
-            for (size_t i = 0; i < frame->images.size(); ++i) {
+            for (size_t i = 0; i < media_frame->images.size(); ++i) {
                 log->trace("Encoding TIFF...");
                 auto path = tiff_arg.substr(0, dot_pos);
                 path += fmt::format(".F{:05d}", frame_index);
-                if (frame->images.size() > 1)
+                if (media_frame->images.size() > 1)
                     path += fmt::format(".I{}", i);
                 path += tiff_arg.substr(dot_pos);
-                auto tiff = debug_tiff(frame->images[i]);
+                auto tiff = debug_tiff(media_frame->images[i]);
 
                 log->trace("Writing TIFF...");
                 std::ofstream ofs;
@@ -216,7 +216,7 @@ void play_video(
         log->trace("Getting next video frame (#{})...", frame_index);
     }
 
-    while (driver && !driver->is_update_done(conn.id)) {
+    while (driver && !driver->is_frame_shown(conn.id)) {
         log->trace("Sleeping for final display ({})...", conn.name);
         std::this_thread::sleep_for(0.005s);
     }
