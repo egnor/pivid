@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cmath>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <system_error>
@@ -194,6 +195,7 @@ class DrmDumbBuffer : public MemoryBuffer {
     virtual size_t size() const { return ddat.size; }
 
     virtual uint8_t const* read() {
+        std::lock_guard const lock{mem_mutex};
         if (!mem) {
             drm_mode_map_dumb mdat = {};
             mdat.handle = ddat.handle;
@@ -213,6 +215,7 @@ class DrmDumbBuffer : public MemoryBuffer {
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_create_dumb ddat = {};
     std::shared_ptr<void> mem;
+    std::mutex mem_mutex;
 
     DrmDumbBuffer(DrmDumbBuffer const&) = delete;
     DrmDumbBuffer& operator=(DrmDumbBuffer const&) = delete;
@@ -478,6 +481,7 @@ class DrmDriver : public DisplayDriver {
         auto* const conn = &connectors.at(request.connector_id);
         log->trace("Starting {} update...", conn->name);
 
+        std::lock_guard const lock{mutex};
         auto* crtc = conn->using_crtc;
         if (crtc && crtc->pending_flip)
             throw std::invalid_argument("Update requested before prev done");
@@ -641,8 +645,9 @@ class DrmDriver : public DisplayDriver {
         auto* const conn = &connectors.at(id);
         log->trace("Checking {} completion...", conn->name);
 
+        std::lock_guard const lock{mutex};
         if (conn->using_crtc && conn->using_crtc->pending_flip) {
-            process_events();
+            process_events(lock);
             if (conn->using_crtc && conn->using_crtc->pending_flip) {
                 log->trace("> (previous update incomplete)");
                 return {};
@@ -695,7 +700,7 @@ class DrmDriver : public DisplayDriver {
 
             auto* crtc = &crtcs[crtc_id];
             crtc->id = crtc_id;
-            require_prop_ids(crtc_id, &crtc->prop_ids);
+            lookup_required_prop_ids(crtc_id, &crtc->prop_ids);
             if (ccdat.mode_valid)  // Round-trip to ensure struct memcmp().
                 crtc->active.mode = mode_to_drm(mode_from_drm(ccdat.mode));
         }
@@ -713,7 +718,7 @@ class DrmDriver : public DisplayDriver {
 
             auto* conn = &connectors[conn_id];
             conn->id = conn_id;
-            require_prop_ids(conn_id, &conn->prop_ids);
+            lookup_required_prop_ids(conn_id, &conn->prop_ids);
             lookup_prop_ids(conn_id, &conn->opt_ids);
             switch (cdat.connector_type) {
 #define T(x) case DRM_MODE_CONNECTOR_##x: conn->name = #x; break
@@ -769,7 +774,7 @@ class DrmDriver : public DisplayDriver {
 
             auto* plane = &planes[plane_id];
             plane->id = plane_id;
-            require_prop_ids(plane_id, &plane->prop_ids);
+            lookup_required_prop_ids(plane_id, &plane->prop_ids);
             for (size_t i = 0; i < crtc_ids.size(); ++i) {
                 if (pdat.possible_crtcs & (1 << i))
                     crtcs[crtc_ids[i]].usable_planes.push_back(plane);
@@ -810,6 +815,7 @@ class DrmDriver : public DisplayDriver {
 
     struct Crtc;
     struct Plane {
+        // These members are constant after setup
         uint32_t id = 0;
         std::set<uint32_t> formats;
         PropId::Map prop_ids;
@@ -826,6 +832,7 @@ class DrmDriver : public DisplayDriver {
         PropId SRC_H{"SRC_H", &prop_ids};
         PropId type{"type", &prop_ids};
 
+        // This member is guarded by the DrmDriver mutex
         Crtc* used_by_crtc = nullptr;
     };
 
@@ -838,18 +845,21 @@ class DrmDriver : public DisplayDriver {
             std::optional<Writeback> writeback;
         };
 
+        // These members are constant after setup
         uint32_t id = 0;
         std::vector<Plane*> usable_planes;
         PropId::Map prop_ids;
         PropId ACTIVE{"ACTIVE", &prop_ids};
         PropId MODE_ID{"MODE_ID", &prop_ids};
 
+        // These members are guarded by the DrmDriver mutex
         Connector* used_by_conn = nullptr;
         State active;
         std::optional<State> pending_flip;
     };
 
     struct Connector {
+        // These members are constant after setup
         uint32_t id = 0;
         std::string name;
         std::vector<Crtc*> usable_crtcs;
@@ -858,19 +868,23 @@ class DrmDriver : public DisplayDriver {
         PropId WRITEBACK_FB_ID{"WRITEBACK_FB_ID", &opt_ids};
         PropId WRITEBACK_OUT_FENCE_PTR{"WRITEBACK_OUT_FENCE_PTR", &opt_ids};
 
+        // These members are guarded by DrmDriver mutex
         Crtc* using_crtc = nullptr;
         std::chrono::steady_clock::time_point pageflip_time;
     };
 
+    // These containers are constant after startup (contained objects change)
     std::shared_ptr<spdlog::logger> const log = display_logger();
     std::shared_ptr<UnixSystem> sys;
     std::shared_ptr<FileDescriptor> fd;
+
+    std::mutex mutex;  // Guard for dynamic properties of objects below
     std::map<uint32_t, Plane> planes;
     std::map<uint32_t, Crtc> crtcs;
     std::map<uint32_t, Connector> connectors;
     std::map<uint32_t, std::string> prop_names;
 
-    void process_events() {
+    void process_events(std::lock_guard<std::mutex> const&) {
         log->trace("Checking for DRM events...");
         drm_event_vblank ev = {};
         for (;;) {
@@ -931,7 +945,7 @@ class DrmDriver : public DisplayDriver {
         }
     }
 
-    void require_prop_ids(uint32_t obj_id, PropId::Map* map) {
+    void lookup_required_prop_ids(uint32_t obj_id, PropId::Map* map) {
         lookup_prop_ids(obj_id, map);
         for (auto const name_propid : *map) {
             if (name_propid.second->prop_id) continue;

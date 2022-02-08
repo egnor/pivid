@@ -36,6 +36,7 @@ struct [[nodiscard]] ErrnoOr {
 // Interface to the operations on a Unix file descriptor.
 // The functions manage retry on EINTR, and return ErrnoOr values.
 // Returned by UnixSystem::open() and UnixSystem::adopt().
+// *Internally synchronized* (by the OS, mainly) for multithreaded access.
 class FileDescriptor {
   public:
     virtual ~FileDescriptor() = default;
@@ -71,6 +72,7 @@ class FileDescriptor {
 
 // Interface to the Unix system.
 // A singleton (returned by global_system()) unless replaced by a mock.
+// *Internally synchronized* (by the OS, mainly) for multithreaded access.
 class UnixSystem {
   public:
     virtual ~UnixSystem() = default;

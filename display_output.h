@@ -66,6 +66,7 @@ struct DisplayFrameStatus {
 
 // Interface to a GPU device. Normally one per system, handling all outputs.
 // Returned by open_display_driver().
+// *Internally synchronized* for multithreaded access.
 class DisplayDriver {
   public:
     virtual ~DisplayDriver() = default;
@@ -100,8 +101,8 @@ std::vector<DisplayDriverListing> list_display_drivers(
 );
 
 // Opens a GPU device for use, given dev_file from DisplayDriverListing.
-// Only one process on the system can do this at a time.
 // (The screen must be on a text console, not a desktop environment.)
+// Each GPU may be opened *once* at a time across the *entire system*.
 std::unique_ptr<DisplayDriver> open_display_driver(
     std::shared_ptr<UnixSystem> sys, std::string const& dev_file
 );
