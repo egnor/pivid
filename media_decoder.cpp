@@ -426,7 +426,7 @@ class LibavMediaDecoder : public MediaDecoder {
 
 }  // anonymous namespace
 
-std::unique_ptr<MediaDecoder> new_media_decoder(const std::string& filename) {
+std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
     auto decoder = std::make_unique<LibavMediaDecoder>();
     decoder->init(filename);
     return decoder;

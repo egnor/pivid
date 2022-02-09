@@ -37,7 +37,7 @@ struct MediaFrame {
 };
 
 // Interface to a media codec to read media (video/image) files.
-// Returned by new_media_decoder() for a media file.
+// Returned by open_media_decoder() for a media file.
 class MediaDecoder {
   public:
     virtual ~MediaDecoder() = default;
@@ -50,7 +50,7 @@ class MediaDecoder {
 };
 
 // Opens a media (video/image) file and returns a decoder to access it.
-std::unique_ptr<MediaDecoder> new_media_decoder(std::string const& filename);
+std::unique_ptr<MediaDecoder> open_media_decoder(std::string const& filename);
 
 // Encodes a TIFF blob (suitable for writing to a file) for debugging images.
 std::vector<uint8_t> debug_tiff(ImageBuffer const&);

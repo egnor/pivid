@@ -108,7 +108,7 @@ std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
     if (media_arg.empty()) return {};
 
     fmt::print("=== Playing media ({}) ===\n", media_arg);
-    auto decoder = new_media_decoder(media_arg);
+    auto decoder = open_media_decoder(media_arg);
     return decoder;
 }
 
