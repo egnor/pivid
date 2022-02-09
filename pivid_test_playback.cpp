@@ -7,6 +7,7 @@
 #include <CLI/App.hpp>
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
+#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 extern "C" {
@@ -122,29 +123,29 @@ void play_video(
     using namespace std::chrono_literals;
     auto const log = main_logger();
 
-    std::vector<DisplayFrame::Content> overlays;
+    std::vector<DisplayImage> overlays;
     if (overlay) {
         log->trace("Loading overlay image...");
         std::optional<MediaFrame> overlay_frame = overlay->next_frame();
         if (!overlay_frame)
             throw std::runtime_error("No frames in overlay media");
 
-        for (auto const& image : overlay_frame->images) {
-            DisplayFrame::Content content = {};
-            content.loaded_image = driver->load_image(image);
-            content.from_width = image.width;
-            content.from_height = image.height;
-            content.to_x = (mode.horiz.display - image.width) / 2;
-            content.to_y = (mode.vert.display - image.height) / 2;
-            content.to_width = image.width;
-            content.to_height = image.height;
-            overlays.push_back(std::move(content));
+        for (auto const& media_image : overlay_frame->images) {
+            DisplayImage display_image = {};
+            display_image.loaded_image = driver->load_image(media_image);
+            display_image.from_width = media_image.width;
+            display_image.from_height = media_image.height;
+            display_image.to_x = (mode.horiz.display - media_image.width) / 2;
+            display_image.to_y = (mode.vert.display - media_image.height) / 2;
+            display_image.to_width = media_image.width;
+            display_image.to_height = media_image.height;
+            overlays.push_back(std::move(display_image));
         }
     }
 
     auto last_wall = std::chrono::steady_clock::now();
-    double last_frame = 0.0;
-    double behind = 0.0;
+    std::chrono::duration<double> last_frame{0.0};
+    std::chrono::duration<double> lag{0.0};
     int frame_index = 0;
 
     log->trace("Getting first video frame...");
@@ -153,42 +154,43 @@ void play_video(
         if (!media_frame) break;
 
         if (driver) {
-            DisplayFrame display_frame;
-            display_frame.connector_id = conn.id;
-            display_frame.mode = mode;
-
-            for (auto const& image : media_frame->images) {
-                DisplayFrame::Content content = {};
-                content.loaded_image = driver->load_image(image);
-                content.from_width = image.width;
-                content.from_height = image.height;
-                content.to_width = mode.horiz.display;
-                content.to_height = mode.vert.display;
-                display_frame.contents.push_back(std::move(content));
+            std::vector<DisplayImage> display_images;
+            for (auto const& media_image : media_frame->images) {
+                DisplayImage display_image = {};
+                display_image.loaded_image = driver->load_image(media_image);
+                display_image.from_width = media_image.width;
+                display_image.from_height = media_image.height;
+                display_image.to_width = mode.horiz.display;
+                display_image.to_height = mode.vert.display;
+                display_images.push_back(std::move(display_image));
             }
 
-            display_frame.contents.insert(
-                display_frame.contents.end(), overlays.begin(), overlays.end()
+            display_images.insert(
+                display_images.end(), overlays.begin(), overlays.end()
             );
 
-            while (!driver->is_frame_shown(conn.id)) {
+            while (!driver->update_done_yet(conn.id)) {
                 log->trace("Sleeping for display ({})...", conn.name);
                 std::this_thread::sleep_for(0.001s);
             }
 
-            driver->show_frame(display_frame);
+            driver->update(conn.id, mode, display_images);
         }
 
         log->trace("Printing stats...");
         auto const wall = std::chrono::steady_clock::now();
-        auto const dw = std::chrono::duration<double>(wall - last_wall).count();
+        auto const dw = std::chrono::duration<double>(wall - last_wall);
         auto const df = media_frame->time - last_frame;
         last_wall = wall;
         last_frame = media_frame->time;
-        behind = std::max(0.0, behind + dw - df);
+        lag = std::max({}, lag + dw - df);
+
         fmt::print(
-            "Frame {:>3.0f}/{:.0f}ms {:>3.0f}beh {}\n",
-            dw * 1000, df * 1000, behind * 1000, debug(*media_frame)
+            "Frame {:>3}/{}ms {:>3}lag {}\n",
+            std::chrono::duration_cast<std::chrono::milliseconds>(dw).count(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(df).count(),
+            std::chrono::duration_cast<std::chrono::milliseconds>(lag).count(),
+            debug(*media_frame)
         );
 
         if (!tiff_arg.empty()) {
@@ -216,7 +218,7 @@ void play_video(
         log->trace("Getting next video frame (#{})...", frame_index);
     }
 
-    while (driver && !driver->is_frame_shown(conn.id)) {
+    while (driver && !driver->update_done_yet(conn.id)) {
         log->trace("Sleeping for final display ({})...", conn.name);
         std::this_thread::sleep_for(0.005s);
     }

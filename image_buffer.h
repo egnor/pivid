@@ -1,3 +1,5 @@
+// Data structures for in-memory buffered images.
+
 #pragma once
 
 #include <compare>

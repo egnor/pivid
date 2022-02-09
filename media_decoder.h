@@ -1,7 +1,8 @@
-// Interfaces used to read and uncompress media (video/image) files.
+// Interfaces to read and uncompress media (video/image) files.
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,20 +20,20 @@ struct MediaInfo {
     std::string codec_name;            // Like "h264_v4l2m2m"
     std::string pixel_format;          // Like "drm_prime" or "RGBA"
     std::optional<int> width, height;  // Frame image size, if known
-    std::optional<double> duration;    // Video duration, if known
     std::optional<double> frame_rate;  // Video frames/second, if known
     std::optional<int64_t> bit_rate;   // Compressed video bits/sec, if known
+    std::optional<std::chrono::duration<double>> duration;  // Length, if known
 };
 
 // Uncompressed frame from a video. (Still images appear as one-frame videos.)
 // Most codecs return a single image per frame, some return multiple image
 // layers (all the same size) which should be composited for output.
 struct MediaFrame {
-    double time = 0;                  // Time into the video, in seconds
-    std::vector<ImageBuffer> images;  // Image layers (usually only one)
-    std::string_view frame_type;      // "B", "I", "P" etc for debugging
-    bool is_key_frame = false;        // True if the frame can be seeked to
-    bool is_corrupt = false;          // True if the codec had an error
+    std::chrono::duration<double> time;  // Time into the video, in seconds
+    std::vector<ImageBuffer> images;     // Image layers (usually only one)
+    std::string_view frame_type;         // "B", "I", "P" etc for debugging
+    bool is_key_frame = false;           // True if the frame can be seeked to
+    bool is_corrupt = false;             // True if the codec had an error
 };
 
 // Interface to a media codec to read media (video/image) files.

@@ -1,4 +1,4 @@
-// Interfaces used to display and overlay images on-screen.
+// Interfaces to display and overlay images on-screen.
 
 #pragma once
 
@@ -42,25 +42,17 @@ struct DisplayStatus {
     std::vector<DisplayMode> display_modes;  // First mode is the "best".
 };
 
-// Update parameters to define a connector's video mode & screen contents.
-// Passed to show_frame(), where it takes effect at the next vsync.
-// All images on screen must be given every time (they are not "sticky"). 
-struct DisplayFrame {
-    // One image (or portion thereof) and its placement on screen.
-    struct Content {
-        std::shared_ptr<uint32_t const> loaded_image;  // From load_image()
-        double from_x = 0, from_y = 0, from_width = 0, from_height = 0;
-        int to_x = 0, to_y = 0, to_width = 0, to_height = 0;
-    };
-
-    uint32_t connector_id;          // From DisplayStatus::id
-    DisplayMode mode;               // From DisplayStatus::display_modes
-    std::vector<Content> contents;  // Image layers in bottom to top Z-order
+// Where one image (or a portion thereof) should be shown on screen
+struct DisplayImage {
+    std::shared_ptr<uint32_t const> loaded_image;  // From load_image()
+    double from_x = 0, from_y = 0, from_width = 0, from_height = 0;
+    int to_x = 0, to_y = 0, to_width = 0, to_height = 0;
+    // TODO: Transparency, rotation?
 };
 
 // Returned by DisplayDriver::is_frame_shown() after a frame has become visible.
-struct DisplayFrameStatus {
-    std::chrono::steady_clock::time_point update_time;  // Time of vsync flip
+struct DisplayUpdateDone {
+    std::chrono::steady_clock::time_point time;  // Time of vsync flip
     std::optional<ImageBuffer> writeback;  // Output for WRITEBACK-* connectors
 };
 
@@ -77,12 +69,16 @@ class DisplayDriver {
     // Imports an image into the GPU for use in DisplayUpdateRequest.
     virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer) = 0;
 
-    // Updates a connector's video mode & screen contents at the next vsync.
-    // Do not call again until the update completes (per is_frame_shown()).
-    virtual void show_frame(DisplayFrame const&) = 0;
+    // Updates a connector's screen contents &/or video mode at the next vsync.
+    // Do not call again until the update completes (per update_done_yet()).
+    virtual void update(
+        uint32_t connector_id,
+        DisplayMode const& mode,
+        std::vector<DisplayImage> const& images  // Z-order, back to front
+    ) = 0;
 
-    // Returns {} if an update is pending, otherwise returns update status.
-    virtual std::optional<DisplayFrameStatus> is_frame_shown(uint32_t id) = 0;
+    // Returns {} if an update is still pending, otherwise returns status.
+    virtual std::optional<DisplayUpdateDone> update_done_yet(uint32_t id) = 0;
 };
 
 // Description of a GPU device. Returned by list_device_drivers().
