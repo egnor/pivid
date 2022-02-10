@@ -498,7 +498,8 @@ class DrmDriver : public DisplayDriver {
         if (!crtc) {
             for (auto* const c : conn->usable_crtcs) {
                 if (c->used_by_conn) continue;
-                assert(!c->pending_flip);
+                if (c->pending_flip)
+                    throw std::logic_error("CRTC flip pending without conn");
                 crtc = c;
                 break;
             }
@@ -644,6 +645,12 @@ class DrmDriver : public DisplayDriver {
         ret.ex("DRM atomic update");
         logger->debug("{} update committed", conn->name);
         crtc->pending_flip.emplace(std::move(next));
+        for (auto* plane : crtc->pending_flip->using_planes) {
+            if (plane->used_by_crtc != crtc && plane->used_by_crtc != nullptr)
+                throw std::logic_error("Inconsistent CRTC/plane usage");
+            plane->used_by_crtc = crtc;
+        }
+
         conn->using_crtc = crtc;
         crtc->used_by_conn = conn;
     }
@@ -822,7 +829,7 @@ class DrmDriver : public DisplayDriver {
 
     struct Crtc;
     struct Plane {
-        // These members are constant after setup
+        // Constant after setup
         uint32_t id = 0;
         std::set<uint32_t> formats;
         PropId::Map prop_ids;
@@ -839,7 +846,7 @@ class DrmDriver : public DisplayDriver {
         PropId SRC_H{"SRC_H", &prop_ids};
         PropId type{"type", &prop_ids};
 
-        // This member is guarded by the DrmDriver mutex
+        // Guarded by DrmDriver::mutex
         Crtc* used_by_crtc = nullptr;
     };
 
@@ -852,21 +859,21 @@ class DrmDriver : public DisplayDriver {
             std::optional<Writeback> writeback;
         };
 
-        // These members are constant after setup
+        // Constant after setup
         uint32_t id = 0;
         std::vector<Plane*> usable_planes;
         PropId::Map prop_ids;
         PropId ACTIVE{"ACTIVE", &prop_ids};
         PropId MODE_ID{"MODE_ID", &prop_ids};
 
-        // These members are guarded by the DrmDriver mutex
+        // Guarded by DrmDriver::mutex
         Connector* used_by_conn = nullptr;
         State active;
         std::optional<State> pending_flip;
     };
 
     struct Connector {
-        // These members are constant after setup
+        // Constant after setup
         uint32_t id = 0;
         std::string name;
         std::vector<Crtc*> usable_crtcs;
@@ -875,7 +882,7 @@ class DrmDriver : public DisplayDriver {
         PropId WRITEBACK_FB_ID{"WRITEBACK_FB_ID", &opt_ids};
         PropId WRITEBACK_OUT_FENCE_PTR{"WRITEBACK_OUT_FENCE_PTR", &opt_ids};
 
-        // These members are guarded by DrmDriver mutex
+        // Guarded by DrmDriver::mutex
         Crtc* using_crtc = nullptr;
         std::chrono::steady_clock::time_point pageflip_time;
     };
@@ -909,14 +916,14 @@ class DrmDriver : public DisplayDriver {
             }
 
             auto* const crtc = &crtcs.at(ev.crtc_id);
-            if (!crtc->pending_flip) {
+            if (!crtc->pending_flip || !crtc->used_by_conn) {
                 throw std::runtime_error(
                     fmt::format("Unexpected DRM CRTC pageflip ({})", crtc->id)
                 );
             }
 
             auto* conn = crtc->used_by_conn;
-            assert(conn);
+            if (!conn) throw std::logic_error("Pending CRTC flip without conn");
 
             // TODO: Check for writeback fence, once it works
             // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
@@ -932,19 +939,21 @@ class DrmDriver : public DisplayDriver {
             }
 
             if (!crtc->pending_flip->mode.vrefresh) {
-                assert(conn->using_crtc == crtc);
+                if (conn->using_crtc != crtc)
+                    throw std::logic_error("Inconsistent conn/CRTC usage");
                 conn->using_crtc = nullptr;
                 crtc->used_by_conn = nullptr;
             }
 
-            for (auto* plane : crtc->active.using_planes) {
-                assert(plane->used_by_crtc == crtc);
-                plane->used_by_crtc = nullptr;
+            for (auto* plane : crtc->pending_flip->using_planes) {
+                if (plane->used_by_crtc != crtc)
+                    throw std::logic_error("Inconsistent CRTC/plane usage");
             }
 
-            for (auto* plane : crtc->pending_flip->using_planes) {
-                assert(plane->used_by_crtc == nullptr);
-                plane->used_by_crtc = crtc;
+            for (auto* plane : crtc->active.using_planes) {
+                if (plane->used_by_crtc != crtc)
+                    throw std::logic_error("Inconsistent CRTC/plane usage");
+                plane->used_by_crtc = nullptr;
             }
 
             crtc->active = std::move(*crtc->pending_flip);
@@ -975,7 +984,9 @@ class DrmDriver : public DisplayDriver {
             size_vec(&odat.prop_values_ptr, &odat.count_props, &values)
         );
 
-        assert(prop_ids.size() == values.size());
+        if (prop_ids.size() != values.size())
+            throw std::runtime_error("Property list length mismatch");
+
         for (size_t i = 0; i < prop_ids.size(); ++i) {
             auto const prop_id = prop_ids[i];
             auto id_name_iter = prop_names.find(prop_id);
