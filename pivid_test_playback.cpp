@@ -52,13 +52,13 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     return open_display_driver(sys, found);
 }
 
-DisplayStatus find_connector(
+DisplayConnector find_connector(
     std::unique_ptr<DisplayDriver> const& driver, std::string const& conn_arg
 ) {
     if (!driver) return {};
 
     fmt::print("=== Video display connectors ===\n");
-    DisplayStatus found = {};
+    DisplayConnector found = {};
     for (auto const& conn : driver->scan_connectors()) {
         if (found.name.empty() && conn.name.find(conn_arg) != std::string::npos)
             found = conn;
@@ -77,7 +77,7 @@ DisplayStatus find_connector(
 
 DisplayMode find_mode(
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayStatus const& conn,
+    DisplayConnector const& conn,
     std::string const& mode_arg
 ) {
     if (!driver || !conn.id) return {};
@@ -85,7 +85,7 @@ DisplayMode find_mode(
     fmt::print("=== Video modes ===\n");
     std::set<std::string> seen;
     DisplayMode found = mode_arg.empty() ? conn.active_mode : DisplayMode{};
-    for (auto const& mode : conn.display_modes) {
+    for (auto const& mode : conn.modes) {
         std::string const mode_str = debug(mode);
         if (found.name.empty() && mode_str.find(mode_arg) != std::string::npos)
             found = mode;
@@ -117,7 +117,7 @@ void play_video(
     std::unique_ptr<MediaDecoder> const& overlay,
     std::string const& tiff_arg,
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayStatus const& conn,
+    DisplayConnector const& conn,
     DisplayMode const& mode
 ) {
     using namespace std::chrono_literals;

@@ -34,12 +34,12 @@ struct DisplayMode {
 
 // Current connector state and recommended modes based on monitor data (EDID).
 // Returned by scan_connectors().
-struct DisplayStatus {
+struct DisplayConnector {
     uint32_t id = 0;
     std::string name;               // Like "HDMI-1"
     bool display_detected = false;  // True if a monitor is connected
     DisplayMode active_mode;
-    std::vector<DisplayMode> display_modes;  // First mode is the "best".
+    std::vector<DisplayMode> modes;  // First mode is the "best".
 };
 
 // Where one image (or a portion thereof) should be shown on screen
@@ -53,7 +53,7 @@ struct DisplayImage {
 // Returned by DisplayDriver::is_frame_shown() after a frame has become visible.
 struct DisplayUpdateDone {
     std::chrono::steady_clock::time_point time;  // Time of vsync flip
-    std::optional<ImageBuffer> writeback;  // Output for WRITEBACK-* connectors
+    std::optional<ImageBuffer> writeback;  // Output for writeback connectors
 };
 
 // Interface to a GPU device. Normally one per system, handling all outputs.
@@ -64,7 +64,7 @@ class DisplayDriver {
     virtual ~DisplayDriver() = default;
 
     // Returns the ID, name, and current status of all connectors.
-    virtual std::vector<DisplayStatus> scan_connectors() = 0;
+    virtual std::vector<DisplayConnector> scan_connectors() = 0;
 
     // Imports an image into the GPU for use in DisplayUpdateRequest.
     virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer) = 0;

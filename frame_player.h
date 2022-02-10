@@ -28,11 +28,13 @@ class FramePlayer {
     // is limited to a short near-term buffer and periodically refreshed.
     virtual void set_frames(std::vector<TimedFrame> frames) = 0;
 
-    // Returns the vector index [0,frames.size()] of the first unshown frame.
-    virtual int next_index() const = 0;
-
     // Returns timestamp and status of the last frame shown on the screen.
     virtual std::optional<TimedFrameDone> last_shown() const = 0;
+
+    // Returns the vector index [0,frames.size()] of the first unshown frame.
+    virtual int next_index() const = 0;
 };
+
+std::unique_ptr<FramePlayer> start_frame_player(DisplayDriver*, DisplayMode);
 
 }  // namespace pivid

@@ -312,9 +312,9 @@ class DrmDriver : public DisplayDriver {
   public:
     DrmDriver() {}
 
-    virtual std::vector<DisplayStatus> scan_connectors() {
+    virtual std::vector<DisplayConnector> scan_connectors() {
         logger->trace("Scanning connectors...");
-        std::vector<DisplayStatus> out;
+        std::vector<DisplayConnector> out;
         for (auto const& id_conn : connectors) {
             drm_mode_get_connector cdat = {};
             cdat.connector_id = id_conn.first;
@@ -324,14 +324,14 @@ class DrmDriver : public DisplayDriver {
                 fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
             } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
 
-            DisplayStatus status = {};
-            status.id = id_conn.first;
-            status.name = id_conn.second.name;
-            status.display_detected = (cdat.connection == 1);
+            DisplayConnector connector = {};
+            connector.id = id_conn.first;
+            connector.name = id_conn.second.name;
+            connector.display_detected = (cdat.connection == 1);
 
             for (auto const& mode : modes) {
                 if (!(mode.flags & DRM_MODE_FLAG_3D_MASK))
-                    status.display_modes.push_back(mode_from_drm(mode));
+                    connector.modes.push_back(mode_from_drm(mode));
             }
 
             if (cdat.encoder_id) {
@@ -341,11 +341,11 @@ class DrmDriver : public DisplayDriver {
                 if (edat.crtc_id) {
                     // We are DRM master, so assume no sneaky mode changes.
                     auto const& drm_mode = crtcs.at(edat.crtc_id).active.mode;
-                    status.active_mode = mode_from_drm(drm_mode);
+                    connector.active_mode = mode_from_drm(drm_mode);
                 }
             }
 
-            out.push_back(std::move(status));
+            out.push_back(std::move(connector));
         }
         logger->debug("Found {} display connectors", out.size());
         return out;
