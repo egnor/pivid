@@ -176,8 +176,10 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 }
 
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, double time_base) {
+    uint64_t const millis = frame->pts * time_base * 1e3;
+
     MediaFrame out = {};
-    out.time = std::chrono::duration<double>(frame->pts * time_base);
+    out.time = std::chrono::milliseconds(millis);
     out.is_corrupt = (frame->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = frame->key_frame;
     switch (frame->pict_type) {
@@ -373,13 +375,13 @@ class LibavMediaDecoder : public MediaDecoder {
             media_info.height = codec_context->height;
         }
 
-        double seconds = 0;
+        int64_t millis = 0;
         if (stream->duration > 0) {
-            seconds = stream->duration * time_base;
+            millis = stream->duration * time_base * 1e3;
         } else if (format_context->duration > 0) {
-            seconds = format_context->duration * 1.0 / AV_TIME_BASE;
+            millis = format_context->duration * 1e3 / AV_TIME_BASE;
         }
-        media_info.duration = std::chrono::duration<double>(seconds);
+        media_info.duration = std::chrono::milliseconds(millis);
 
         if (stream->avg_frame_rate.num > 0)
             media_info.frame_rate = av_q2d(stream->avg_frame_rate);
@@ -508,13 +510,13 @@ std::string debug(MediaInfo const& i) {
 
     if (i.width && i.height) out += fmt::format(" {}x{}", *i.width, *i.height);
     if (i.frame_rate) out += fmt::format(" @{:.2f}fps", *i.frame_rate);
-    if (i.duration) out += fmt::format(" {:.1}", *i.duration);
+    if (i.duration) out += fmt::format(" {}", *i.duration);
     if (i.bit_rate) out += fmt::format(" {:.3f}Mbps", *i.bit_rate * 1e-6);
     return out;
 }
 
 std::string debug(MediaFrame const& f) {
-    auto out = fmt::format("{:5.3}", f.time);
+    auto out = fmt::format("{:5}", f.time);
     if (!f.frame_type.empty())
         out += fmt::format(" {:<2s}", f.frame_type);
     for (size_t l = 0; l < f.images.size(); ++l)

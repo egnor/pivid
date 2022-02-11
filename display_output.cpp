@@ -1,7 +1,5 @@
 #include "display_output.h"
 
-#undef NDEBUG
-#include <assert.h>
 #include <drm/drm.h>
 #include <drm_fourcc.h>
 #include <errno.h>
@@ -683,6 +681,7 @@ class DrmDriver : public DisplayDriver {
     }
 
     void open(std::shared_ptr<UnixSystem> sys, std::string const& dev) {
+        logger->info("Opening display \"{}\"...", dev);
         this->sys = std::move(sys);
         fd = this->sys->open(dev.c_str(), O_RDWR | O_NONBLOCK).ex(dev);
         fd->ioc<DRM_IOCTL_SET_MASTER>().ex("Become DRM master");
@@ -811,6 +810,11 @@ class DrmDriver : public DisplayDriver {
                 }
             }
         }
+
+        logger->debug(
+            "> opened fd={}: {} planes, {} crtcs, {} connectors",
+            fd->raw_fd(), planes.size(), crtcs.size(), connectors.size()
+        );
     }
 
   private:
@@ -829,7 +833,7 @@ class DrmDriver : public DisplayDriver {
 
     struct Crtc;
     struct Plane {
-        // Constant after setup
+        // Constant from setup to ~
         uint32_t id = 0;
         std::set<uint32_t> formats;
         PropId::Map prop_ids;
@@ -859,7 +863,7 @@ class DrmDriver : public DisplayDriver {
             std::optional<Writeback> writeback;
         };
 
-        // Constant after setup
+        // Constant from setup to ~
         uint32_t id = 0;
         std::vector<Plane*> usable_planes;
         PropId::Map prop_ids;
@@ -873,7 +877,7 @@ class DrmDriver : public DisplayDriver {
     };
 
     struct Connector {
-        // Constant after setup
+        // Constant from setup to ~
         uint32_t id = 0;
         std::string name;
         std::vector<Crtc*> usable_crtcs;
@@ -1034,7 +1038,6 @@ std::vector<DisplayDriverListing> list_display_drivers(
     std::shared_ptr<UnixSystem> const& sys
 ) {
     std::vector<DisplayDriverListing> out;
-
     std::string const dri_dir = "/dev/dri";
     for (auto const& fname : sys->list(dri_dir).ex(dri_dir)) {
         if (fname.substr(0, 4) != "card" || !isdigit(fname[4])) continue;

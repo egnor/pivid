@@ -15,6 +15,7 @@ extern "C" {
 }
 
 #include "display_output.h"
+#include "frame_player.h"
 #include "logging_policy.h"
 #include "media_decoder.h"
 
@@ -31,7 +32,7 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     if (dev_arg == "none" || dev_arg == "/dev/null") return {};
 
     fmt::print("=== Video drivers ===\n");
-    auto sys = global_system();
+    auto const sys = global_system();
     std::string found;
     for (auto const& d : list_display_drivers(sys)) {
         if (
@@ -121,11 +122,12 @@ void play_video(
     DisplayMode const& mode
 ) {
     using namespace std::chrono_literals;
-    auto const log = main_logger();
+    auto const logger = main_logger();
+    auto const sys = global_system();
 
     std::vector<DisplayImage> overlays;
     if (overlay) {
-        log->trace("Loading overlay image...");
+        logger->trace("Loading overlay image...");
         std::optional<MediaFrame> overlay_frame = overlay->next_frame();
         if (!overlay_frame)
             throw std::runtime_error("No frames in overlay media");
@@ -143,17 +145,31 @@ void play_video(
         }
     }
 
-    auto last_wall = std::chrono::steady_clock::now();
-    std::chrono::duration<double> last_frame{0.0};
-    std::chrono::duration<double> lag{0.0};
-    int frame_index = 0;
+    FramePlayer::Timeline timeline;
+    std::unique_ptr<FramePlayer> player;
+    if (driver)
+        player = start_frame_player(sys, driver.get(), conn.id, mode);
 
-    log->trace("Getting first video frame...");
+    int frame_index = 0;
+    auto const start_time = sys->steady_time();
+    logger->debug("Play start @ {:.3f}", start_time.time_since_epoch() / 1.0s);
+    logger->trace("Getting first video frame...");
     while (decoder) {
+        if (player) {
+            auto const last_shown = player->last_shown();
+            while (!timeline.empty() && timeline.begin()->first < last_shown)
+                timeline.erase(timeline.begin());
+            if (timeline.size() >= 10) {
+                logger->trace("> (sleeping for playback...)");
+                sys->wait_until(sys->steady_time() + 50ms);
+                continue;
+            }
+        }
+
         auto const media_frame = decoder->next_frame();
         if (!media_frame) break;
 
-        if (driver) {
+        if (player) {
             std::vector<DisplayImage> display_images;
             for (auto const& media_image : media_frame->images) {
                 DisplayImage display_image = {};
@@ -169,35 +185,26 @@ void play_video(
                 display_images.end(), overlays.begin(), overlays.end()
             );
 
-            while (!driver->update_done_yet(conn.id)) {
-                log->trace("Sleeping for display ({})...", conn.name);
-                std::this_thread::sleep_for(0.001s);
+            auto const play_time = start_time + media_frame->time;
+            timeline[play_time] = display_images;
+            if (logger->should_log(log_level::debug)) {
+                logger->debug(
+                    "Adding frame @ {:.3f}",
+                    play_time.time_since_epoch() / 1.0s
+                );
             }
 
-            driver->update(conn.id, mode, display_images);
+            player->set_timeline(timeline);
         }
 
-        log->trace("Printing stats...");
-        auto const wall = std::chrono::steady_clock::now();
-        auto const dw = std::chrono::duration<double>(wall - last_wall);
-        auto const df = media_frame->time - last_frame;
-        last_wall = wall;
-        last_frame = media_frame->time;
-        lag = std::max({}, lag + dw - df);
-
-        fmt::print(
-            "Frame {:>3}/{}ms {:>3}lag {}\n",
-            std::chrono::duration_cast<std::chrono::milliseconds>(dw).count(),
-            std::chrono::duration_cast<std::chrono::milliseconds>(df).count(),
-            std::chrono::duration_cast<std::chrono::milliseconds>(lag).count(),
-            debug(*media_frame)
-        );
+        logger->trace("Printing info...");
+        fmt::print("Frame {}\n", debug(*media_frame));
 
         if (!tiff_arg.empty()) {
             auto dot_pos = tiff_arg.rfind('.');
             if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
             for (size_t i = 0; i < media_frame->images.size(); ++i) {
-                log->trace("Encoding TIFF...");
+                logger->trace("Encoding TIFF...");
                 auto path = tiff_arg.substr(0, dot_pos);
                 path += fmt::format(".F{:05d}", frame_index);
                 if (media_frame->images.size() > 1)
@@ -205,25 +212,32 @@ void play_video(
                 path += tiff_arg.substr(dot_pos);
                 auto tiff = debug_tiff(media_frame->images[i]);
 
-                log->trace("Writing TIFF...");
+                logger->trace("Writing TIFF...");
                 std::ofstream ofs;
                 ofs.exceptions(~std::ofstream::goodbit);
                 ofs.open(path, std::ios::binary);
                 ofs.write((char const*) tiff.data(), tiff.size());
-                log->trace("Saving: {}", path);
+                logger->trace("Saving: {}", path);
             }
         }
 
         ++frame_index;
-        log->trace("Getting next video frame (#{})...", frame_index);
+        logger->trace("Getting next video frame (#{})...", frame_index);
     }
 
-    while (driver && !driver->update_done_yet(conn.id)) {
-        log->trace("Sleeping for final display ({})...", conn.name);
-        std::this_thread::sleep_for(0.005s);
-    }
+    logger->debug("End of media file reached");
 
-    log->debug("End of media file reached");
+    while (
+        player && !timeline.empty() &&
+        player->last_shown() < timeline.rbegin()->first
+    ) {
+        auto const left = timeline.rbegin()->first - player->last_shown();
+        logger->trace("Sleeping for final playback ({}ms left)...", left / 1ms);
+        sys->wait_until(sys->steady_time() + 50ms);
+    }
+    player.reset();
+
+    logger->debug("End of playback");
 }
 
 }  // namespace

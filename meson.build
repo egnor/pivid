@@ -33,6 +33,7 @@ linux_dep = dependency('linux-headers-generic')
 pivid_lib = library(
     'pivid', [
         'display_output.cpp',
+        'frame_player.cpp',
         'image_buffer.cpp',
         'media_decoder.cpp',
         'unix_system.cpp',

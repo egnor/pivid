@@ -18,7 +18,7 @@ using log_level = ::spdlog::level::level_enum;
 // Sets log levels based on a string, typically a command line --log arg,
 // to allow "--log=info,display=trace,media=debug" type parameters.
 inline void configure_logging(std::string config) {
-    spdlog::set_pattern("%H:%M:%S.%e %4iu %^%L [%n] %v%$");
+    spdlog::set_pattern("%H:%M:%S.%e %6iu %^%L [%n] %v%$");
     spdlog::cfg::helpers::load_levels(config);
 }
 

@@ -11,9 +11,12 @@
 #include <sys/sysmacros.h>
 #include <sys/types.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <string>
 #include <system_error>
+#include <mutex>
 #include <type_traits>
 #include <vector>
 
@@ -77,7 +80,16 @@ class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
 
-    // Filesystem I/O system calls.
+    // System clock
+    virtual std::chrono::system_clock::time_point system_time() const = 0;
+    virtual std::chrono::steady_clock::time_point steady_time() const = 0;
+    virtual void wait_until(
+        std::chrono::steady_clock::time_point,
+        std::condition_variable* = nullptr,
+        std::unique_lock<std::mutex>* = nullptr
+    ) = 0;
+
+    // Filesystem I/O
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
     virtual ErrnoOr<std::string> realpath(std::string const&) const = 0;
     virtual ErrnoOr<std::vector<std::string>> list(

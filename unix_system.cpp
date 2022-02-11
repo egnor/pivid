@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include <functional>
+#include <thread>
 
 namespace pivid {
 
@@ -50,6 +51,26 @@ class GlobalFileDescriptor : public FileDescriptor {
 
 class GlobalSystem : public UnixSystem {
   public:
+    virtual std::chrono::system_clock::time_point system_time() const {
+        return std::chrono::system_clock::now();
+    }
+
+    virtual std::chrono::steady_clock::time_point steady_time() const {
+        return std::chrono::steady_clock::now();
+    }
+
+    virtual void wait_until(
+        std::chrono::steady_clock::time_point t,
+        std::condition_variable* cond,
+        std::unique_lock<std::mutex>* lock
+    ) {
+        if (cond == nullptr) {
+            std::this_thread::sleep_until(t);
+        } else {
+            cond->wait_until(*lock, t);
+        }
+    }
+
     virtual ErrnoOr<std::vector<std::string>> list(
         std::string const& dir
     ) const {
