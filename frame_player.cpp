@@ -51,14 +51,22 @@ class ThreadFramePlayer : public FramePlayer {
         DisplayMode mode
     ) {
         logger->info("Launching frame player...");
-        this->sys = std::move(sys);
-        this->driver = driver;
-        this->connector_id = connector_id;
-        this->mode = std::move(mode);
-        thread = std::thread(&ThreadFramePlayer::run, this);
+        thread = std::thread(
+            &ThreadFramePlayer::run,
+            this,
+            std::move(sys),
+            driver,
+            connector_id,
+            std::move(mode)
+        );
     }
 
-    void run() {
+    void run(
+        std::shared_ptr<UnixSystem> sys,
+        DisplayDriver* driver,
+        uint32_t connector_id,
+        DisplayMode mode
+    ) {
         using namespace std::chrono_literals;
         logger->debug("Frame player thread running...");
         std::unique_lock lock{mutex};
@@ -119,13 +127,8 @@ class ThreadFramePlayer : public FramePlayer {
     }
 
   private:
-    std::shared_ptr<log::logger> const logger = player_logger();
-
     // Constant from start to ~
-    std::shared_ptr<UnixSystem> sys;
-    DisplayDriver* driver = nullptr;
-    uint32_t connector_id = 0;
-    DisplayMode mode = {};
+    std::shared_ptr<log::logger> const logger = player_logger();
     std::thread thread;
     std::mutex mutable mutex;
 
