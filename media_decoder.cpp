@@ -175,8 +175,8 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
     return out;
 }
 
-MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, double time_base) {
-    uint64_t const millis = frame->pts * time_base * 1e3;
+MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, AVRational time_base) {
+    int64_t millis = 1000 * frame->pts * time_base.num / time_base.den;
 
     MediaFrame out = {};
     out.time = std::chrono::milliseconds(millis);
@@ -223,6 +223,24 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual MediaInfo const& info() const { return media_info; }
 
+    virtual void seek_before(std::chrono::milliseconds millis) {
+        assert(format_context && codec_context);
+        if (av_packet) av_packet_unref(av_packet);
+        if (av_frame) av_frame_unref(av_frame);
+
+        avcodec_flush_buffers(codec_context);
+        eof_sent_to_codec = false;
+        eof_seen_from_codec = false;
+
+        auto const tb = format_context->streams[stream_index]->time_base;
+        int64_t const t = millis.count() * tb.den / tb.num / 1000;
+        check_av(
+            avformat_seek_file(format_context, stream_index, 0, t, t, 0),
+            "Seek file", media_info.filename
+        );
+        eof_seen_from_file = false;
+    }
+
     virtual std::optional<MediaFrame> next_frame() {
         assert(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
@@ -255,7 +273,7 @@ class LibavMediaDecoder : public MediaDecoder {
                     logger->debug("> Got EOF from file");
                     eof_seen_from_file = true;
                 } else {
-                    check_av(err, "Read", format_context->iformat->name);
+                    check_av(err, "Read", media_info.filename);
                     if (av_packet->stream_index == stream_index) {
                         logger->trace(
                             "> Read packet from file ({})",
@@ -309,7 +327,7 @@ class LibavMediaDecoder : public MediaDecoder {
 
         logger->trace("Converting frame...");
         auto const* stream = format_context->streams[stream_index];
-        auto f = frame_from_av(std::move(av_shared), av_q2d(stream->time_base));
+        auto f = frame_from_av(std::move(av_shared), stream->time_base);
         if (logger->should_log(log_level::debug))
             logger->debug("{}", debug(f));
 
@@ -365,7 +383,6 @@ class LibavMediaDecoder : public MediaDecoder {
         check_av(open_err, "Open codec", default_codec->name);
         assert(codec_context);
 
-        double const time_base = av_q2d(stream->time_base);
         media_info.container_type = format_context->iformat->name;
         media_info.codec_name = codec_context->codec->name;
         media_info.pixel_format = av_get_pix_fmt_name(codec_context->pix_fmt);
@@ -377,9 +394,10 @@ class LibavMediaDecoder : public MediaDecoder {
 
         int64_t millis = 0;
         if (stream->duration > 0) {
-            millis = stream->duration * time_base * 1e3;
+            auto const tb = stream->time_base;
+            millis = 1000 * stream->duration * 1000 * tb.num / tb.den;
         } else if (format_context->duration > 0) {
-            millis = format_context->duration * 1e3 / AV_TIME_BASE;
+            millis = 1000 * format_context->duration / AV_TIME_BASE;
         }
         media_info.duration = std::chrono::milliseconds(millis);
 

@@ -45,6 +45,9 @@ class MediaDecoder {
     // Returns static metadata for the media file.
     virtual MediaInfo const& info() const = 0;
 
+    // Reset to the key frame preceding the timestamp.
+    virtual void seek_before(std::chrono::milliseconds) = 0;
+
     // Returns the next uncompressed frame from the media, or {} at EOF.
     virtual std::optional<MediaFrame> next_frame() = 0;
 };

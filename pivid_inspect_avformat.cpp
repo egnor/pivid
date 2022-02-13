@@ -45,6 +45,37 @@ void inspect_media(AVFormatContext* const avc) {
         fmt::print(" {}bps", avc->bit_rate);
     fmt::print(" ({})\n", avc->iformat->name);
 
+    if (avc->iformat->flags) {
+        fmt::print("   ");
+        for (uint32_t bit = 1; bit > 0; bit <<= 1) {
+            if ((avc->iformat->flags & bit)) {
+                switch (bit) {
+#define F(X) case AVFMT_##X: fmt::print(" {}", #X); break
+                    F(NOFILE);
+                    F(NEEDNUMBER);
+                    F(SHOW_IDS);
+                    F(GLOBALHEADER);
+                    F(NOTIMESTAMPS);
+                    F(GENERIC_INDEX);
+                    F(TS_DISCONT);
+                    F(VARIABLE_FPS);
+                    F(NODIMENSIONS);
+                    F(NOSTREAMS);
+                    F(NOBINSEARCH);
+                    F(NOGENSEARCH);
+                    F(NO_BYTE_SEEK);
+                    F(ALLOW_FLUSH);
+                    F(TS_NONSTRICT);
+                    F(TS_NEGATIVE);
+                    F(SEEK_TO_PTS);
+#undef F
+                    default: fmt::print(" ?flag=0x{:x}?", bit); break;
+                }
+            }
+        }
+        fmt::print("\n");
+    }
+
     AVDictionaryEntry* entry = nullptr;
     while ((entry = av_dict_get(
         avc->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
