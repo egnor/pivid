@@ -125,24 +125,20 @@ void play_video(
     auto const logger = main_logger();
     auto const sys = global_system();
 
-    std::vector<DisplayImage> overlays;
+    DisplayImage overlay_image = {};
     if (overlay) {
         logger->trace("Loading overlay image...");
-        std::optional<MediaFrame> overlay_frame = overlay->next_frame();
-        if (!overlay_frame)
+        std::optional<MediaFrame> frame = overlay->next_frame();
+        if (!frame)
             throw std::runtime_error("No frames in overlay media");
 
-        for (auto const& media_image : overlay_frame->images) {
-            DisplayImage display_image = {};
-            display_image.loaded_image = driver->load_image(media_image);
-            display_image.from_width = media_image.width;
-            display_image.from_height = media_image.height;
-            display_image.to_x = (mode.horiz.display - media_image.width) / 2;
-            display_image.to_y = (mode.vert.display - media_image.height) / 2;
-            display_image.to_width = media_image.width;
-            display_image.to_height = media_image.height;
-            overlays.push_back(std::move(display_image));
-        }
+        overlay_image.loaded_image = driver->load_image(frame->image);
+        overlay_image.from_width = frame->image.width;
+        overlay_image.from_height = frame->image.height;
+        overlay_image.to_x = (mode.horiz.display - frame->image.width) / 2;
+        overlay_image.to_y = (mode.vert.display - frame->image.height) / 2;
+        overlay_image.to_width = frame->image.width;
+        overlay_image.to_height = frame->image.height;
     }
 
     FramePlayer::Timeline timeline;
@@ -177,19 +173,17 @@ void play_video(
 
         if (player) {
             std::vector<DisplayImage> display_images;
-            for (auto const& media_image : media_frame->images) {
-                DisplayImage display_image = {};
-                display_image.loaded_image = driver->load_image(media_image);
-                display_image.from_width = media_image.width;
-                display_image.from_height = media_image.height;
-                display_image.to_width = mode.horiz.display;
-                display_image.to_height = mode.vert.display;
-                display_images.push_back(std::move(display_image));
-            }
 
-            display_images.insert(
-                display_images.end(), overlays.begin(), overlays.end()
-            );
+            DisplayImage image = {};
+            image.loaded_image = driver->load_image(media_frame->image);
+            image.from_width = media_frame->image.width;
+            image.from_height = media_frame->image.height;
+            image.to_width = mode.horiz.display;
+            image.to_height = mode.vert.display;
+            display_images.push_back(std::move(image));
+
+            if (overlay_image.loaded_image)
+                display_images.push_back(overlay_image);
 
             auto const play_time = *start_time + media_frame->time;
             timeline[play_time] = display_images;
@@ -206,22 +200,19 @@ void play_video(
         if (!tiff_arg.empty()) {
             auto dot_pos = tiff_arg.rfind('.');
             if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
-            for (size_t i = 0; i < media_frame->images.size(); ++i) {
-                logger->trace("Encoding TIFF...");
-                auto path = tiff_arg.substr(0, dot_pos);
-                path += fmt::format(".F{:05d}", frame_index);
-                if (media_frame->images.size() > 1)
-                    path += fmt::format(".I{}", i);
-                path += tiff_arg.substr(dot_pos);
-                auto tiff = debug_tiff(media_frame->images[i]);
 
-                logger->trace("Writing TIFF...");
-                std::ofstream ofs;
-                ofs.exceptions(~std::ofstream::goodbit);
-                ofs.open(path, std::ios::binary);
-                ofs.write((char const*) tiff.data(), tiff.size());
-                logger->trace("Saving: {}", path);
-            }
+            logger->trace("Encoding TIFF...");
+            auto path = tiff_arg.substr(0, dot_pos);
+            path += fmt::format(".F{:05d}", frame_index);
+            path += tiff_arg.substr(dot_pos);
+            auto tiff = debug_tiff(media_frame->image);
+
+            logger->trace("Writing TIFF...");
+            std::ofstream ofs;
+            ofs.exceptions(~std::ofstream::goodbit);
+            ofs.open(path, std::ios::binary);
+            ofs.write((char const*) tiff.data(), tiff.size());
+            logger->trace("Saving: {}", path);
         }
 
         ++frame_index;

@@ -118,7 +118,7 @@ class LibavPlainFrameMemory : public MemoryBuffer {
     int index = 0;
 };
 
-std::vector<ImageBuffer> images_from_av_drm(
+ImageBuffer image_from_av_drm(
     std::shared_ptr<AVDRMFrameDescriptor const> av_drm,
     int width, int height
 ) {
@@ -128,33 +128,34 @@ std::vector<ImageBuffer> images_from_av_drm(
         buffers.back()->init(av_drm, o);
     }
 
-    std::vector<ImageBuffer> out;
-    for (int l = 0; l < av_drm->nb_layers; ++l) {
-        auto const& av_layer = av_drm->layers[l];
-        ImageBuffer image = {};
-        image.width = width;
-        image.height = height;
-
-        switch (av_layer.format) {
-            case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
-            case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
-            default: image.fourcc = av_layer.format;
-        }
-
-        for (int p = 0; p < av_layer.nb_planes; ++p) {
-            auto const& av_plane = av_layer.planes[p];
-            auto const& av_obj = av_drm->objects[av_plane.object_index];
-            image.modifier = av_obj.format_modifier;
-            image.channels.push_back({
-                .memory = buffers[av_plane.object_index],
-                .offset = av_plane.offset,
-                .stride = av_plane.pitch,
-            });
-        }
-
-        out.push_back(std::move(image));
+    if (av_drm->nb_layers != 1) {
+        throw std::runtime_error(fmt::format(
+            "DRM frame has {} layers (expected 1)", av_drm->nb_layers
+        ));
     }
-    return out;
+
+    ImageBuffer image = {};
+    image.width = width;
+    image.height = height;
+
+    switch (av_drm->layers[0].format) {
+        case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
+        case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
+        default: image.fourcc = av_drm->layers[0].format;
+    }
+
+    for (int p = 0; p < av_drm->layers[0].nb_planes; ++p) {
+        auto const& av_plane = av_drm->layers[0].planes[p];
+        auto const& av_obj = av_drm->objects[av_plane.object_index];
+        image.modifier = av_obj.format_modifier;
+        image.channels.push_back({
+            .memory = buffers[av_plane.object_index],
+            .offset = av_plane.offset,
+            .stride = av_plane.pitch,
+        });
+    }
+
+    return image;
 }
 
 ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
@@ -202,9 +203,9 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, AVRational time_base) {
         int const width = frame->width, height = frame->height;
         auto const* d = (AVDRMFrameDescriptor const*) frame->data[0];
         std::shared_ptr<AVDRMFrameDescriptor const> sd{std::move(frame), d};
-        out.images = images_from_av_drm(std::move(sd), width, height);
+        out.image = image_from_av_drm(std::move(sd), width, height);
     } else {
-        out.images.push_back(image_from_av_plain(std::move(frame)));
+        out.image = image_from_av_plain(std::move(frame));
     }
     return out;
 }
@@ -538,8 +539,7 @@ std::string debug(MediaFrame const& f) {
     auto out = fmt::format("{:5}", f.time);
     if (!f.frame_type.empty())
         out += fmt::format(" {:<2s}", f.frame_type);
-    for (size_t l = 0; l < f.images.size(); ++l)
-        out += fmt::format(" {}{}", l ? "+ " : "", debug(f.images[l]));
+    out += fmt::format(" {}", debug(f.image));
     if (f.is_key_frame) out += fmt::format(" KEY");
     if (f.is_corrupt) out += fmt::format(" CORRUPT");
     return out;

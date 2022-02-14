@@ -26,11 +26,9 @@ struct MediaInfo {
 };
 
 // Uncompressed frame from a video. (Still images appear as one-frame videos.)
-// Most codecs return a single image per frame, some return multiple image
-// layers (all the same size) which should be composited for output.
 struct MediaFrame {
+    ImageBuffer image;
     std::chrono::milliseconds time;   // Time into the video
-    std::vector<ImageBuffer> images;  // Image layers (usually only one)
     std::string_view frame_type;      // "B", "I", "P" etc for debugging
     bool is_key_frame = false;        // True if the frame can be seeked to
     bool is_corrupt = false;          // True if the codec had an error
