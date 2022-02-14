@@ -83,7 +83,7 @@ check_call([
 ])
 
 print()
-print(f"=== Prepare build (Meson/Ninja via Conan) ===")
+print(f"=== Prepare build (meson/ninja via conan) ===")
 check_call([
     conan_bin, "build",
     f"--build-folder={build_dir}",
@@ -91,6 +91,11 @@ check_call([
     "--configure",  # Only configure, not build (yet)
     source_dir
 ])
+
+# Save this to the end, to preserve conan cache for debugging if things fail
+print()
+print(f"=== Clean C++ package cache (conan remove) ===")
+check_call([conan_bin, "remove", "--src", "--builds", "--force", "*"])
 
 print()
 print(f"::: Setup complete, build with: ninja -C build :::")
