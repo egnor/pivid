@@ -12,6 +12,7 @@ namespace pivid {
 // Description of a memory buffer holding image data.
 // Zero-copy DMA buffers may not be memory mapped by default, but
 // read() always maps the buffer into userspace for access if needed.
+// *Internally synchronized* for multithreaded access.
 class MemoryBuffer {
   public:
     virtual ~MemoryBuffer() = default;

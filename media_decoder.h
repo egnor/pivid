@@ -38,6 +38,7 @@ struct MediaFrame {
 
 // Interface to a media codec to read media (video/image) files.
 // Returned by open_media_decoder() for a media file.
+// *Externally synchronized*, use from one thread at a time.
 class MediaDecoder {
   public:
     virtual ~MediaDecoder() = default;

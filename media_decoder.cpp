@@ -73,6 +73,7 @@ class LibavDrmFrameMemory : public MemoryBuffer {
     virtual int dma_fd() const { return av_obj->fd; }
 
     virtual uint8_t const* read() {
+        std::lock_guard const lock{mem_mutex};
         if (!mem) {
             int const prot = PROT_READ, flags = MAP_SHARED;
             void* r = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
@@ -92,6 +93,7 @@ class LibavDrmFrameMemory : public MemoryBuffer {
 
   private:
     std::shared_ptr<AVDRMObjectDescriptor const> av_obj;
+    std::mutex mem_mutex;
     void* mem = nullptr;
 };
 
@@ -176,9 +178,8 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 }
 
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, AVRational time_base) {
-    int64_t millis = 1000 * frame->pts * time_base.num / time_base.den;
-
     MediaFrame out = {};
+    int64_t const millis = 1000 * frame->pts * time_base.num / time_base.den;
     out.time = std::chrono::milliseconds(millis);
     out.is_corrupt = (frame->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = frame->key_frame;
@@ -392,14 +393,14 @@ class LibavMediaDecoder : public MediaDecoder {
             media_info.height = codec_context->height;
         }
 
-        int64_t millis = 0;
         if (stream->duration > 0) {
             auto const tb = stream->time_base;
-            millis = 1000 * stream->duration * 1000 * tb.num / tb.den;
+            auto const millis = 1000 * stream->duration * tb.num / tb.den;
+            media_info.duration = std::chrono::milliseconds(millis);
         } else if (format_context->duration > 0) {
-            millis = 1000 * format_context->duration / AV_TIME_BASE;
+            auto const millis = 1000 * format_context->duration / AV_TIME_BASE;
+            media_info.duration = std::chrono::milliseconds(millis);
         }
-        media_info.duration = std::chrono::milliseconds(millis);
 
         if (stream->avg_frame_rate.num > 0)
             media_info.frame_rate = av_q2d(stream->avg_frame_rate);
@@ -410,7 +411,7 @@ class LibavMediaDecoder : public MediaDecoder {
             media_info.bit_rate = format_context->bit_rate;
         }
 
-        logger->info("Opened: {}", debug(media_info));
+        logger->info("Opened {}", debug(media_info));
     }
 
   private:

@@ -151,8 +151,7 @@ void play_video(
         player = start_frame_player(sys, driver.get(), conn.id, mode);
 
     int frame_index = 0;
-    auto const start_time = sys->steady_time();
-    logger->debug("Play start @ {:.3f}", start_time.time_since_epoch() / 1.0s);
+    std::optional<FramePlayer::Timeline::key_type> start_time;
     logger->trace("Getting first video frame...");
     while (decoder) {
         if (player) {
@@ -168,6 +167,13 @@ void play_video(
 
         auto const media_frame = decoder->next_frame();
         if (!media_frame) break;
+
+        if (!start_time) {
+            start_time = sys->steady_time() - media_frame->time;
+            logger->debug(
+                "Play start @ {:.3f}", start_time->time_since_epoch() / 1.0s
+            );
+        }
 
         if (player) {
             std::vector<DisplayImage> display_images;
@@ -185,7 +191,7 @@ void play_video(
                 display_images.end(), overlays.begin(), overlays.end()
             );
 
-            auto const play_time = start_time + media_frame->time;
+            auto const play_time = *start_time + media_frame->time;
             timeline[play_time] = display_images;
             if (logger->should_log(log_level::debug)) {
                 logger->debug(
@@ -196,9 +202,6 @@ void play_video(
 
             player->set_timeline(timeline);
         }
-
-        logger->trace("Printing info...");
-        fmt::print("Frame {}\n", debug(*media_frame));
 
         if (!tiff_arg.empty()) {
             auto dot_pos = tiff_arg.rfind('.');
@@ -250,6 +253,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
+    double seek_arg = 0.0;
     std::string tiff_arg;
     bool debug_libav = false;
     double sleep_arg = 0.0;
@@ -261,6 +265,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
+    app.add_option("--seek", seek_arg, "Seek this many seconds into media");
     app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
     app.add_option("--save_tiff", tiff_arg, "Save frames as .tiff");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
@@ -275,6 +280,13 @@ extern "C" int main(int const argc, char const* const* const argv) {
         auto const mode = find_mode(driver, conn, mode_arg);
         auto const decoder = find_media(media_arg);
         auto const overlay = find_media(overlay_arg);
+
+        if (seek_arg) {
+            fmt::print("Seeking to {:.3f} seconds...\n", seek_arg);
+            int64_t const millis = seek_arg * 1e3;
+            decoder->seek_before(std::chrono::milliseconds(millis));
+        }
+
         play_video(decoder, overlay, tiff_arg, driver, conn, mode);
 
         if (sleep_arg > 0) {

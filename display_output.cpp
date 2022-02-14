@@ -212,8 +212,8 @@ class DrmDumbBuffer : public MemoryBuffer {
   private:
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_create_dumb ddat = {};
-    std::shared_ptr<void> mem;
     std::mutex mem_mutex;
+    std::shared_ptr<void> mem;
 
     DrmDumbBuffer(DrmDumbBuffer const&) = delete;
     DrmDumbBuffer& operator=(DrmDumbBuffer const&) = delete;
