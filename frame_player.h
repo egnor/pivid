@@ -15,7 +15,7 @@ class FramePlayer {
   public:
     using Timeline = std::map<
         std::chrono::steady_clock::time_point,
-        std::vector<DisplayImage>
+        std::vector<DisplayLayer>
     >;
 
     // Interrupts and shuts down the frame player.

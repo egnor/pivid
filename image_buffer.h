@@ -9,6 +9,20 @@
 
 namespace pivid {
 
+// Convenience struct for coordinate pairs.
+template <typename T>
+struct XY {
+    T x = {}, y = {};
+
+    template <typename U> XY<U> as() const { return XY<U>(x, y); }
+    XY operator+(XY const other) const { return {x + other.x, y + other.y}; }
+    XY operator-(XY const other) const { return {x - other.x, y - other.y}; }
+    XY operator-() const { return {-x, -y}; }
+    template <typename U> XY operator*(U m) const { return {x * m, y * m}; }
+    template <typename U> XY operator/(U d) const { return {x / d, y / d}; }
+    operator bool() const { return x || y; }
+};
+
 // Description of a memory buffer holding image data.
 // Zero-copy DMA buffers may not be memory mapped by default, but
 // read() always maps the buffer into userspace for access if needed.
@@ -41,9 +55,17 @@ struct ImageBuffer {
 
     uint32_t fourcc = 0;    // Image pixel layout, like fourcc("RGBA")
     uint64_t modifier = 0;  // Modifier to image pixel layout
-    int width = 0;          // The pixel size of the image
-    int height = 0;
+    XY<int> size = {};      // The pixel size of the image
     std::vector<Channel> channels;  // Channel count depends on the format
+};
+
+// A pixel image that has been loaded into video memory for display;
+// returned from DisplayDriver::load_image().
+class LoadedImage {
+  public:
+    virtual ~LoadedImage() = default;
+    virtual uint32_t drm_id() const = 0;  // DRM framebuffer ID
+    virtual XY<int> size() const = 0;     // Dimensions
 };
 
 // Assembles a fourcc uint32_t from text (like "RGBA").

@@ -125,20 +125,17 @@ void play_video(
     auto const logger = main_logger();
     auto const sys = global_system();
 
-    DisplayImage overlay_image = {};
+    DisplayLayer overlay_layer = {};
     if (overlay) {
         logger->trace("Loading overlay image...");
         std::optional<MediaFrame> frame = overlay->next_frame();
         if (!frame)
             throw std::runtime_error("No frames in overlay media");
 
-        overlay_image.loaded_image = driver->load_image(frame->image);
-        overlay_image.from_width = frame->image.width;
-        overlay_image.from_height = frame->image.height;
-        overlay_image.to_x = (mode.horiz.display - frame->image.width) / 2;
-        overlay_image.to_y = (mode.vert.display - frame->image.height) / 2;
-        overlay_image.to_width = frame->image.width;
-        overlay_image.to_height = frame->image.height;
+        overlay_layer.image = driver->load_image(frame->image);
+        overlay_layer.from_size = frame->image.size.as<double>();
+        overlay_layer.to = (mode.size - frame->image.size) / 2;
+        overlay_layer.to_size = frame->image.size;
     }
 
     FramePlayer::Timeline timeline;
@@ -172,21 +169,19 @@ void play_video(
         }
 
         if (player) {
-            std::vector<DisplayImage> display_images;
+            std::vector<DisplayLayer> layers;
 
-            DisplayImage image = {};
-            image.loaded_image = driver->load_image(media_frame->image);
-            image.from_width = media_frame->image.width;
-            image.from_height = media_frame->image.height;
-            image.to_width = mode.horiz.display;
-            image.to_height = mode.vert.display;
-            display_images.push_back(std::move(image));
+            DisplayLayer layer = {};
+            layer.image = driver->load_image(media_frame->image);
+            layer.from_size = media_frame->image.size.as<double>();
+            layer.to_size = mode.size;
+            layers.push_back(std::move(layer));
 
-            if (overlay_image.loaded_image)
-                display_images.push_back(overlay_image);
+            if (overlay_layer.image)
+                layers.push_back(overlay_layer);
 
             auto const play_time = *start_time + media_frame->time;
-            timeline[play_time] = display_images;
+            timeline[play_time] = layers;
             if (logger->should_log(log_level::debug)) {
                 logger->debug(
                     "Adding frame @ {:.3f}",

@@ -55,21 +55,17 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
 
     return {
         .name = drm.name,
-        .horiz = {
-            .display = drm.hdisplay,
-            .sync_start = drm.hsync_start,
-            .sync_end = drm.hsync_end,
-            .total = drm.htotal,
-            .doubling = sign(DRM_MODE_FLAG_CLKDIV2, DRM_MODE_FLAG_DBLCLK),
-            .sync_polarity = sign(DRM_MODE_FLAG_NHSYNC, DRM_MODE_FLAG_PHSYNC),
+        .size = {drm.hdisplay, drm.vdisplay},
+        .scan_size = {drm.htotal, drm.vtotal},
+        .sync_start = {drm.hsync_start, drm.vsync_start},
+        .sync_end = {drm.hsync_end, drm.vsync_end},
+        .sync_polarity = {
+            sign(DRM_MODE_FLAG_NHSYNC, DRM_MODE_FLAG_PHSYNC),
+            sign(DRM_MODE_FLAG_NVSYNC, DRM_MODE_FLAG_PVSYNC),
         },
-        .vert = {
-            .display = drm.vdisplay,
-            .sync_start = drm.vsync_start,
-            .sync_end = drm.vsync_end,
-            .total = drm.vtotal,
-            .doubling = sign(DRM_MODE_FLAG_INTERLACE, DRM_MODE_FLAG_DBLSCAN),
-            .sync_polarity = sign(DRM_MODE_FLAG_NVSYNC, DRM_MODE_FLAG_PVSYNC),
+        .doubling = {
+            sign(DRM_MODE_FLAG_CLKDIV2, DRM_MODE_FLAG_DBLCLK),
+            sign(DRM_MODE_FLAG_INTERLACE, DRM_MODE_FLAG_DBLSCAN),
         },
         .pixel_khz = int(drm.clock), 
         .refresh_hz = int(drm.vrefresh), 
@@ -79,25 +75,25 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
 drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
     drm_mode_modeinfo out = {
         .clock = uint32_t(mode.pixel_khz),
-        .hdisplay = uint16_t(mode.horiz.display),
-        .hsync_start = uint16_t(mode.horiz.sync_start),
-        .hsync_end = uint16_t(mode.horiz.sync_end),
-        .htotal = uint16_t(mode.horiz.total),
+        .hdisplay = uint16_t(mode.size.x),
+        .hsync_start = uint16_t(mode.sync_start.x),
+        .hsync_end = uint16_t(mode.sync_end.x),
+        .htotal = uint16_t(mode.scan_size.x),
         .hskew = 0,
-        .vdisplay = uint16_t(mode.vert.display),
-        .vsync_start = uint16_t(mode.vert.sync_start),
-        .vsync_end = uint16_t(mode.vert.sync_end),
-        .vtotal = uint16_t(mode.vert.total),
-        .vscan = uint16_t(mode.vert.doubling ? 2 : 1),
+        .vdisplay = uint16_t(mode.size.y),
+        .vsync_start = uint16_t(mode.sync_start.y),
+        .vsync_end = uint16_t(mode.sync_end.y),
+        .vtotal = uint16_t(mode.scan_size.y),
+        .vscan = uint16_t(mode.doubling.y ? 2 : 1),
         .vrefresh = uint32_t(mode.refresh_hz),
         .flags = uint32_t(
-            (mode.horiz.sync_polarity > 0 ? DRM_MODE_FLAG_PHSYNC : 0) |
-            (mode.horiz.sync_polarity < 0 ? DRM_MODE_FLAG_NHSYNC : 0) |
-            (mode.vert.sync_polarity > 0 ? DRM_MODE_FLAG_PVSYNC : 0) |
-            (mode.vert.sync_polarity < 0 ? DRM_MODE_FLAG_NVSYNC : 0) |
-            (mode.vert.doubling < 0 ? DRM_MODE_FLAG_INTERLACE : 0) |
-            (mode.horiz.doubling > 0 ? DRM_MODE_FLAG_DBLCLK : 0) |
-            (mode.horiz.doubling < 0 ? DRM_MODE_FLAG_CLKDIV2 : 0)
+            (mode.sync_polarity.x > 0 ? DRM_MODE_FLAG_PHSYNC : 0) |
+            (mode.sync_polarity.x < 0 ? DRM_MODE_FLAG_NHSYNC : 0) |
+            (mode.sync_polarity.y > 0 ? DRM_MODE_FLAG_PVSYNC : 0) |
+            (mode.sync_polarity.y < 0 ? DRM_MODE_FLAG_NVSYNC : 0) |
+            (mode.doubling.y < 0 ? DRM_MODE_FLAG_INTERLACE : 0) |
+            (mode.doubling.x > 0 ? DRM_MODE_FLAG_DBLCLK : 0) |
+            (mode.doubling.x < 0 ? DRM_MODE_FLAG_CLKDIV2 : 0)
         ),
         .type = uint32_t(DRM_MODE_TYPE_USERDEF),
         .name = {},
@@ -176,9 +172,9 @@ void to_premultiplied_rgba(
 
 class DrmDumbBuffer : public MemoryBuffer {
   public:
-    DrmDumbBuffer(std::shared_ptr<FileDescriptor> fd, int w, int h, int bpp) {
-        ddat.height = h;
-        ddat.width = w;
+    DrmDumbBuffer(std::shared_ptr<FileDescriptor> fd, XY<int> size, int bpp) {
+        ddat.height = size.y;
+        ddat.width = size.x;
         ddat.bpp = bpp;
         fd->ioc<DRM_IOCTL_MODE_CREATE_DUMB>(&ddat).ex("DRM buffer");
         this->fd = std::move(fd);
@@ -245,11 +241,11 @@ class DrmBufferImport {
     DrmBufferImport& operator=(DrmBufferImport const&) = delete;
 };
 
-class DrmFrameBuffer {
+class DrmLoadedImage : public LoadedImage {
   public:
-    DrmFrameBuffer(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
-        fdat.width = im.width;
-        fdat.height = im.height;
+    DrmLoadedImage(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
+        fdat.width = im.size.x;
+        fdat.height = im.size.y;
         fdat.pixel_format = format_to_drm(im.fourcc);
         fdat.flags = DRM_MODE_FB_MODIFIERS;
 
@@ -284,22 +280,23 @@ class DrmFrameBuffer {
             logger->debug("Loaded fb{} {}", fdat.fb_id, debug(im));
     }
 
-    ~DrmFrameBuffer() {
+    ~DrmLoadedImage() {
         if (!fdat.fb_id) return;
         logger->trace("Removing DRM framebuffer...");
         (void) fd->ioc<DRM_IOCTL_MODE_RMFB>(&fdat.fb_id);
         logger->debug("Unload fb{} {}x{}", fdat.fb_id, fdat.width, fdat.height);
     }
 
-    uint32_t const* id() const { return &fdat.fb_id; }
+    virtual uint32_t drm_id() const { return fdat.fb_id; }
+    virtual XY<int> size() const { return XY<int>(fdat.width, fdat.height); }
 
   private:
     std::shared_ptr<log::logger> logger = display_logger();
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_fb_cmd2 fdat = {};
 
-    DrmFrameBuffer(DrmFrameBuffer const&) = delete;
-    DrmFrameBuffer& operator=(DrmFrameBuffer const&) = delete;
+    DrmLoadedImage(DrmLoadedImage const&) = delete;
+    DrmLoadedImage& operator=(DrmLoadedImage const&) = delete;
 };
 
 //
@@ -349,10 +346,10 @@ class DrmDriver : public DisplayDriver {
         return out;
     }
 
-    virtual std::shared_ptr<uint32_t const> load_image(ImageBuffer im) {
+    virtual std::shared_ptr<LoadedImage> load_image(ImageBuffer im) {
         if (logger->should_log(log_level::trace)) {
             auto const fmt = debug_fourcc(im.fourcc);
-            logger->trace("Loading {}x{} {}...", im.width, im.height, fmt);
+            logger->trace("Loading {}x{} {}...", im.size.x, im.size.y, fmt);
         }
 
         switch (im.fourcc) {
@@ -369,7 +366,7 @@ class DrmDriver : public DisplayDriver {
                 }
 
                 auto const& chan = im.channels[0];
-                int const w = im.width, h = im.height;
+                int const w = im.size.x, h = im.size.y;
                 size_t const min_size = chan.offset + chan.stride * h;
                 if (chan.memory->size() < min_size || chan.stride < 4 * w) {
                     throw std::invalid_argument(fmt::format(
@@ -380,7 +377,7 @@ class DrmDriver : public DisplayDriver {
                     ));
                 }
 
-                auto buf = std::make_shared<DrmDumbBuffer>(fd, w, h, 32);
+                auto buf = std::make_shared<DrmDumbBuffer>(fd, im.size, 32);
                 for (int y = 0; y < h; ++y) {
                     int const from_offset = y * chan.stride + chan.offset;
                     uint8_t const* from = chan.memory->read() + from_offset;
@@ -404,7 +401,7 @@ class DrmDriver : public DisplayDriver {
                 }
 
                 auto const& chan = im.channels[0];
-                int const w = im.width, h = im.height;
+                int const w = im.size.x, h = im.size.y;
                 size_t const min_size = chan.offset + chan.stride * h;
                 if (chan.memory->size() < min_size || chan.stride < w) {
                     throw std::invalid_argument(fmt::format(
@@ -430,7 +427,7 @@ class DrmDriver : public DisplayDriver {
                     fourcc("BGRA"), 256, pch.memory->read() + pch.offset, pal
                 );
 
-                auto buf = std::make_shared<DrmDumbBuffer>(fd, w, h, 32);
+                auto buf = std::make_shared<DrmDumbBuffer>(fd, im.size, 32);
                 for (int y = 0; y < h; ++y) {
                     int const from_offset = y * chan.stride + chan.offset;
                     uint8_t const* from = chan.memory->read() + from_offset;
@@ -455,10 +452,10 @@ class DrmDriver : public DisplayDriver {
 
             logger->trace("> (copy {} ch{}...)", debug_fourcc(im.fourcc), ci);
             auto buf = std::make_shared<DrmDumbBuffer>(
-                fd, im.width, im.height, 8 * chan->stride / im.width
+                fd, im.size, 8 * chan->stride / im.size.x
             );
 
-            for (int y = 0; y < im.height; ++y) {
+            for (int y = 0; y < im.size.y; ++y) {
                 memcpy(
                     buf->write() + y * buf->stride(),
                     chan->memory->read() + y * chan->stride + chan->offset,
@@ -471,14 +468,13 @@ class DrmDriver : public DisplayDriver {
             chan->memory = std::move(buf);
         }
 
-        auto fb = std::make_shared<DrmFrameBuffer>(fd, std::move(im));
-        return std::shared_ptr<const uint32_t>(fb, fb->id());
+        return std::make_shared<DrmLoadedImage>(fd, std::move(im));
     }
 
     virtual void update(
         uint32_t connector_id,
         DisplayMode const& mode,
-        std::vector<DisplayImage> const& images
+        std::vector<DisplayLayer> const& layers
     ) {
         auto* const conn = &connectors.at(connector_id);
         logger->trace("Starting {} update...", conn->name);
@@ -532,20 +528,19 @@ class DrmDriver : public DisplayDriver {
             }
 
             if (conn->WRITEBACK_FB_ID.prop_id) {
-                int const w = next.mode.hdisplay, h = next.mode.vdisplay;
-                logger->trace("Making {}x{} writeback image...", w, h);
-                auto buf = std::make_shared<DrmDumbBuffer>(fd, w, h, 32);
+                XY<int> const size = {next.mode.hdisplay, next.mode.vdisplay};
+                logger->trace("Making {}x{} writeback...", size.x, size.y);
+                auto buf = std::make_shared<DrmDumbBuffer>(fd, size, 32);
 
                 Writeback wb = {};
                 wb.image.fourcc = fourcc("RGBA");
-                wb.image.width = w;
-                wb.image.height = h;
+                wb.image.size = size;
                 wb.image.channels.resize(1);
                 wb.image.channels[0].stride = buf->stride();
                 wb.image.channels[0].memory = std::move(buf);
                 wb.fb_id = load_image(wb.image);
 
-                int const id = *wb.fb_id;
+                int const id = wb.fb_id->drm_id();
                 logger->debug("{} >> fb{} {}", conn->name, id, debug(wb.image));
                 next.writeback = std::move(wb);
                 props[conn->id][&conn->WRITEBACK_FB_ID] = id;
@@ -559,10 +554,10 @@ class DrmDriver : public DisplayDriver {
             }
 
             auto plane_iter = crtc->usable_planes.begin();
-            for (size_t ci = 0; ci < images.size(); ++ci) {
+            for (size_t li = 0; li < layers.size(); ++li) {
                 // Find an appropriate plane (Primary=1, Overlay=0)
-                auto const& content = images[ci];
-                uint64_t const wanted_type = ci ? 0 : 1;
+                auto const& layer = layers[li];
+                uint64_t const wanted_type = li ? 0 : 1;
                 for (;; ++plane_iter) {
                     if (plane_iter == crtc->usable_planes.end())
                         throw std::runtime_error("No DRM plane: " + conn->name);
@@ -573,9 +568,9 @@ class DrmDriver : public DisplayDriver {
                 }
 
                 auto* plane = *plane_iter++;
-                int fb_id = *content.loaded_image;
+                int const fb_id = layer.image->drm_id();
                 next.using_planes.push_back(plane);
-                next.images.push_back(std::move(content.loaded_image));
+                next.images.push_back(layer.image);
 
                 if (logger->should_log(log_level::debug)) {
                     logger->debug(
@@ -588,14 +583,14 @@ class DrmDriver : public DisplayDriver {
                 (*plane_props)[&plane->FB_ID] = fb_id;
 
                 auto fix = [](double d) -> int64_t { return d * 65536.0; };
-                (*plane_props)[&plane->SRC_X] = fix(content.from_x);
-                (*plane_props)[&plane->SRC_Y] = fix(content.from_y);
-                (*plane_props)[&plane->SRC_W] = fix(content.from_width);
-                (*plane_props)[&plane->SRC_H] = fix(content.from_height);
-                (*plane_props)[&plane->CRTC_X] = content.to_x;
-                (*plane_props)[&plane->CRTC_Y] = content.to_y;
-                (*plane_props)[&plane->CRTC_W] = content.to_width;
-                (*plane_props)[&plane->CRTC_H] = content.to_height;
+                (*plane_props)[&plane->SRC_X] = fix(layer.from.x);
+                (*plane_props)[&plane->SRC_Y] = fix(layer.from.y);
+                (*plane_props)[&plane->SRC_W] = fix(layer.from_size.x);
+                (*plane_props)[&plane->SRC_H] = fix(layer.from_size.y);
+                (*plane_props)[&plane->CRTC_X] = layer.to.x;
+                (*plane_props)[&plane->CRTC_Y] = layer.to.y;
+                (*plane_props)[&plane->CRTC_W] = layer.to_size.x;
+                (*plane_props)[&plane->CRTC_H] = layer.to_size.y;
             }
         }
 
@@ -827,7 +822,7 @@ class DrmDriver : public DisplayDriver {
 
     struct Writeback {
         ImageBuffer image;
-        std::shared_ptr<uint32_t const> fb_id;
+        std::shared_ptr<LoadedImage> fb_id;
         std::shared_ptr<FileDescriptor> fence;
     };
 
@@ -858,7 +853,7 @@ class DrmDriver : public DisplayDriver {
     struct Crtc {
         struct State {
             std::vector<Plane*> using_planes;
-            std::vector<std::shared_ptr<uint32_t const>> images;
+            std::vector<std::shared_ptr<LoadedImage>> images;
             drm_mode_modeinfo mode = {};
             std::optional<Writeback> writeback;
         };
@@ -1120,18 +1115,18 @@ std::string debug(DisplayMode const& m) {
         "{:5.1f}MHz{} {:3}[{:3}{}]{:<3} {:>4}x"
         "{:4}{} {:2}[{:2}{}]{:<2} {:2}Hz \"{}\"",
         m.pixel_khz / 1024.0,
-        m.horiz.doubling > 0 ? "*2" : m.horiz.doubling < 0 ? "/2" : "  ",
-        m.horiz.sync_start - m.horiz.display,
-        m.horiz.sync_end - m.horiz.sync_start,
-        m.horiz.sync_polarity < 0 ? "-" : m.horiz.sync_polarity > 0 ? "+" : "",
-        m.horiz.total - m.horiz.sync_end,
-        m.horiz.display,
-        m.vert.display,
-        m.vert.doubling > 0 ? "p2" : m.vert.doubling < 0 ? "i " : "p ",
-        m.vert.sync_start - m.vert.display,
-        m.vert.sync_end - m.vert.sync_start,
-        m.vert.sync_polarity < 0 ? "-" : m.vert.sync_polarity > 0 ? "+" : " ",
-        m.vert.total - m.vert.sync_end,
+        m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "  ",
+        m.sync_start.x - m.size.x,
+        m.sync_end.x - m.sync_start.x,
+        m.sync_polarity.x < 0 ? "-" : m.sync_polarity.x > 0 ? "+" : "",
+        m.scan_size.x - m.sync_end.x,
+        m.size.x,
+        m.size.y,
+        m.doubling.y > 0 ? "p2" : m.doubling.y < 0 ? "i " : "p ",
+        m.sync_start.y - m.size.y,
+        m.sync_end.y - m.sync_start.y,
+        m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : " ",
+        m.scan_size.y - m.sync_end.y,
         m.refresh_hz,
         m.name
     );

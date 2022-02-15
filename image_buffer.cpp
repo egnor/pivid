@@ -34,7 +34,7 @@ std::string debug(MemoryBuffer const& mem) {
 
 std::string debug(ImageBuffer const& i) {
     std::string out = fmt::format(
-        "{}x{} {}", i.width, i.height, debug_fourcc(i.fourcc)
+        "{}x{} {}", i.size.x, i.size.y, debug_fourcc(i.fourcc)
     );
 
     if (i.modifier) {
@@ -68,7 +68,7 @@ std::string debug(ImageBuffer const& i) {
             out += "|" + debug(*chan.memory) + ":";
         }
 
-        out += fmt::format("{}b", 8 * chan.stride / i.width);
+        out += fmt::format("{}b", 8 * chan.stride / i.size.x);
         if (chan.offset) out += "@" + debug_size(chan.offset);
     }
 

@@ -119,13 +119,12 @@ class LibavPlainFrameMemory : public MemoryBuffer {
 };
 
 ImageBuffer image_from_av_drm(
-    std::shared_ptr<AVDRMFrameDescriptor const> av_drm,
-    int width, int height
+    std::shared_ptr<AVDRMFrameDescriptor const> av_drm, XY<int> size
 ) {
     std::vector<std::shared_ptr<LibavDrmFrameMemory>> buffers;
-    for (int o = 0; o < av_drm->nb_objects; ++o) {
+    for (int oi = 0; oi < av_drm->nb_objects; ++oi) {
         buffers.push_back(std::make_shared<LibavDrmFrameMemory>());
-        buffers.back()->init(av_drm, o);
+        buffers.back()->init(av_drm, oi);
     }
 
     if (av_drm->nb_layers != 1) {
@@ -135,8 +134,7 @@ ImageBuffer image_from_av_drm(
     }
 
     ImageBuffer image = {};
-    image.width = width;
-    image.height = height;
+    image.size = size;
 
     switch (av_drm->layers[0].format) {
         case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
@@ -161,8 +159,8 @@ ImageBuffer image_from_av_drm(
 ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
     ImageBuffer out = {};
     out.fourcc = avcodec_pix_fmt_to_codec_tag((AVPixelFormat) av_frame->format);
-    out.width = av_frame->width;
-    out.height = av_frame->height;
+    out.size.x = av_frame->width;
+    out.size.y = av_frame->height;
 
     for (int p = 0; p < AV_NUM_DATA_POINTERS; ++p) {
         if (!av_frame->data[p]) break;
@@ -178,13 +176,13 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
     return out;
 }
 
-MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, AVRational time_base) {
+MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     MediaFrame out = {};
-    int64_t const millis = 1000 * frame->pts * time_base.num / time_base.den;
+    int64_t const millis = 1000 * av->pts * time_base.num / time_base.den;
     out.time = std::chrono::milliseconds(millis);
-    out.is_corrupt = (frame->flags & AV_FRAME_FLAG_CORRUPT);
-    out.is_key_frame = frame->key_frame;
-    switch (frame->pict_type) {
+    out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
+    out.is_key_frame = av->key_frame;
+    switch (av->pict_type) {
         case AV_PICTURE_TYPE_NONE: break;
 #define P(x) case AV_PICTURE_TYPE_##x: out.frame_type = #x; break
         P(I);
@@ -198,14 +196,14 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> frame, AVRational time_base) {
         default: out.frame_type = "?";
     }
 
-    if (frame->format == AV_PIX_FMT_DRM_PRIME) {
-        assert(frame->data[0] && !frame->data[1]);
-        int const width = frame->width, height = frame->height;
-        auto const* d = (AVDRMFrameDescriptor const*) frame->data[0];
-        std::shared_ptr<AVDRMFrameDescriptor const> sd{std::move(frame), d};
-        out.image = image_from_av_drm(std::move(sd), width, height);
+    if (av->format == AV_PIX_FMT_DRM_PRIME) {
+        assert(av->data[0] && !av->data[1]);
+        XY<int> const size = {av->width, av->height};
+        auto const* d = (AVDRMFrameDescriptor const*) av->data[0];
+        std::shared_ptr<AVDRMFrameDescriptor const> sd{std::move(av), d};
+        out.image = image_from_av_drm(std::move(sd), size);
     } else {
-        out.image = image_from_av_plain(std::move(frame));
+        out.image = image_from_av_plain(std::move(av));
     }
     return out;
 }
@@ -389,10 +387,8 @@ class LibavMediaDecoder : public MediaDecoder {
         media_info.codec_name = codec_context->codec->name;
         media_info.pixel_format = av_get_pix_fmt_name(codec_context->pix_fmt);
 
-        if (codec_context->width > 0 && codec_context->height > 0) {
-            media_info.width = codec_context->width;
-            media_info.height = codec_context->height;
-        }
+        if (codec_context->width > 0 && codec_context->height > 0)
+            media_info.size = {codec_context->width, codec_context->height};
 
         if (stream->duration > 0) {
             auto const tb = stream->time_base;
@@ -463,8 +459,8 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
         check_alloc(avcodec_alloc_context3(tiff_codec)),
         [](AVCodecContext* c) { avcodec_free_context(&c); }
     };
-    context->width = im.width;
-    context->height = im.height;
+    context->width = im.size.x;
+    context->height = im.size.y;
     context->time_base = {1, 30};  // Arbitrary but required.
     context->pix_fmt = AV_PIX_FMT_NONE;
 
@@ -493,8 +489,8 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
         check_alloc(av_frame_alloc()), [](AVFrame* f) { av_frame_free(&f); }
     };
     frame->format = context->pix_fmt;
-    frame->width = im.width;
-    frame->height = im.height;
+    frame->width = im.size.x;
+    frame->height = im.size.y;
 
     if (im.channels.size() > AV_NUM_DATA_POINTERS)
         throw std::length_error("Too many image channels to encode");
@@ -528,7 +524,7 @@ std::string debug(MediaInfo const& i) {
         i.filename, i.container_type, i.codec_name, i.pixel_format
     );
 
-    if (i.width && i.height) out += fmt::format(" {}x{}", *i.width, *i.height);
+    if (i.size) out += fmt::format(" {}x{}", i.size->x, i.size->y);
     if (i.frame_rate) out += fmt::format(" @{:.2f}fps", *i.frame_rate);
     if (i.duration) out += fmt::format(" {}", *i.duration);
     if (i.bit_rate) out += fmt::format(" {:.3f}Mbps", *i.bit_rate * 1e-6);

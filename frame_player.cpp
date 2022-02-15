@@ -92,7 +92,7 @@ class ThreadFramePlayer : public FramePlayer {
                 for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                     auto const age = now - s->first;
                     logger->warn(
-                        "Skip frame @ {:.3f}s ({}ms old)",
+                        "Skip frame sched={:.3f}s ({}ms old)",
                         s->first.time_since_epoch() / 1.0s, age / 1ms
                     );
                 }
@@ -119,7 +119,7 @@ class ThreadFramePlayer : public FramePlayer {
             if (logger->should_log(log_level::debug)) {
                 auto const lag = now - shown;
                 logger->debug(
-                    "Show frame @ {:.3f}s ({}ms old)",
+                    "Show frame sched={:.3f}s ({}ms old)",
                     shown.time_since_epoch() / 1.0s, lag / 1ms
                 );
             }

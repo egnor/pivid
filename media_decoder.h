@@ -19,13 +19,14 @@ struct MediaInfo {
     std::string container_type;        // Like "matroska,webm"
     std::string codec_name;            // Like "h264_v4l2m2m"
     std::string pixel_format;          // Like "drm_prime" or "RGBA"
-    std::optional<int> width, height;  // Frame image size, if known
+    std::optional<XY<int>> size;       // Frame image size, if known
     std::optional<double> frame_rate;  // Video frames/second, if known
     std::optional<int64_t> bit_rate;   // Compressed video bits/sec, if known
     std::optional<std::chrono::milliseconds> duration;  // Length, if known
 };
 
 // Uncompressed frame from a video. (Still images appear as one-frame videos.)
+// Returned by MediaDecoder::next_frame().
 struct MediaFrame {
     ImageBuffer image;
     std::chrono::milliseconds time;   // Time into the video
