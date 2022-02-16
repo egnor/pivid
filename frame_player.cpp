@@ -20,22 +20,34 @@ std::shared_ptr<log::logger> const& player_logger() {
 
 class ThreadFramePlayer : public FramePlayer {
   public:
-    ThreadFramePlayer() {}
-
     virtual ~ThreadFramePlayer() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
             logger->debug("Stopping frame player...");
             shutdown = true;
-            wakeup.notify_all();
             lock.unlock();
+            wakeup.notify_all();
             thread.join();
         }
     }
 
     virtual void set_timeline(Timeline timeline) {
-        std::unique_lock const lock{mutex};
+        std::unique_lock lock{mutex};
+        if (logger->should_log(log_level::trace)) {
+            if (timeline.empty()) {
+                logger->trace("Deleting timeline...");
+            } else {
+                using namespace std::chrono_literals;
+                logger->trace(
+                    "New timeline: {}fr {:.3f}s ~ {:.3f}s",
+                    timeline.size(),
+                    timeline.begin()->first.time_since_epoch() / 1.0s,
+                    timeline.rbegin()->first.time_since_epoch() / 1.0s
+                );
+            }
+        }
         this->timeline = std::move(timeline);
+        lock.unlock();
         wakeup.notify_all();
     }
 
@@ -52,7 +64,7 @@ class ThreadFramePlayer : public FramePlayer {
     ) {
         logger->info("Launching frame player...");
         thread = std::thread(
-            &ThreadFramePlayer::run,
+            &ThreadFramePlayer::player_thread,
             this,
             std::move(sys),
             driver,
@@ -61,7 +73,7 @@ class ThreadFramePlayer : public FramePlayer {
         );
     }
 
-    void run(
+    void player_thread(
         std::shared_ptr<UnixSystem> sys,
         DisplayDriver* driver,
         uint32_t connector_id,
@@ -124,6 +136,7 @@ class ThreadFramePlayer : public FramePlayer {
                 );
             }
         }
+        logger->debug("Frame player thread ending...");
     }
 
   private:
