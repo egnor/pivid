@@ -42,7 +42,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
         if (seek_arg) {
             fmt::print("Seeking to {:.3f} seconds...\n", seek_arg);
-            decoder->seek_before(Millis(int64_t(seek_arg * 1e3)));
+            decoder->seek_before(Seconds(seek_arg));
         }
 
         int frame_index = 0;

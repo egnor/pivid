@@ -143,23 +143,16 @@ void play_video(
     auto const loader = make_frame_loader(driver.get());
     auto const window = loader->open_window(std::move(decoder));
 
-    auto start_time = sys->steady_time();
-    if (start_arg) {
-        logger->info("Skipping to {:.3f} seconds...\n", start_arg);
-        start_time -= Millis(int64_t(start_arg * 1e3));
-    }
+    logger->info("Offset {:.3f} seconds...", start_arg);
+    auto const start_time = sys->steady_time() - Seconds(start_arg);
 
     for (;;) {
         auto now = sys->steady_time();
-        logger->trace("UPDATE at {:.3f}s", now.time_since_epoch() / 1.0s);
+        logger->trace("UPDATE at {:.3}", now.time_since_epoch());
 
         FrameWindow::Request req = {};
-        req.begin = std::chrono::duration_cast<Millis>(
-            std::max(player->last_shown(), start_time) - start_time
-        );
-        req.end = std::chrono::duration_cast<Millis>(
-            now - start_time + 100ms
-        );
+        req.begin = std::max(player->last_shown() + 0.001s - start_time, 0.0s);
+        req.end = now - start_time + 100ms;
         window->set_request(req);
 
         auto const progress = window->load_progress();
@@ -195,7 +188,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
-    double start_arg = 0.0;
+    double start_arg = -0.1;
     bool debug_libav = false;
     double sleep_arg = 0.0;
 
@@ -206,7 +199,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
-    app.add_option("--start", start_arg, "Seek this many seconds into media");
+    app.add_option("--start", start_arg, "Start this many seconds into media");
     app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
@@ -231,16 +224,16 @@ extern "C" int main(int const argc, char const* const* const argv) {
         }
 
         if (sleep_arg > 0) {
-            fmt::print("Sleeping {:.1f} seconds...\n", sleep_arg);
+            fmt::print("Sleeping {:.1f} seconds...", sleep_arg);
             std::chrono::duration<double> sleep_time{sleep_arg};
             std::this_thread::sleep_for(sleep_time);
         }
 
     } catch (std::exception const& e) {
-        fmt::print("*** {}\n", e.what());
+        main_logger()->critical("*** {}", e.what());
     }
 
-    main_logger()->info("Done!\n\n");
+    fmt::print("Done!\n\n");
     return 0;
 }
 

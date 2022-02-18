@@ -50,7 +50,7 @@ struct DisplayLayer {
 
 // Returned by DisplayDriver::is_frame_shown() after a frame has become visible.
 struct DisplayUpdateDone {
-    std::chrono::steady_clock::time_point time;  // Time of vsync flip
+    SteadyTime time;                       // Time of vsync flip
     std::optional<ImageBuffer> writeback;  // Output for writeback connectors
 };
 

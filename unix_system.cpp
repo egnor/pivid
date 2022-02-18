@@ -51,23 +51,27 @@ class GlobalFileDescriptor : public FileDescriptor {
 
 class GlobalSystem : public UnixSystem {
   public:
-    virtual std::chrono::system_clock::time_point system_time() const {
-        return std::chrono::system_clock::now();
+    virtual SystemTime system_time() const {
+        using std::chrono::time_point_cast;
+        return time_point_cast<Seconds>(std::chrono::system_clock::now());
     }
 
-    virtual std::chrono::steady_clock::time_point steady_time() const {
-        return std::chrono::steady_clock::now();
+    virtual SteadyTime steady_time() const {
+        using std::chrono::time_point_cast;
+        return time_point_cast<Seconds>(std::chrono::steady_clock::now());
     }
 
     virtual void wait_until(
-        std::chrono::steady_clock::time_point t,
+        SteadyTime t,
         std::condition_variable* cond,
         std::unique_lock<std::mutex>* lock
     ) {
+        using std::chrono::time_point_cast;
+        auto u = time_point_cast<std::chrono::steady_clock::duration>(t);
         if (cond == nullptr) {
-            std::this_thread::sleep_until(t);
+            std::this_thread::sleep_until(u);
         } else {
-            cond->wait_until(*lock, t);
+            cond->wait_until(*lock, u);
         }
     }
 

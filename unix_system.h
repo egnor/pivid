@@ -22,6 +22,10 @@
 
 namespace pivid {
 
+using Seconds = std::chrono::duration<double>;
+using SystemTime = std::chrono::sys_time<Seconds>;
+using SteadyTime = std::chrono::time_point<std::chrono::steady_clock, Seconds>;
+
 // The return from a system call, with an errno *or* some return value.
 template <typename T>
 struct [[nodiscard]] ErrnoOr {
@@ -81,10 +85,10 @@ class UnixSystem {
     virtual ~UnixSystem() = default;
 
     // System clock
-    virtual std::chrono::system_clock::time_point system_time() const = 0;
-    virtual std::chrono::steady_clock::time_point steady_time() const = 0;
+    virtual SystemTime system_time() const = 0;
+    virtual SteadyTime steady_time() const = 0;
     virtual void wait_until(
-        std::chrono::steady_clock::time_point,
+        SteadyTime,
         std::condition_variable* = nullptr,
         std::unique_lock<std::mutex>* = nullptr
     ) = 0;

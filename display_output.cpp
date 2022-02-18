@@ -883,7 +883,7 @@ class DrmDriver : public DisplayDriver {
 
         // Guarded by DrmDriver::mutex
         Crtc* using_crtc = nullptr;
-        std::chrono::steady_clock::time_point pageflip_time;
+        SteadyTime pageflip_time;
     };
 
     // These containers are constant after startup (contained objects change)
@@ -927,14 +927,12 @@ class DrmDriver : public DisplayDriver {
             // TODO: Check for writeback fence, once it works
             // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
 
-            auto const usec_int = uint64_t(1000000) * ev.tv_sec + ev.tv_usec;
-            std::chrono::microseconds const usec{usec_int};
-            conn->pageflip_time = std::chrono::steady_clock::time_point{usec};
+            double const seconds = ev.tv_sec + 1e-6 * ev.tv_usec;
+            conn->pageflip_time = SteadyTime(Seconds(seconds));
 
             if (logger->should_log(log_level::debug)) {
-                std::chrono::duration<double> const seconds =
-                    conn->pageflip_time.time_since_epoch();
-                logger->debug("Update pageflip: {} {:.6}", conn->name, seconds);
+                auto seconds = conn->pageflip_time.time_since_epoch();
+                logger->debug("Update pageflip: {} {:.3}", conn->name, seconds);
             }
 
             if (!crtc->pending_flip->mode.vrefresh) {

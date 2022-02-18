@@ -19,6 +19,7 @@ extern "C" {
 #include <libavutil/hwcontext_drm.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/rational.h>
 }
 
 #include "logging_policy.h"
@@ -179,7 +180,7 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     MediaFrame out = {};
-    out.time = Millis(1000 * av->pts * time_base.num / time_base.den);
+    out.time = Seconds(1.0 * av->pts * time_base.num / time_base.den);
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
     switch (av->pict_type) {
@@ -223,7 +224,7 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual MediaInfo const& info() const { return media_info; }
 
-    virtual void seek_before(Millis millis) {
+    virtual void seek_before(Seconds when) {
         assert(format_context && codec_context);
         if (av_packet) av_packet_unref(av_packet);
         if (av_frame) av_frame_unref(av_frame);
@@ -233,7 +234,7 @@ class LibavMediaDecoder : public MediaDecoder {
         eof_seen_from_codec = false;
 
         auto const tb = format_context->streams[stream_index]->time_base;
-        int64_t const t = millis.count() * tb.den / tb.num / 1000;
+        int64_t const t = when.count() * tb.den / tb.num;
         check_av(
             avformat_seek_file(format_context, stream_index, 0, t, t, 0),
             "Seek file", media_info.filename
@@ -392,11 +393,10 @@ class LibavMediaDecoder : public MediaDecoder {
 
         if (stream->duration > 0) {
             auto const tb = stream->time_base;
-            auto const millis = 1000 * stream->duration * tb.num / tb.den;
-            media_info.duration = Millis(millis);
+            media_info.duration = Seconds(av_q2d(tb) * stream->duration);
         } else if (format_context->duration > 0) {
-            auto const millis = 1000 * format_context->duration / AV_TIME_BASE;
-            media_info.duration = Millis(millis);
+            double constexpr tb = 1.0 / AV_TIME_BASE;
+            media_info.duration = Seconds(tb * format_context->duration);
         }
 
         if (stream->avg_frame_rate.num > 0)

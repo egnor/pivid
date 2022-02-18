@@ -50,14 +50,13 @@ class ThreadFrameWindow : public FrameWindow {
     virtual void set_request(Request const& new_request) {
         std::unique_lock lock{shared->mutex};
         if (shared->logger->should_log(log_level::trace)) {
-            shared->logger->trace(
-                "Set request \"{}\" {}", file_iter->first, debug(new_request)
-            );
+            shared->logger->trace("Set request for \"{}\"", file_iter->first);
+            shared->logger->trace("> request {}", debug(new_request));
         }
 
-        if (request.final) {
+        if (request.freeze) {
             throw std::invalid_argument(fmt::format(
-                "Finalized window updated ({})", file_iter->first
+                "Frozen window updated ({})", file_iter->first
             ));
         }
 
@@ -146,7 +145,7 @@ class ThreadFrameWindow : public FrameWindow {
             if (fetch_at != std::max(best->decoder_seek, best->decoder_fetch)) {
                 if (logger->should_log(log_level::trace)) {
                     logger->trace(
-                        "> seek {} (last={} fetch={})",
+                        "> seek to {:.3} (last={:.3} fetch={:.3})",
                         fetch_at, best->decoder_seek, best->decoder_fetch
                     );
                 }
@@ -168,13 +167,13 @@ class ThreadFrameWindow : public FrameWindow {
             }
 
             if (logger->should_log(log_level::trace) && !frame) {
-                logger->trace("> EOF after {}", file, fetch_at);
+                logger->trace("> got EOF {:.3}", file, fetch_at);
             }
 
             // See if there's still demand for the frame that was fetched
             auto const file_iter = shared->by_file.find(file);
             if (file_iter == shared->by_file.end()) {
-                logger->trace("> (file dropped)", file);
+                logger->trace("> dropped file");
                 continue;
             }
 
@@ -182,21 +181,21 @@ class ThreadFrameWindow : public FrameWindow {
             for (auto* w : file_iter->second) {
                 if (w->frames_end >= w->request.end) {
                     if (logger->should_log(log_level::trace))
-                        logger->trace("> {} (full)", debug(w->request));
+                        logger->trace(">> {}: loaded, skip", debug(w->request));
                 } else if (fetch_at > w->frames_end) {
                     if (logger->should_log(log_level::trace))
-                        logger->trace("> {} (fetch late)", debug(w->request));
+                        logger->trace(">> {}: after, skip", debug(w->request));
                 } else if (frame && frame->time <= w->frames_end) {
                     if (logger->should_log(log_level::trace))
-                        logger->trace("> {} (frame early)", debug(w->request));
+                        logger->trace(">> {}: before, skip", debug(w->request));
                 } else {
                     if (!frame) {
                         if (logger->should_log(log_level::trace))
-                            logger->trace("> {} EOF hit", debug(w->request));
+                            logger->trace(">> {}: set EOF", debug(w->request));
                         w->frames_end = eof;
                     } else {
                         if (logger->should_log(log_level::trace))
-                            logger->trace("> {} frame hit", debug(w->request));
+                            logger->trace(">> {}: add", debug(w->request));
                         if (!loaded)
                             loaded = shared->display->load_image(frame->image);
                         w->frames[frame->time] = loaded;
@@ -220,34 +219,39 @@ class ThreadFrameWindow : public FrameWindow {
     std::multimap<double, ThreadFrameWindow*>::iterator priority_iter;
     Request request = {};
     Frames frames = {};  // Covers a prefix of request, up to one past the end
-    Millis frames_end = {};  // The end of loaded frames
+    Seconds frames_end = {};  // The end of loaded frames
 
     // Guarded by decoder_mutex
     std::mutex decoder_mutex;  // Acquired after shared->mutex
     std::unique_ptr<MediaDecoder> decoder;
-    Millis decoder_seek = {};
-    Millis decoder_fetch = {};
+    Seconds decoder_seek = {};
+    Seconds decoder_fetch = {};
 
     void update_priority(std::unique_lock<std::mutex> const& lock) {
         if (!lock || lock.mutex() != &shared->mutex)
             throw std::logic_error("update_priority() without lock");
 
         for (;;) {
-            // If fully satisfied, remove the window from the priority queue.
-            if (frames_end >= request.end) {  // Fully satisfied
-                if (shared->logger->should_log(log_level::trace)) {
+            if (shared->logger->should_log(log_level::trace)) {
+                auto const state =
+                    frames_end < request.end ? "partial" :
+                        request.freeze ? "frozen!" : "loaded!";
+                if (frames.empty()) {
+                    shared->logger->trace("> {} empty", state);
+                } else {
                     shared->logger->trace(
-                        "> {} {}f {}~{}",
-                        request.final ? "finalized" : "full",
-                        frames.size(), frames.begin()->first, frames_end
+                        "> {} {:.3}~{:.3} ({}f)", state,
+                        frames.begin()->first, frames_end, frames.size()
                     );
                 }
+            }
 
-                if (request.final) {
+            // If fully satisfied, remove the window from the priority queue.
+            if (frames_end >= request.end) {  // Fully satisfied
+                if (request.freeze) {
                     std::lock_guard decoder_lock{decoder_mutex};
                     decoder = nullptr;
                 }
-
                 if (priority_iter != shared->by_priority.end()) {
                     shared->by_priority.erase(priority_iter);
                     priority_iter = shared->by_priority.end();
@@ -266,9 +270,9 @@ class ThreadFrameWindow : public FrameWindow {
                     if (begin != end) {
                         if (shared->logger->should_log(log_level::trace)) {
                             shared->logger->trace(
-                                "> reuse {}f {}~{}",
-                                std::distance(begin, end),
-                                begin->first, std::prev(end)->first
+                                "> reusing {:.3}~{:.3} ({}f)",
+                                begin->first, std::prev(end)->first,
+                                std::distance(begin, end)
                             );
                         }
                         frames.insert(begin, end);
@@ -285,7 +289,7 @@ class ThreadFrameWindow : public FrameWindow {
                 auto const prio = request.min_priority +
                     (request.max_priority - request.min_priority) *
                     std::min<double>(1.0, fraction);
-                shared->logger->trace("> p={:.3f} end={}", prio, frames_end);
+                shared->logger->trace("> p={:.3f} end={:.3}", prio, frames_end);
 
                 if (priority_iter == shared->by_priority.end()) {
                     priority_iter = shared->by_priority.insert({prio, this});
@@ -341,9 +345,9 @@ std::unique_ptr<FrameLoader> make_frame_loader(DisplayDriver* display) {
 
 std::string debug(FrameWindow::Request const& req) {
     return fmt::format(
-        "{}~{} (p={:.1f}/{:.1f}){}",
+        "{:.3}~{:.3} (p={:.1f}/{:.1f}){}",
         req.begin, req.end, req.max_priority, req.min_priority,
-        req.final ? " [final]" : ""
+        req.freeze ? " [frozen]" : ""
     );
 }
 

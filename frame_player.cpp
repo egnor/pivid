@@ -47,10 +47,10 @@ class ThreadFramePlayer : public FramePlayer {
             } else {
                 using namespace std::chrono_literals;
                 logger->trace(
-                    "Set timeline {}f {:.3f}s~{:.3f}s {}",
+                    "Set timeline {}f {:.3}~{:.3} {}",
                     timeline.size(),
-                    timeline.begin()->first.time_since_epoch() / 1.0s,
-                    timeline.rbegin()->first.time_since_epoch() / 1.0s,
+                    timeline.begin()->first.time_since_epoch(),
+                    timeline.rbegin()->first.time_since_epoch(),
                     same_keys ? "[same]" : "[diff]"
                 );
             }
@@ -63,7 +63,7 @@ class ThreadFramePlayer : public FramePlayer {
         }
     }
 
-    virtual Timeline::key_type last_shown() const {
+    virtual SteadyTime last_shown() const {
         std::lock_guard const lock{mutex};
         return shown;
     }
@@ -103,10 +103,10 @@ class ThreadFramePlayer : public FramePlayer {
 
             if (logger->should_log(log_level::trace)) {
                 logger->trace(
-                    "PLAY timeline {}f {:.3f}s~{:.3f}s",
+                    "PLAY timeline {}f {:.3}~{:.3}",
                     timeline.size(),
-                    timeline.begin()->first.time_since_epoch() / 1.0s,
-                    timeline.rbegin()->first.time_since_epoch() / 1.0s
+                    timeline.begin()->first.time_since_epoch(),
+                    timeline.rbegin()->first.time_since_epoch()
                 );
             }
 
@@ -121,9 +121,8 @@ class ThreadFramePlayer : public FramePlayer {
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 if (logger->should_log(log_level::warn)) {
                     logger->warn(
-                        "Skip frame sched={:.3f}s ({}ms old)",
-                        s->first.time_since_epoch() / 1.0s,
-                        (now - s->first) / 1ms
+                        "Skip frame sched={:.3} ({:.3} old)",
+                        s->first.time_since_epoch(), now - s->first
                     );
                 }
                 shown = s->first;
@@ -138,7 +137,7 @@ class ThreadFramePlayer : public FramePlayer {
             if (show->first > now) {
                 if (logger->should_log(log_level::trace)) {
                     auto const delay = show->first - now;
-                    logger->trace("> (waiting {}ms for frame)", delay / 1ms);
+                    logger->trace("> (waiting {:.3} for frame)", delay);
                 }
                 sys->wait_until(show->first, &wakeup, &lock);
                 continue;
@@ -157,8 +156,8 @@ class ThreadFramePlayer : public FramePlayer {
             if (logger->should_log(log_level::debug)) {
                 auto const lag = now - shown;
                 logger->debug(
-                    "Show frame sched={:.3f}s ({}ms old)",
-                    shown.time_since_epoch() / 1.0s, lag / 1ms
+                    "Show frame sched={:.3} ({:.3} old)",
+                    shown.time_since_epoch(), lag
                 );
             }
         }
@@ -175,7 +174,7 @@ class ThreadFramePlayer : public FramePlayer {
     bool shutdown = false;
     std::condition_variable wakeup;
     Timeline timeline;
-    Timeline::key_type shown = {};
+    SteadyTime shown = {};
 };
 
 }  // anonymous namespace

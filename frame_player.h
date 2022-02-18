@@ -13,10 +13,8 @@ namespace pivid {
 // *Internally synchronized* for multithreaded access.
 class FramePlayer {
   public:
-    using Timeline = std::map<
-        std::chrono::steady_clock::time_point,
-        std::vector<DisplayLayer>
-    >;
+    // Sequence of frames with the "monotonic clock" time to display them.
+    using Timeline = std::map<SteadyTime, std::vector<DisplayLayer>>;
 
     // Interrupts and shuts down the frame player.
     virtual ~FramePlayer() = default;
@@ -25,8 +23,9 @@ class FramePlayer {
     // is limited to a short near-term buffer and periodically refreshed.
     virtual void set_timeline(Timeline) = 0;
 
-    // Returns the scheduled time of the most recently played frame.
-    virtual Timeline::key_type last_shown() const = 0;
+    // Returns the *scheduled* time of the most recently played frame.
+    // (TODO: Make the actual time it was displayed also available.)
+    virtual SteadyTime last_shown() const = 0;
 };
 
 std::unique_ptr<FramePlayer> start_frame_player(
