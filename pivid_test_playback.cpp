@@ -15,6 +15,7 @@ extern "C" {
 }
 
 #include "display_output.h"
+#include "frame_loader.h"
 #include "frame_player.h"
 #include "logging_policy.h"
 #include "media_decoder.h"
@@ -23,7 +24,7 @@ namespace pivid {
 
 namespace {
 
-std::shared_ptr<spdlog::logger> const& main_logger() {
+std::shared_ptr<log::logger> const& main_logger() {
     static const auto logger = make_logger("main");
     return logger;
 }
@@ -114,12 +115,12 @@ std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
 }
 
 void play_video(
-    std::unique_ptr<MediaDecoder> const& decoder,
-    std::unique_ptr<MediaDecoder> const& overlay,
-    std::string const& tiff_arg,
+    std::unique_ptr<MediaDecoder> decoder,
+    std::unique_ptr<MediaDecoder> overlay,
     std::unique_ptr<DisplayDriver> const& driver,
     DisplayConnector const& conn,
-    DisplayMode const& mode
+    DisplayMode const& mode,
+    double start_arg
 ) {
     using namespace std::chrono_literals;
     auto const logger = main_logger();
@@ -138,95 +139,50 @@ void play_video(
         overlay_layer.to_size = frame->image.size;
     }
 
-    FramePlayer::Timeline timeline;
-    std::unique_ptr<FramePlayer> player;
-    if (driver)
-        player = start_frame_player(sys, driver.get(), conn.id, mode);
+    auto const player = start_frame_player(sys, driver.get(), conn.id, mode);
+    auto const loader = make_frame_loader(driver.get());
+    auto const window = loader->open_window(std::move(decoder));
 
-    int frame_index = 0;
-    std::optional<FramePlayer::Timeline::key_type> start_time;
-    logger->trace("Getting first video frame...");
-    while (decoder) {
-        if (player) {
-            auto const last_shown = player->last_shown();
-            while (!timeline.empty() && timeline.begin()->first < last_shown)
-                timeline.erase(timeline.begin());
-            if (timeline.size() >= 10) {
-                logger->trace("> (sleeping for playback...)");
-                sys->wait_until(sys->steady_time() + 50ms);
-                continue;
-            }
-        }
+    auto start_time = sys->steady_time();
+    if (start_arg) {
+        logger->info("Skipping to {:.3f} seconds...\n", start_arg);
+        start_time -= Millis(int64_t(start_arg * 1e3));
+    }
 
-        auto const media_frame = decoder->next_frame();
-        if (!media_frame) break;
+    for (;;) {
+        auto now = sys->steady_time();
+        logger->trace("UPDATE at {:.3f}s", now.time_since_epoch() / 1.0s);
 
-        if (!start_time) {
-            start_time = sys->steady_time() - media_frame->time;
-            logger->debug(
-                "Play start @ {:.3f}", start_time->time_since_epoch() / 1.0s
-            );
-        }
+        FrameWindow::Request req = {};
+        req.begin = std::chrono::duration_cast<Millis>(
+            std::max(player->last_shown(), start_time) - start_time
+        );
+        req.end = std::chrono::duration_cast<Millis>(
+            now - start_time + 100ms
+        );
+        window->set_request(req);
 
-        if (player) {
+        auto const progress = window->load_progress();
+        auto const frames = window->loaded();
+        if (frames.empty() && progress >= FrameWindow::eof) break;
+
+        FramePlayer::Timeline timeline;
+        for (auto const& time_frame : frames) {
+            DisplayLayer frame_layer = {};
+            frame_layer.image = time_frame.second;
+            frame_layer.from_size = time_frame.second->size().as<double>();
+            frame_layer.to_size = mode.size;
+
             std::vector<DisplayLayer> layers;
-
-            DisplayLayer layer = {};
-            layer.image = driver->load_image(media_frame->image);
-            layer.from_size = media_frame->image.size.as<double>();
-            layer.to_size = mode.size;
-            layers.push_back(std::move(layer));
-
-            if (overlay_layer.image)
-                layers.push_back(overlay_layer);
-
-            auto const play_time = *start_time + media_frame->time;
-            timeline[play_time] = layers;
-            if (logger->should_log(log_level::debug)) {
-                logger->debug(
-                    "Adding frame @ {:.3f}",
-                    play_time.time_since_epoch() / 1.0s
-                );
-            }
-
-            player->set_timeline(timeline);
+            layers.push_back(std::move(frame_layer));
+            if (overlay_layer.image) layers.push_back(overlay_layer);
+            timeline[start_time + time_frame.first] = std::move(layers);
         }
-
-        if (!tiff_arg.empty()) {
-            auto dot_pos = tiff_arg.rfind('.');
-            if (dot_pos == std::string::npos) dot_pos = tiff_arg.size();
-
-            logger->trace("Encoding TIFF...");
-            auto path = tiff_arg.substr(0, dot_pos);
-            path += fmt::format(".F{:05d}", frame_index);
-            path += tiff_arg.substr(dot_pos);
-            auto tiff = debug_tiff(media_frame->image);
-
-            logger->trace("Writing TIFF...");
-            std::ofstream ofs;
-            ofs.exceptions(~std::ofstream::goodbit);
-            ofs.open(path, std::ios::binary);
-            ofs.write((char const*) tiff.data(), tiff.size());
-            logger->trace("Saving: {}", path);
-        }
-
-        ++frame_index;
-        logger->trace("Getting next video frame (#{})...", frame_index);
+        player->set_timeline(timeline);
+        sys->wait_until(now + 10ms);
     }
 
-    logger->debug("End of media file reached");
-
-    while (
-        player && !timeline.empty() &&
-        player->last_shown() < timeline.rbegin()->first
-    ) {
-        auto const left = timeline.rbegin()->first - player->last_shown();
-        logger->trace("Sleeping for final playback ({}ms left)...", left / 1ms);
-        sys->wait_until(sys->steady_time() + 50ms);
-    }
-    player.reset();
-
-    logger->debug("End of playback");
+    logger->info("End of playback");
 }
 
 }  // namespace
@@ -239,8 +195,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
-    double seek_arg = 0.0;
-    std::string tiff_arg;
+    double start_arg = 0.0;
     bool debug_libav = false;
     double sleep_arg = 0.0;
 
@@ -251,9 +206,8 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
-    app.add_option("--seek", seek_arg, "Seek this many seconds into media");
+    app.add_option("--start", start_arg, "Seek this many seconds into media");
     app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
-    app.add_option("--save_tiff", tiff_arg, "Save frames as .tiff");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
 
@@ -264,16 +218,17 @@ extern "C" int main(int const argc, char const* const* const argv) {
         auto const driver = find_driver(dev_arg);
         auto const conn = find_connector(driver, conn_arg);
         auto const mode = find_mode(driver, conn, mode_arg);
-        auto const decoder = find_media(media_arg);
-        auto const overlay = find_media(overlay_arg);
+        auto decoder = find_media(media_arg);
+        auto overlay = find_media(overlay_arg);
 
-        if (seek_arg) {
-            fmt::print("Seeking to {:.3f} seconds...\n", seek_arg);
-            int64_t const millis = seek_arg * 1e3;
-            decoder->seek_before(std::chrono::milliseconds(millis));
+        if (decoder && driver) {
+            play_video(
+                std::move(decoder),
+                std::move(overlay),
+                driver, conn, mode,
+                start_arg
+            );
         }
-
-        play_video(decoder, overlay, tiff_arg, driver, conn, mode);
 
         if (sleep_arg > 0) {
             fmt::print("Sleeping {:.1f} seconds...\n", sleep_arg);
@@ -281,11 +236,11 @@ extern "C" int main(int const argc, char const* const* const argv) {
             std::this_thread::sleep_for(sleep_time);
         }
 
-        fmt::print("Done!\n\n");
     } catch (std::exception const& e) {
         fmt::print("*** {}\n", e.what());
     }
 
+    main_logger()->info("Done!\n\n");
     return 0;
 }
 

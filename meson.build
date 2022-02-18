@@ -58,6 +58,12 @@ executable(
 )
 
 executable(
+    'pivid_save_frames', 'pivid_save_frames.cpp',
+    link_with: [pivid_lib],
+    dependencies: [util_deps],
+)
+
+executable(
     'pivid_test_playback', 'pivid_test_playback.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],

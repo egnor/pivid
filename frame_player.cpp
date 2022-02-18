@@ -33,22 +33,34 @@ class ThreadFramePlayer : public FramePlayer {
 
     virtual void set_timeline(Timeline timeline) {
         std::unique_lock lock{mutex};
+
+        // Avoid thread wakeup if the wakeup schedule doesn't change.
+        bool const same_keys = 
+            timeline.size() == this->timeline.size() && std::equal(
+                timeline.begin(), timeline.end(), this->timeline.begin(),
+                [] (auto const& a, auto const& b) { return a.first == b.first; }
+            );
+
         if (logger->should_log(log_level::trace)) {
             if (timeline.empty()) {
-                logger->trace("Deleting timeline...");
+                logger->trace("Set timeline empty");
             } else {
                 using namespace std::chrono_literals;
                 logger->trace(
-                    "New timeline: {}fr {:.3f}s ~ {:.3f}s",
+                    "Set timeline {}f {:.3f}s~{:.3f}s {}",
                     timeline.size(),
                     timeline.begin()->first.time_since_epoch() / 1.0s,
-                    timeline.rbegin()->first.time_since_epoch() / 1.0s
+                    timeline.rbegin()->first.time_since_epoch() / 1.0s,
+                    same_keys ? "[same]" : "[diff]"
                 );
             }
         }
+
         this->timeline = std::move(timeline);
-        lock.unlock();
-        wakeup.notify_all();
+        if (!this->timeline.empty() && !same_keys) {
+            lock.unlock();
+            wakeup.notify_all();
+        }
     }
 
     virtual Timeline::key_type last_shown() const {
@@ -83,16 +95,22 @@ class ThreadFramePlayer : public FramePlayer {
         logger->debug("Frame player thread running...");
         std::unique_lock lock{mutex};
         while (!shutdown) {
-            logger->trace("Frame player iteration...");
-            auto const now = sys->steady_time();
-            auto const done = driver->update_done_yet(connector_id);
-            if (!done) {
-                logger->trace("> (update pending, waiting 5ms)");
-                auto const try_again = now + 5ms;
-                sys->wait_until(try_again, &wakeup, &lock);
+            if (timeline.empty()) {
+                logger->trace("PLAY (no frames, waiting for wakeup)");
+                wakeup.wait(lock);
                 continue;
             }
 
+            if (logger->should_log(log_level::trace)) {
+                logger->trace(
+                    "PLAY timeline {}f {:.3f}s~{:.3f}s",
+                    timeline.size(),
+                    timeline.begin()->first.time_since_epoch() / 1.0s,
+                    timeline.rbegin()->first.time_since_epoch() / 1.0s
+                );
+            }
+
+            auto const now = sys->steady_time();
             auto show = timeline.upper_bound(now);
             if (show != timeline.begin()) {
                 auto before = show;
@@ -100,14 +118,15 @@ class ThreadFramePlayer : public FramePlayer {
                 if (before->first > shown) show = before;
             }
 
-            if (logger->should_log(log_level::warn)) {
-                for (auto s = timeline.upper_bound(shown); s != show; ++s) {
-                    auto const age = now - s->first;
+            for (auto s = timeline.upper_bound(shown); s != show; ++s) {
+                if (logger->should_log(log_level::warn)) {
                     logger->warn(
                         "Skip frame sched={:.3f}s ({}ms old)",
-                        s->first.time_since_epoch() / 1.0s, age / 1ms
+                        s->first.time_since_epoch() / 1.0s,
+                        (now - s->first) / 1ms
                     );
                 }
+                shown = s->first;
             }
 
             if (show == timeline.end()) {
@@ -125,9 +144,16 @@ class ThreadFramePlayer : public FramePlayer {
                 continue;
             }
 
+            auto const done = driver->update_done_yet(connector_id);
+            if (!done) {
+                logger->trace("> (update pending, waiting 5ms)");
+                auto const try_again = now + 5ms;
+                sys->wait_until(try_again, &wakeup, &lock);
+                continue;
+            }
+
             driver->update(connector_id, mode, show->second);
             shown = show->first;
-
             if (logger->should_log(log_level::debug)) {
                 auto const lag = now - shown;
                 logger->debug(

@@ -5,6 +5,7 @@
 #include <drm_fourcc.h>
 #include <sys/mman.h>
 
+#include <map>
 #include <system_error>
 
 #include <fmt/core.h>
@@ -178,8 +179,7 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     MediaFrame out = {};
-    int64_t const millis = 1000 * av->pts * time_base.num / time_base.den;
-    out.time = std::chrono::milliseconds(millis);
+    out.time = Millis(1000 * av->pts * time_base.num / time_base.den);
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
     switch (av->pict_type) {
@@ -223,7 +223,7 @@ class LibavMediaDecoder : public MediaDecoder {
 
     virtual MediaInfo const& info() const { return media_info; }
 
-    virtual void seek_before(std::chrono::milliseconds millis) {
+    virtual void seek_before(Millis millis) {
         assert(format_context && codec_context);
         if (av_packet) av_packet_unref(av_packet);
         if (av_frame) av_frame_unref(av_frame);
@@ -393,10 +393,10 @@ class LibavMediaDecoder : public MediaDecoder {
         if (stream->duration > 0) {
             auto const tb = stream->time_base;
             auto const millis = 1000 * stream->duration * tb.num / tb.den;
-            media_info.duration = std::chrono::milliseconds(millis);
+            media_info.duration = Millis(millis);
         } else if (format_context->duration > 0) {
             auto const millis = 1000 * format_context->duration / AV_TIME_BASE;
-            media_info.duration = std::chrono::milliseconds(millis);
+            media_info.duration = Millis(millis);
         }
 
         if (stream->avg_frame_rate.num > 0)
@@ -450,10 +450,29 @@ std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
     return decoder;
 }
 
+//
+// Debugging utilities
+//
+
 std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
     media_logger()->trace("Encoding TIFF ({})...", debug(im));
     AVCodec const* tiff_codec = avcodec_find_encoder(AV_CODEC_ID_TIFF);
     if (!tiff_codec) throw std::runtime_error("No TIFF encoder found");
+
+    std::map<uint32_t, AVPixelFormat> format_map;
+    auto const* formats = tiff_codec->pix_fmts;
+    for (int f = 0; formats[f] != AV_PIX_FMT_NONE; ++f) {
+        auto const fourcc = avcodec_pix_fmt_to_codec_tag(formats[f]);
+        if (fourcc) format_map[fourcc] = formats[f];
+    }
+
+    auto const format_iter = format_map.find(im.fourcc);
+    if (format_iter == format_map.end()) {
+        std::string text = "Bad pixel format for TIFF (";
+        text += debug_fourcc(im.fourcc) + "), supported:";
+        for (auto const& ff : format_map) text += " " + debug_fourcc(ff.first);
+        throw std::invalid_argument(text);
+    }
 
     std::shared_ptr<AVCodecContext> context{
         check_alloc(avcodec_alloc_context3(tiff_codec)),
@@ -462,18 +481,7 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
     context->width = im.size.x;
     context->height = im.size.y;
     context->time_base = {1, 30};  // Arbitrary but required.
-    context->pix_fmt = AV_PIX_FMT_NONE;
-
-    auto const* formats = tiff_codec->pix_fmts;
-    for (int f = 0; context->pix_fmt == AV_PIX_FMT_NONE; ++f) {
-        if (formats[f] == AV_PIX_FMT_NONE) {
-            throw std::invalid_argument(fmt::format(
-                "Bad pixel format for TIFF ({})", debug_fourcc(im.fourcc)
-            ));
-        }
-        if (avcodec_pix_fmt_to_codec_tag(formats[f]) == im.fourcc)
-            context->pix_fmt = formats[f];
-    }
+    context->pix_fmt = format_iter->second;
 
     check_av(
         av_opt_set(context->priv_data, "compression_algo", "deflate", 0),

@@ -13,21 +13,22 @@ namespace pivid {
 class FrameWindow {
   public:
     struct Request {
-        std::chrono::milliseconds start = {}, end = {};
-        double start_priority = 1.0, end_priority = 0.0;
-        bool keep_decoder = true;
+        Millis begin = {}, end = {};
+        double max_priority = 1.0, min_priority = 0.0;
+        bool final = false;
     };
 
-    using Frames = std::map<
-        std::chrono::milliseconds,
-        std::shared_ptr<LoadedImage>
-    >;
+    using Frames = std::map<Millis, std::shared_ptr<LoadedImage>>;
+
+    static Millis constexpr eof{999999999};
 
     virtual ~FrameWindow() = default;
 
     virtual void set_request(Request const&) = 0;
 
     virtual Frames loaded() const = 0;
+
+    virtual Millis load_progress() const = 0;
 };
 
 class FrameLoader {
@@ -40,5 +41,7 @@ class FrameLoader {
 };
 
 std::unique_ptr<FrameLoader> make_frame_loader(DisplayDriver*);
+
+std::string debug(FrameWindow::Request const&);
 
 }  // namespace pivid

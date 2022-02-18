@@ -12,27 +12,29 @@
 
 namespace pivid {
 
+using Millis = std::chrono::milliseconds;
+
 // Static metadata about a media (video/image) file. Unchanged during playback.
 // Returned by MediaDecoder::info().
 struct MediaInfo {
     std::string filename;
-    std::string container_type;        // Like "matroska,webm"
-    std::string codec_name;            // Like "h264_v4l2m2m"
-    std::string pixel_format;          // Like "drm_prime" or "RGBA"
-    std::optional<XY<int>> size;       // Frame image size, if known
-    std::optional<double> frame_rate;  // Video frames/second, if known
-    std::optional<int64_t> bit_rate;   // Compressed video bits/sec, if known
-    std::optional<std::chrono::milliseconds> duration;  // Length, if known
+    std::string container_type;         // Like "matroska,webm"
+    std::string codec_name;             // Like "h264_v4l2m2m"
+    std::string pixel_format;           // Like "drm_prime" or "RGBA"
+    std::optional<XY<int>> size;        // Frame image size, if known
+    std::optional<double> frame_rate;   // Video frames/second, if known
+    std::optional<int64_t> bit_rate;    // Compressed video bits/sec, if known
+    std::optional<Millis> duration;  // Length, if known
 };
 
 // Uncompressed frame from a video. (Still images appear as one-frame videos.)
 // Returned by MediaDecoder::next_frame().
 struct MediaFrame {
     ImageBuffer image;
-    std::chrono::milliseconds time;   // Time into the video
-    std::string_view frame_type;      // "B", "I", "P" etc for debugging
-    bool is_key_frame = false;        // True if the frame can be seeked to
-    bool is_corrupt = false;          // True if the codec had an error
+    Millis time;               // Time into the video
+    std::string_view frame_type;  // "B", "I", "P" etc for debugging
+    bool is_key_frame = false;    // True if the frame can be seeked to
+    bool is_corrupt = false;      // True if the codec had an error
 };
 
 // Interface to a media codec to read media (video/image) files.
@@ -46,7 +48,7 @@ class MediaDecoder {
     virtual MediaInfo const& info() const = 0;
 
     // Reset to the key frame preceding the timestamp.
-    virtual void seek_before(std::chrono::milliseconds) = 0;
+    virtual void seek_before(Millis) = 0;
 
     // Returns the next uncompressed frame from the media, or {} at EOF.
     virtual std::optional<MediaFrame> next_frame() = 0;
