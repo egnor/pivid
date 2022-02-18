@@ -120,7 +120,8 @@ void play_video(
     std::unique_ptr<DisplayDriver> const& driver,
     DisplayConnector const& conn,
     DisplayMode const& mode,
-    double start_arg
+    double start_arg,
+    double buffer_arg
 ) {
     using namespace std::chrono_literals;
     auto const logger = main_logger();
@@ -152,7 +153,7 @@ void play_video(
 
         FrameWindow::Request req = {};
         req.begin = std::max(player->last_shown() + 0.001s - start_time, 0.0s);
-        req.end = now - start_time + 100ms;
+        req.end = std::max(req.begin, now - start_time) + Seconds(buffer_arg);
         window->set_request(req);
 
         auto const progress = window->load_progress();
@@ -182,6 +183,7 @@ void play_video(
 
 // Main program, parses flags and calls the decoder loop.
 extern "C" int main(int const argc, char const* const* const argv) {
+    double buffer_arg = 0.1;
     std::string dev_arg;
     std::string conn_arg;
     std::string log_arg;
@@ -193,14 +195,15 @@ extern "C" int main(int const argc, char const* const* const argv) {
     double sleep_arg = 0.0;
 
     CLI::App app("Decode and show a media file");
+    app.add_option("--buffer", buffer_arg, "Seconds of readahead");
     app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
     app.add_option("--connector", conn_arg, "Video output");
     app.add_option("--log", log_arg, "Log level/configuration");
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
-    app.add_option("--start", start_arg, "Start this many seconds into media");
-    app.add_option("--sleep", sleep_arg, "Wait this long before exiting");
+    app.add_option("--start", start_arg, "Seconds into media to start");
+    app.add_option("--sleep", sleep_arg, "Seconds to wait before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     CLI11_PARSE(app, argc, argv);
 
@@ -219,7 +222,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
                 std::move(decoder),
                 std::move(overlay),
                 driver, conn, mode,
-                start_arg
+                start_arg, buffer_arg
             );
         }
 
