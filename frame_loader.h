@@ -12,14 +12,13 @@ namespace pivid {
 
 // Access to frames loaded into a GPU from a particular time range within a
 // media file (typically a section being played, or preparing to be played).
-// The frames are loaded asynchronously, and refill if the time range is
-// expanded or shifted.
+// Frames load asynchronously, and refill if the range is expanded or shifted.
 //
-// Returned by FrameLoader::open_window() for a MediaDecoder instance.
+// Returned by FrameLoader::open_window() using a MediaDecoder instance.
 // *Internally synchronized* for multithreaded access.
 class FrameWindow {
   public:
-    // Description of the time range of interest.
+    // Description of the time range of interest within the media file.
     struct Request {
         Seconds begin = {}, end = {};  // Time range within the media file
         double max_priority = 1.0, min_priority = 0.0;
@@ -30,9 +29,9 @@ class FrameWindow {
     using Frames = std::map<Seconds, std::shared_ptr<LoadedImage>>;
 
     // Sentinel value returned by load_progress() when EOF was encountered.
-    static Seconds constexpr eof{999999999};
+    static constexpr Seconds eof{999999999};
 
-    // Discards this cached window.
+    // Discards these cached frames.
     virtual ~FrameWindow() = default;
 
     // Updates the window parameters, retaining frames if they overlap.
@@ -56,9 +55,8 @@ class FrameLoader {
   public:
     virtual ~FrameLoader() = default;
 
-    // Returns a new FrameWindow caching frames from the given media file.
-    // Frames will be shared with overlapping windows from other decoders
-    // based on the same filename.
+    // Returns a new FrameWindow to cache frames from a given media decoder.
+    // Cached frames are shared across decoders for the same file.
     virtual std::unique_ptr<FrameWindow> open_window(
         std::unique_ptr<MediaDecoder>
     ) = 0;
