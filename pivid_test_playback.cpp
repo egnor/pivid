@@ -140,8 +140,9 @@ void play_video(
         overlay_layer.to_size = frame->image.size;
     }
 
+    auto const signal = sys->make_signal();
     auto const player = start_frame_player(sys, driver.get(), conn.id, mode);
-    auto const loader = make_frame_loader(driver.get());
+    auto const loader = make_frame_loader(sys, driver.get());
     auto const window = loader->open_window(std::move(decoder));
 
     logger->info("Offset {:.3f} seconds...", start_arg);
@@ -154,14 +155,14 @@ void play_video(
         FrameWindow::Request req = {};
         req.begin = std::max(player->last_shown() + 0.001s - start_time, 0.0s);
         req.end = std::max(req.begin, now - start_time) + Seconds(buffer_arg);
+        req.signal = signal;
         window->set_request(req);
 
-        auto const progress = window->load_progress();
-        auto const frames = window->loaded();
-        if (frames.empty() && progress >= FrameWindow::eof) break;
+        auto const results = window->results();
+        if (results.frames.empty() && results.at_eof) break;
 
         FramePlayer::Timeline timeline;
-        for (auto const& time_frame : frames) {
+        for (auto const& time_frame : results.frames) {
             DisplayLayer frame_layer = {};
             frame_layer.image = time_frame.second;
             frame_layer.from_size = time_frame.second->size().as<double>();
@@ -172,8 +173,9 @@ void play_video(
             if (overlay_layer.image) layers.push_back(overlay_layer);
             timeline[start_time + time_frame.first] = std::move(layers);
         }
-        player->set_timeline(timeline);
-        sys->wait_until(now + 10ms);
+        player->set_timeline(timeline, signal);
+
+        signal->wait_until(now + Seconds(std::max(0.020, buffer_arg / 5)));
     }
 
     logger->info("End of playback");
@@ -231,7 +233,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
             std::chrono::duration<double> sleep_time{sleep_arg};
             std::this_thread::sleep_for(sleep_time);
         }
-
     } catch (std::exception const& e) {
         main_logger()->critical("*** {}", e.what());
     }

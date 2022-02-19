@@ -4,8 +4,10 @@
 
 #include <chrono>
 #include <map>
+#include <memory>
 
 #include "display_output.h"
+#include "unix_system.h"
 
 namespace pivid {
 
@@ -13,7 +15,8 @@ namespace pivid {
 // *Internally synchronized* for multithreaded access.
 class FramePlayer {
   public:
-    // Sequence of frames with the "monotonic clock" time to display them.
+    // Sequence of frames with "monotonic clock" display time.
+    // Each frame is a stack of layers to pass to DisplayDriver::update().
     using Timeline = std::map<SteadyTime, std::vector<DisplayLayer>>;
 
     // Interrupts and shuts down the frame player.
@@ -21,7 +24,8 @@ class FramePlayer {
 
     // Sets the list of frames to play. These are uncompressed; normally this
     // is limited to a short near-term buffer and periodically refreshed.
-    virtual void set_timeline(Timeline) = 0;
+    // The signal (if any) is set when frames are shown.
+    virtual void set_timeline(Timeline, std::shared_ptr<ThreadSignal> = {}) = 0;
 
     // Returns the *scheduled* time of the most recently played frame.
     // (TODO: Make the actual time it was displayed also available.)

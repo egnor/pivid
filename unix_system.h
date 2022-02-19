@@ -12,11 +12,9 @@
 #include <sys/types.h>
 
 #include <chrono>
-#include <condition_variable>
 #include <memory>
 #include <string>
 #include <system_error>
-#include <mutex>
 #include <type_traits>
 #include <vector>
 
@@ -78,6 +76,16 @@ class FileDescriptor {
     }
 };
 
+// Interface to a simple synchronization event (like a simpler version of
+// C++20 std::binary_semaphore, which isn't implemented in libstdc++ yet).
+class ThreadSignal {
+  public:
+    virtual ~ThreadSignal() = default;
+    virtual void set() = 0;
+    virtual void wait() = 0;
+    virtual bool wait_until(SteadyTime) = 0;
+};
+
 // Interface to the Unix system.
 // A singleton (returned by global_system()) unless replaced by a mock.
 // *Internally synchronized* (by the OS, mainly) for multithreaded access.
@@ -85,14 +93,11 @@ class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
 
-    // System clock
+    // Clock and synchronization
     virtual SystemTime system_time() const = 0;
     virtual SteadyTime steady_time() const = 0;
-    virtual void wait_until(
-        SteadyTime,
-        std::condition_variable* = nullptr,
-        std::unique_lock<std::mutex>* = nullptr
-    ) = 0;
+    virtual void sleep_until(SteadyTime) const = 0;
+    virtual std::shared_ptr<ThreadSignal> make_signal() const = 0;
 
     // Filesystem I/O
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;

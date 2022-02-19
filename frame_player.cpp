@@ -1,6 +1,5 @@
 #include "frame_player.h"
 
-#include <condition_variable>
 #include <mutex>
 #include <thread>
 
@@ -26,12 +25,15 @@ class ThreadFramePlayer : public FramePlayer {
             logger->debug("Stopping frame player...");
             shutdown = true;
             lock.unlock();
-            wakeup.notify_all();
+            wakeup->set();
             thread.join();
         }
     }
 
-    virtual void set_timeline(Timeline timeline) {
+    virtual void set_timeline(
+        Timeline timeline,
+        std::shared_ptr<ThreadSignal> notify
+    ) {
         std::unique_lock lock{mutex};
 
         // Avoid thread wakeup if the wakeup schedule doesn't change.
@@ -57,9 +59,10 @@ class ThreadFramePlayer : public FramePlayer {
         }
 
         this->timeline = std::move(timeline);
+        this->notify = std::move(notify);
         if (!this->timeline.empty() && !same_keys) {
             lock.unlock();
-            wakeup.notify_all();
+            wakeup->set();
         }
     }
 
@@ -93,11 +96,15 @@ class ThreadFramePlayer : public FramePlayer {
     ) {
         using namespace std::chrono_literals;
         logger->debug("Frame player thread running...");
+
         std::unique_lock lock{mutex};
+        wakeup = sys->make_signal();
         while (!shutdown) {
             if (timeline.empty()) {
                 logger->trace("PLAY (no frames, waiting for wakeup)");
-                wakeup.wait(lock);
+                lock.unlock();
+                wakeup->wait();
+                lock.lock();
                 continue;
             }
 
@@ -130,7 +137,9 @@ class ThreadFramePlayer : public FramePlayer {
 
             if (show == timeline.end()) {
                 logger->trace("> (no more frames, waiting for wakeup)");
-                wakeup.wait(lock);
+                lock.unlock();
+                wakeup->wait();
+                lock.lock();
                 continue;
             }
 
@@ -139,7 +148,9 @@ class ThreadFramePlayer : public FramePlayer {
                     auto const delay = show->first - now;
                     logger->trace("> (waiting {:.3} for frame)", delay);
                 }
-                sys->wait_until(show->first, &wakeup, &lock);
+                lock.unlock();
+                wakeup->wait_until(show->first);
+                lock.lock();
                 continue;
             }
 
@@ -147,12 +158,15 @@ class ThreadFramePlayer : public FramePlayer {
             if (!done) {
                 logger->trace("> (update pending, waiting 5ms)");
                 auto const try_again = now + 5ms;
-                sys->wait_until(try_again, &wakeup, &lock);
+                lock.unlock();
+                wakeup->wait_until(try_again);
+                lock.lock();
                 continue;
             }
 
             driver->update(connector_id, mode, show->second);
             shown = show->first;
+            if (notify) notify->set();
             if (logger->should_log(log_level::debug)) {
                 auto const lag = now - shown;
                 logger->debug(
@@ -168,11 +182,12 @@ class ThreadFramePlayer : public FramePlayer {
     // Constant from start to ~
     std::shared_ptr<log::logger> const logger = player_logger();
     std::thread thread;
-    std::mutex mutable mutex;
+    std::shared_ptr<ThreadSignal> wakeup;
 
     // Guarded by mutex
+    std::mutex mutable mutex;
     bool shutdown = false;
-    std::condition_variable wakeup;
+    std::shared_ptr<ThreadSignal> notify;
     Timeline timeline;
     SteadyTime shown = {};
 };

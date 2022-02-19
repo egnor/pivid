@@ -8,7 +8,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <condition_variable>
 #include <functional>
+#include <mutex>
 #include <thread>
 
 namespace pivid {
@@ -49,6 +51,41 @@ class GlobalFileDescriptor : public FileDescriptor {
     int fd = -1;
 };
 
+class CondVarThreadSignal : public ThreadSignal {
+  public:
+    virtual void set() {
+        std::lock_guard<std::mutex> lock{mutex};
+        if (!signal_count) {
+            ++signal_count;
+            condvar.notify_one();
+        }
+    }
+
+    virtual void wait() {
+        std::unique_lock<std::mutex> lock{mutex};
+        while (!signal_count)
+            condvar.wait(lock);
+        --signal_count;
+    }
+
+    virtual bool wait_until(SteadyTime t) {
+        using std::chrono::time_point_cast;
+        auto u = time_point_cast<std::chrono::steady_clock::duration>(t);
+        std::unique_lock<std::mutex> lock{mutex};
+        while (!signal_count) {
+            if (condvar.wait_until(lock, u) == std::cv_status::timeout)
+                return false;
+        }
+        --signal_count;
+        return true;
+    }
+
+  private:
+    std::mutex mutex;
+    std::condition_variable condvar;
+    int signal_count = 0;
+};
+
 class GlobalSystem : public UnixSystem {
   public:
     virtual SystemTime system_time() const {
@@ -61,18 +98,14 @@ class GlobalSystem : public UnixSystem {
         return time_point_cast<Seconds>(std::chrono::steady_clock::now());
     }
 
-    virtual void wait_until(
-        SteadyTime t,
-        std::condition_variable* cond,
-        std::unique_lock<std::mutex>* lock
-    ) {
+    virtual void sleep_until(SteadyTime t) const {
         using std::chrono::time_point_cast;
         auto u = time_point_cast<std::chrono::steady_clock::duration>(t);
-        if (cond == nullptr) {
-            std::this_thread::sleep_until(u);
-        } else {
-            cond->wait_until(*lock, u);
-        }
+        std::this_thread::sleep_until(u);
+    }
+
+    virtual std::shared_ptr<ThreadSignal> make_signal() const {
+        return std::make_shared<CondVarThreadSignal>();
     }
 
     virtual ErrnoOr<std::vector<std::string>> list(

@@ -7,6 +7,7 @@
 
 #include "media_decoder.h"
 #include "display_output.h"
+#include "unix_system.h"
 
 namespace pivid {
 
@@ -20,34 +21,30 @@ class FrameWindow {
   public:
     // Description of the time range of interest within the media file.
     struct Request {
-        Seconds begin = {}, end = {};  // Time range within the media file
+        Seconds begin = {}, end = {};
         double max_priority = 1.0, min_priority = 0.0;
-        bool freeze = false;  // If true, discard the decoder after loading
+        bool freeze = false;
+        std::shared_ptr<ThreadSignal> signal = {};
     };
 
-    // Sequence of GPU-loaded frames indexed by time within the media file.
-    using Frames = std::map<Seconds, std::shared_ptr<LoadedImage>>;
-
-    // Sentinel value returned by load_progress() when EOF was encountered.
-    static constexpr Seconds eof{999999999};
+    // Frame cache contents.
+    struct Results {
+        std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
+        bool filled = false;
+        bool at_eof = false;
+    };
 
     // Discards these cached frames.
     virtual ~FrameWindow() = default;
 
-    // Updates the window parameters, retaining frames if they overlap.
-    // Loading starts in the background after the request is set or changed.
-    // If 'freeze' is true, set_request() may not be called again.
+    // Updates the window parameters and starts loading in the background.
+    // If .freeze is true, set_request() may not be called again.
+    // If .signal is present, it will be set when frames load.
     virtual void set_request(Request const&) = 0;
 
-    // Returns frames loaded in the window so far. Frames are always loaded
-    // from the beginning of the range forward, up to one frame past the end.
-    // This value changes as frames are loaded asynchronously.
-    virtual Frames loaded() const = 0;
-
-    // Returns the latest frame loaded, or FrameWindow::eof if EOF was found.
-    // The window is fully populated when load_progress() >= request.end.
-    // This value changes as frames are loaded asynchronously.
-    virtual Seconds load_progress() const = 0;
+    // Returns the frames loaded into the window so far.
+    // (The window is always filled from request.begin forward.)
+    virtual Results results() const = 0;
 };
 
 // Interface to manage GPU frame caching across files and time windows.
@@ -63,7 +60,9 @@ class FrameLoader {
 };
 
 // Creates a FrameLoader targeted to a particular GPU.
-std::unique_ptr<FrameLoader> make_frame_loader(DisplayDriver*);
+std::unique_ptr<FrameLoader> make_frame_loader(
+    std::shared_ptr<UnixSystem> sys, DisplayDriver*
+);
 
 // Debugging description of the request structure.
 std::string debug(FrameWindow::Request const&);
