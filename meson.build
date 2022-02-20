@@ -12,6 +12,7 @@ add_project_arguments(
 )
 
 util_deps = [
+    dependency('doctest'),
     dependency('CLI11'),
     dependency('fmt'),
     dependency('spdlog'),
@@ -38,8 +39,14 @@ pivid_lib = library(
         'image_buffer.cpp',
         'media_decoder.cpp',
         'unix_system.cpp',
+        'xy.cpp',
     ],
     dependencies: [libav_deps, util_deps],
+)
+
+executable(
+    'pivid_inspect_avformat', 'pivid_inspect_avformat.cpp',
+    dependencies: [util_deps, libav_deps],
 )
 
 executable(
@@ -53,26 +60,21 @@ executable(
 )
 
 executable(
-    'pivid_inspect_avformat', 'pivid_inspect_avformat.cpp',
-    dependencies: [util_deps, libav_deps],
-)
-
-executable(
     'pivid_save_frames', 'pivid_save_frames.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )
 
 executable(
-    'pivid_test_playback', 'pivid_test_playback.cpp',
+    'pivid_play', 'pivid_play.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )
 
-executable(
-    'hello_drmprime', [
-        'hello_drmprime/hello_drmprime.c',
-        'hello_drmprime/drmprime_out.c',
-    ],
-    dependencies: [libav_deps, libdrm_dep],
+pivid_test = executable(
+    'pivid_test', 'pivid_test.cpp',
+    link_with: [pivid_lib],
+    dependencies: [util_deps],
 )
+
+test('pivid tests', pivid_test)

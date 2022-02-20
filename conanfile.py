@@ -39,6 +39,9 @@ class PividConan(conans.ConanFile):
         ]:
             setattr(self.options["libdrm"], libdrm_disable, False)
 
+    def build_requirements(self):
+        self.test_requires("doctest/2.4.8")
+
     def build(self):
         meson = conans.Meson(self)  # Uses the "pkg_config" generator (above)
         meson_private_dir = os.path.join(self.build_folder, "meson-private")

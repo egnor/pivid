@@ -10,6 +10,7 @@
 
 #include "image_buffer.h"
 #include "unix_system.h"
+#include "xy.h"
 
 namespace pivid {
 

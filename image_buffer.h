@@ -7,21 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "xy.h"
+
 namespace pivid {
-
-// Convenience struct for coordinate pairs.
-template <typename T>
-struct XY {
-    T x = {}, y = {};
-
-    template <typename U> XY<U> as() const { return XY<U>(x, y); }
-    XY operator+(XY const other) const { return {x + other.x, y + other.y}; }
-    XY operator-(XY const other) const { return {x - other.x, y - other.y}; }
-    XY operator-() const { return {-x, -y}; }
-    template <typename U> XY operator*(U m) const { return {x * m, y * m}; }
-    template <typename U> XY operator/(U d) const { return {x / d, y / d}; }
-    operator bool() const { return x || y; }
-};
 
 // Description of a memory buffer holding image data.
 // Zero-copy DMA buffers may not be memory mapped by default, but
