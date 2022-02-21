@@ -1,5 +1,7 @@
 // Simple command line tool to list DRM/KMS resources.
 
+#include <drm/drm.h>
+#include <drm_fourcc.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -10,7 +12,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <filesystem>
 #include <vector>
 
 #include <CLI/App.hpp>
@@ -20,71 +21,25 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
+#include "display_output.h"
+#include "unix_system.h"
+
+namespace pivid {
+
 bool print_properties_flag = false;  // Set by flag in main()
 
-// Scan all DRM/KMS capable video cards and print a line for each.
-void scan_devices() {
-    fmt::print("=== Scanning DRM/KMS GPU devices ===\n");
-    std::filesystem::path const dri_dir = "/dev/dri";
-    std::vector<std::string> dev_files;
-    for (auto const& entry : std::filesystem::directory_iterator(dri_dir)) {
-        std::string const filename = entry.path().filename();
-        if (filename.substr(0, 4) == "card" && isdigit(filename[4]))
-            dev_files.push_back(entry.path().native());
+// Scan and describe all DRM/KMS capable video cards
+std::optional<DisplayDriverListing> scan_devices(std::string const& dev_arg) {
+    fmt::print("=== DRM/KMS video drivers ===\n");
+    std::optional<DisplayDriverListing> found;
+    for (auto const& d : list_display_drivers(global_system())) {
+        auto const text = debug(d);
+        if (!found && text.find(dev_arg) != std::string::npos)
+            found = d;
+        fmt::print("{} {}\n", (found == d) ? "=>" : " ", debug(d));
     }
-
-    std::sort(dev_files.begin(), dev_files.end());
-    for (auto const& path : dev_files) {
-        int const fd = open(path.c_str(), O_RDWR);
-        if (fd < 0) {
-            fmt::print("*** {}: {}\n", path, strerror(errno));
-            continue;
-        }
-
-        std::string dev_path;
-        struct stat stat = {}; 
-        if (fstat(fd, &stat)) {
-            fmt::print("*** stat({}): {}\n", path, strerror(errno));
-        } else if ((stat.st_mode & S_IFMT) != S_IFCHR) {
-            fmt::print("*** {}: Not a char device\n", path, strerror(errno));
-        } else {
-            auto const mj = major(stat.st_rdev), mn = minor(stat.st_rdev);
-            auto const devid_path = fmt::format("/sys/dev/char/{}:{}", mj, mn);
-            auto const device_path = std::filesystem::canonical(devid_path);
-            dev_path = std::filesystem::relative(device_path, "/sys/devices");
-        }
-
-        auto* const ver = drmGetVersion(fd);
-        if (!ver) {
-            fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
-        } else {
-            fmt::print("{}", path);
-            if (!dev_path.empty()) fmt::print(": {}", dev_path);
-
-            // See kernel.org/doc/html/v5.10/gpu/drm-uapi.html
-            drmSetVersion api_version = {1, 4, -1, -1};
-            drmSetInterfaceVersion(fd, &api_version);
-            auto* const busid = drmGetBusid(fd);
-            if (busid) {
-                if (*busid) fmt::print(" ({})", busid);
-                drmFreeBusid(busid);
-            }
-
-            fmt::print("\n    {} v{}: {}\n", ver->name, ver->date, ver->desc);
-            drmFreeVersion(ver);
-        }
-
-        drmClose(fd);
-    }
-
-    if (dev_files.empty()) {
-        fmt::print("*** No DRM/KMS devices found\n");
-    } else {
-        fmt::print(
-            "--- {} DRM/KMS device(s); inspect with --dev=<dev>\n",
-            dev_files.size()
-        );
-    }
+    fmt::print("\n");
+    return found;
 }
 
 // Prints key/value properties about a KMS "object" ID,
@@ -101,7 +56,7 @@ void print_properties(int const fd, uint32_t const id) {
         }
 
         std::string const name = meta->name;
-        fmt::print("        prop #{:<3} ", props->props[pi]);
+        fmt::print("        prop #{:<2} ", props->props[pi]);
         if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
         if (meta->flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
         if (meta->flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
@@ -176,21 +131,29 @@ void print_properties(int const fd, uint32_t const id) {
 }
 
 // Print information about the DRM/KMS resources associated with a video card.
-void inspect_device(std::string const& path) {
-    fmt::print("=== {} ===\n", path);
+void inspect_device(DisplayDriverListing const& listing) {
+    auto const& path = listing.dev_file;
+    fmt::print("=== {} ({}) ===\n", path, listing.system_path);
+    fmt::print("Driver: {} v{}", listing.driver, listing.driver_date);
+    if (!listing.driver_bus_id.empty())
+        fmt::print(" ({})", listing.driver_bus_id);
+    if (!listing.driver_desc.empty())
+        fmt::print(" \"{}\"", listing.driver_desc);
+    fmt::print("\n");
 
-    int const fd = open(path.c_str(), O_RDWR);
-    if (fd < 0) {
-        fmt::print("*** {}: {}\n", path, strerror(errno));
-        exit(1);
-    }
+    auto const dev = global_system()->open(path, O_RDWR).ex(path);
+    int const fd = dev->raw_fd();
 
     // Enable any client capabilities that expose more information.
-    drmSetClientCap(fd, DRM_CLIENT_CAP_ASPECT_RATIO, 1);
-    drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1);
-    drmSetClientCap(fd, DRM_CLIENT_CAP_STEREO_3D, 1);
-    drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
-    drmSetClientCap(fd, DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1);
+    for (auto const& cap : {
+        drm_set_client_cap{DRM_CLIENT_CAP_ASPECT_RATIO, 1},
+        drm_set_client_cap{DRM_CLIENT_CAP_ATOMIC, 1},
+        drm_set_client_cap{DRM_CLIENT_CAP_STEREO_3D, 1},
+        drm_set_client_cap{DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1},
+        drm_set_client_cap{DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1}
+    }) {
+        dev->ioc<DRM_IOCTL_SET_CLIENT_CAP>(cap).ex("DRM_IOCTL_SET_CLIENT_CAP");
+    }
 
     auto* const res = drmModeGetResources(fd);
     if (!res) {
@@ -198,36 +161,35 @@ void inspect_device(std::string const& path) {
         exit(1);
     }
 
-    auto* const ver = drmGetVersion(fd);
-    if (!ver) {
-        fmt::print("*** Reading version ({}): {}\n", path, strerror(errno));
-        exit(1);
-    }
     fmt::print(
-        "Driver: {} v{} ({}x{} max)\n",
-        ver->name, ver->date, res->max_width, res->max_height
+        "Size: {}x{} min - {}x{} max\n",
+        res->min_width, res->min_height, res->max_width, res->max_height
     );
-    if (print_properties_flag) {
-        uint64_t v = 0;
-#define C(X) \
-        if (!drmGetCap(fd, DRM_CAP_##X, &v)) \
-            fmt::print("    {} = {}\n", #X, v)
-        C(DUMB_BUFFER);
-        C(VBLANK_HIGH_CRTC);
-        C(DUMB_PREFERRED_DEPTH);
-        C(DUMB_PREFER_SHADOW);
-        C(PRIME);
-        C(TIMESTAMP_MONOTONIC);
-        C(ASYNC_PAGE_FLIP);
-        C(CURSOR_WIDTH);
-        C(CURSOR_HEIGHT);
-        C(ADDFB2_MODIFIERS);
-        C(PAGE_FLIP_TARGET);
-        C(CRTC_IN_VBLANK_EVENT);
-        C(SYNCOBJ);
-        C(SYNCOBJ_TIMELINE);
+
+    fmt::print("Capabilities:\n");
+    for (auto const& cap_name : {
+#define C(X) std::pair<uint64_t, std::string>{DRM_CAP_##X, #X}
+        C(DUMB_BUFFER),
+        C(VBLANK_HIGH_CRTC),
+        C(DUMB_PREFERRED_DEPTH),
+        C(DUMB_PREFER_SHADOW),
+        C(PRIME),
+        C(TIMESTAMP_MONOTONIC),
+        C(ASYNC_PAGE_FLIP),
+        C(CURSOR_WIDTH),
+        C(CURSOR_HEIGHT),
+        C(ADDFB2_MODIFIERS),
+        C(PAGE_FLIP_TARGET),
+        C(CRTC_IN_VBLANK_EVENT),
+        C(SYNCOBJ),
+        C(SYNCOBJ_TIMELINE),
 #undef C
+    }) {
+        drm_get_cap get = {cap_name.first, 0};
+        if (!dev->ioc<DRM_IOCTL_GET_CAP>(&get).err)
+            fmt::print("    {} = {}\n", cap_name.second, get.value);
     }
+
     fmt::print("\n");
 
     //
@@ -494,26 +456,28 @@ void inspect_device(std::string const& path) {
         drmModeFreeConnector(conn);
     }
     fmt::print("\n");
-    drmFreeVersion(ver);
     drmModeFreeResources(res);
-    close(fd);
 }
 
+}  // namespace pivid
+
 int main(int argc, char** argv) {
-    std::string dev;
+    std::string dev_arg;
 
     CLI::App app("Inspect kernel display (DRM/KMS) devices");
-    app.add_option("--dev", dev, "DRM/KMS device (in /dev/dri) to inspect");
+    app.add_option("--dev", dev_arg, "DRM/KMS device (in /dev/dri) to inspect");
     app.add_flag(
-        "--print_properties", print_properties_flag,
+        "--print_properties", pivid::print_properties_flag,
         "List properties, capabilities, and modes"
     );
     CLI11_PARSE(app, argc, argv);
 
-    if (!dev.empty()) {
-        inspect_device(dev);
-    } else {
-        scan_devices();
+    try {
+        auto const& listing = pivid::scan_devices(dev_arg);
+        if (listing) pivid::inspect_device(*listing);
+    } catch (std::exception const& e) {
+        fmt::print("*** {}\n", e.what());
+        return 1;
     }
     return 0;
 }

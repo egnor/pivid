@@ -33,25 +33,17 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     if (dev_arg == "none" || dev_arg == "/dev/null") return {};
 
     fmt::print("=== Video drivers ===\n");
-    auto const sys = global_system();
     std::string found;
-    for (auto const& d : list_display_drivers(sys)) {
-        if (
-            found.empty() && (
-                d.dev_file.find(dev_arg) != std::string::npos ||
-                d.system_path.find(dev_arg) != std::string::npos ||
-                d.driver.find(dev_arg) != std::string::npos ||
-                d.driver_bus_id.find(dev_arg) != std::string::npos
-            )
-        ) {
+    for (auto const& d : list_display_drivers(global_system())) {
+        auto const text = debug(d);
+        if (found.empty() && text.find(dev_arg) != std::string::npos)
             found = d.dev_file;
-        }
         fmt::print("{} {}\n", (found == d.dev_file) ? "=>" : "  ", debug(d));
     }
     fmt::print("\n");
 
     if (found.empty()) throw std::runtime_error("No matching device");
-    return open_display_driver(sys, found);
+    return open_display_driver(global_system(), found);
 }
 
 DisplayConnector find_connector(
