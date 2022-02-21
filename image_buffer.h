@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "xy.h"
+#include "geometry.h"
 
 namespace pivid {
 

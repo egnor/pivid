@@ -39,7 +39,6 @@ pivid_lib = library(
         'image_buffer.cpp',
         'media_decoder.cpp',
         'unix_system.cpp',
-        'xy.cpp',
     ],
     dependencies: [libav_deps, util_deps],
 )
@@ -72,7 +71,10 @@ executable(
 )
 
 pivid_test = executable(
-    'pivid_test', 'pivid_test.cpp',
+    'pivid_test', [
+        'geometry_test.cpp',
+        'pivid_test.cpp',
+    ],
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )
