@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <thread>
 
 #include <CLI/App.hpp>
@@ -98,6 +99,23 @@ DisplayMode find_mode(
     return found;
 }
 
+void set_kernel_debug(bool enable) {
+    auto const debug_file = "/sys/module/drm/parameters/debug";
+    auto const debug_stat = global_system()->stat(debug_file).ex(debug_file);
+    if ((debug_stat.st_mode & 022) == 0 && debug_stat.st_uid == 0) {
+        if (!enable) return;  // No permissions, assume disabled
+        auto const cmd = fmt::format("sudo chmod go+rw {}", debug_file);
+        fmt::print("!!! Running: {}\n", cmd);
+        fflush(stdout);
+        std::system(cmd.c_str());
+    }
+
+    auto const fd = global_system()->open(debug_file, O_WRONLY).ex(debug_file);
+    auto const val = fmt::format("0x{:x}", enable ? 0x3DF : 0);
+    fmt::print("Kernel debug: Writing {} to {}\n\n", val, debug_file);
+    fd->write(val.data(), val.size()).ex(debug_file);
+}
+
 std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
     if (media_arg.empty()) return {};
 
@@ -113,7 +131,8 @@ void play_video(
     DisplayConnector const& conn,
     DisplayMode const& mode,
     double start_arg,
-    double buffer_arg
+    double buffer_arg,
+    double overlay_alpha_arg
 ) {
     using namespace std::chrono_literals;
     auto const logger = main_logger();
@@ -130,6 +149,7 @@ void play_video(
         overlay_layer.from_size = frame->image.size.as<double>();
         overlay_layer.to = (mode.size - frame->image.size) / 2;
         overlay_layer.to_size = frame->image.size;
+        overlay_layer.alpha = overlay_alpha_arg;
     }
 
     auto const signal = sys->make_signal();
@@ -184,8 +204,10 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
+    double overlay_alpha_arg = 1.0;
     double start_arg = -0.1;
     bool debug_libav = false;
+    bool debug_kernel = false;
     double sleep_arg = 0.0;
 
     CLI::App app("Decode and show a media file");
@@ -196,13 +218,16 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
+    app.add_option("--overlay_alpha", overlay_alpha_arg, "Overlay opacity");
     app.add_option("--start", start_arg, "Seconds into media to start");
     app.add_option("--sleep", sleep_arg, "Seconds to wait before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
+    app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
     CLI11_PARSE(app, argc, argv);
 
     configure_logging(log_arg);
     if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
+    pivid::set_kernel_debug(debug_kernel);
 
     try {
         auto const driver = find_driver(dev_arg);
@@ -216,7 +241,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
                 std::move(decoder),
                 std::move(overlay),
                 driver, conn, mode,
-                start_arg, buffer_arg
+                start_arg, buffer_arg, overlay_alpha_arg
             );
         }
 

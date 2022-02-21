@@ -591,6 +591,13 @@ class DrmDriver : public DisplayDriver {
                 (*plane_props)[&plane->CRTC_Y] = layer.to.y;
                 (*plane_props)[&plane->CRTC_W] = layer.to_size.x;
                 (*plane_props)[&plane->CRTC_H] = layer.to_size.y;
+
+                // https://forums.raspberrypi.com/viewtopic.php?t=330191
+                if (false /* plane->alpha.prop_id */) {
+                    (*plane_props)[&plane->alpha] = fix(layer.alpha);
+                } else if (layer.alpha < 1.0) {
+                    throw std::runtime_error("Alpha property not supported");
+                }
             }
         }
 
@@ -783,6 +790,7 @@ class DrmDriver : public DisplayDriver {
             auto* plane = &planes[plane_id];
             plane->id = plane_id;
             lookup_required_prop_ids(plane_id, &plane->prop_ids);
+            lookup_prop_ids(plane_id, &plane->opt_ids);
             for (size_t i = 0; i < crtc_ids.size(); ++i) {
                 if (pdat.possible_crtcs & (1 << i))
                     crtcs[crtc_ids[i]].usable_planes.push_back(plane);
@@ -831,7 +839,8 @@ class DrmDriver : public DisplayDriver {
         // Constant from setup to ~
         uint32_t id = 0;
         std::set<uint32_t> formats;
-        PropId::Map prop_ids;
+        PropId::Map prop_ids, opt_ids;
+        PropId alpha{"alpha", &opt_ids};
         PropId CRTC_ID{"CRTC_ID", &prop_ids};
         PropId CRTC_X{"CRTC_X", &prop_ids};
         PropId CRTC_Y{"CRTC_Y", &prop_ids};
@@ -839,6 +848,7 @@ class DrmDriver : public DisplayDriver {
         PropId CRTC_H{"CRTC_H", &prop_ids};
         PropId FB_ID{"FB_ID", &prop_ids};
         PropId IN_FORMATS{"IN_FORMATS", &prop_ids};
+        PropId rotation{"rotation", &opt_ids};
         PropId SRC_X{"SRC_X", &prop_ids};
         PropId SRC_Y{"SRC_Y", &prop_ids};
         PropId SRC_W{"SRC_W", &prop_ids};
@@ -961,11 +971,12 @@ class DrmDriver : public DisplayDriver {
     void lookup_required_prop_ids(uint32_t obj_id, PropId::Map* map) {
         lookup_prop_ids(obj_id, map);
         for (auto const name_propid : *map) {
-            if (name_propid.second->prop_id) continue;
-            throw std::runtime_error(fmt::format(
-                "DRM object #{} missing property \"{}\"",
-                obj_id, name_propid.first
-            ));
+            if (!name_propid.second->prop_id) {
+                throw std::runtime_error(fmt::format(
+                    "DRM object #{} missing property \"{}\"",
+                    obj_id, name_propid.first
+                ));
+            }
         }
     }
 

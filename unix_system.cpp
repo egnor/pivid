@@ -25,14 +25,18 @@ inline ErrnoOr<int> run_sys(std::function<int()> f) {
     return (ret.value >= 0) ? ErrnoOr<int>{0, ret.value} : ret;
 }
 
-class GlobalFileDescriptor : public FileDescriptor {
+class SystemFileDescriptor : public FileDescriptor {
   public:
-    GlobalFileDescriptor(int fd) : fd(fd) {}
-    virtual ~GlobalFileDescriptor() { ::close(fd); }
+    SystemFileDescriptor(int fd) : fd(fd) {}
+    virtual ~SystemFileDescriptor() { ::close(fd); }
     virtual int raw_fd() const { return fd; }
 
     virtual ErrnoOr<int> read(void* buf, size_t len) {
         return run_sys([&] {return ::read(fd, buf, len);});
+    }
+
+    virtual ErrnoOr<int> write(void const* buf, size_t len) {
+        return run_sys([&] {return ::write(fd, buf, len);});
     }
 
     virtual ErrnoOr<int> ioctl(uint32_t nr, void* buf) {
@@ -133,7 +137,7 @@ class GlobalSystem : public UnixSystem {
     }
 
     virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) {
-        return std::make_shared<GlobalFileDescriptor>(raw_fd);
+        return std::make_shared<SystemFileDescriptor>(raw_fd);
     }
 
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
