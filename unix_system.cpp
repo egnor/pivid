@@ -4,8 +4,6 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <sys/mman.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include <condition_variable>
@@ -155,20 +153,27 @@ class GlobalSystem : public UnixSystem {
         posix_spawnattr_t const* attr,
         std::optional<std::vector<std::string>> const& envp
     ) {
+        auto const c_vector = [](std::vector<std::string> const& vec) {
+            std::vector<char*> ret;
+            for (auto& s : vec) ret.push_back(const_cast<char*>(s.c_str()));
+            return ret;
+        };
+
         pid_t pid = 0;
-        auto char const* const c_cmd = command.c_str();
-        std::vector<char const*> c_argv;
-        for (auto const& arg : argv) c_argv.push_back(arg.c_str());
-        c_argv.push_back(nullptr);
-
-        auto char const* const c_envp
-
         auto const r = run_sys([&] {
             return ::posix_spawnp(
-                &pid, c_cmd, actions, attr, c_argv.data(), c_envp.data()
+                &pid, command.c_str(), actions, attr,
+                c_vector(argv).data(),
+                envp ? c_vector(*envp).data() : environ
             );
         });
         return {r.err, pid};
+    }
+
+    virtual ErrnoOr<siginfo_t> wait(idtype_t idtype, id_t id, int flags) {
+        siginfo_t s = {};
+        auto const r = run_sys([&] { return ::waitid(idtype, id, &s, flags); });
+        return {r.err, s};
     }
 };
 

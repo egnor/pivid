@@ -2,7 +2,7 @@
 
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
+#include <numeric>
 #include <thread>
 
 #include <CLI/App.hpp>
@@ -104,10 +104,14 @@ void set_kernel_debug(bool enable) {
     auto const debug_stat = global_system()->stat(debug_file).ex(debug_file);
     if ((debug_stat.st_mode & 022) == 0 && debug_stat.st_uid == 0) {
         if (!enable) return;  // No permissions, assume disabled
-        auto const cmd = fmt::format("sudo chmod go+rw {}", debug_file);
-        fmt::print("!!! Running: {}\n", cmd);
+        std::vector<std::string> argv = {"sudo", "chmod", "go+rw", debug_file};
+        fmt::print("!!! Running:");
+        for (auto const& arg : argv) fmt::print(" {}", arg);
+        fmt::print("\n");
         fflush(stdout);
-        std::system(cmd.c_str());
+        auto const pid = global_system()->spawn(argv[0], argv).ex(argv[0]);
+        auto const ex = global_system()->wait(P_PID, pid, WEXITED).ex(argv[0]);
+        if (ex.si_status) throw(std::runtime_error("Kernel debug chmod error"));
     }
 
     auto const fd = global_system()->open(debug_file, O_WRONLY).ex(debug_file);

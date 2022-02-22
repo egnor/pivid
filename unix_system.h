@@ -9,11 +9,14 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <type_traits>
@@ -107,7 +110,7 @@ class UnixSystem {
         std::string const& dir
     ) const = 0;
 
-    // Opens a filesystem file and returns a file descriptor.
+    // Returns a file descriptor for a file, like open().
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const&, int flags, mode_t mode = 0
     ) = 0;
@@ -115,14 +118,15 @@ class UnixSystem {
     // Adopts a raw file descriptor. Takes ownership of closing the file.
     virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) = 0;
 
-    // Launches a subprocess.
+    // Subprocess management, like posix_spawn() and waitid().
     virtual ErrnoOr<pid_t> spawn(
         std::string const& command,
         std::vector<std::string> const& argv,
         posix_spawn_file_actions_t const* = nullptr,
         posix_spawnattr_t const* = nullptr,
-        std::optional<std::vector<std::string>> const& environ
+        std::optional<std::vector<std::string>> const& environ = {}
     ) = 0;
+    virtual ErrnoOr<siginfo_t> wait(idtype_t, id_t, int flags) = 0;
 };
 
 // Returns the singleton Unix access interface.
