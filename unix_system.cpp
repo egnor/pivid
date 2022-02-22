@@ -136,16 +136,39 @@ class GlobalSystem : public UnixSystem {
         return {0, buf};
     }
 
-    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) {
-        return std::make_shared<SystemFileDescriptor>(raw_fd);
-    }
-
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const& path, int flags, mode_t mode
     ) {
         auto const r = run_sys([&] {return ::open(path.c_str(), flags, mode);});
         if (r.value < 0) return {r.err ? r.err : EBADF, {}};
         return {0, adopt(r.value)};
+    }
+
+    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) {
+        return std::make_shared<SystemFileDescriptor>(raw_fd);
+    }
+
+    virtual ErrnoOr<pid_t> spawn(
+        std::string const& command,
+        std::vector<std::string> const& argv,
+        posix_spawn_file_actions_t const* actions,
+        posix_spawnattr_t const* attr,
+        std::optional<std::vector<std::string>> const& envp
+    ) {
+        pid_t pid = 0;
+        auto char const* const c_cmd = command.c_str();
+        std::vector<char const*> c_argv;
+        for (auto const& arg : argv) c_argv.push_back(arg.c_str());
+        c_argv.push_back(nullptr);
+
+        auto char const* const c_envp
+
+        auto const r = run_sys([&] {
+            return ::posix_spawnp(
+                &pid, c_cmd, actions, attr, c_argv.data(), c_envp.data()
+            );
+        });
+        return {r.err, pid};
     }
 };
 

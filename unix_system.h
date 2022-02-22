@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <spawn.h>
 #include <sys/ioctl.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
@@ -87,8 +88,7 @@ class ThreadSignal {
     virtual bool wait_until(SteadyTime) = 0;
 };
 
-// Interface to the Unix system.
-// A singleton (returned by global_system()) unless replaced by a mock.
+// Interface to the Unix OS. Normally a singleton returned by global_system().
 // *Internally synchronized* (by the OS, mainly) for multithreaded access.
 class UnixSystem {
   public:
@@ -100,19 +100,28 @@ class UnixSystem {
     virtual void sleep_until(SteadyTime) const = 0;
     virtual std::shared_ptr<ThreadSignal> make_signal() const = 0;
 
-    // Filesystem I/O
+    // Filesystem operations
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
     virtual ErrnoOr<std::string> realpath(std::string const&) const = 0;
     virtual ErrnoOr<std::vector<std::string>> list(
         std::string const& dir
     ) const = 0;
 
-    // Adopts a raw file descriptor. Takes ownership of closing the file.
-    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) = 0;
-
     // Opens a filesystem file and returns a file descriptor.
     virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
         std::string const&, int flags, mode_t mode = 0
+    ) = 0;
+
+    // Adopts a raw file descriptor. Takes ownership of closing the file.
+    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) = 0;
+
+    // Launches a subprocess.
+    virtual ErrnoOr<pid_t> spawn(
+        std::string const& command,
+        std::vector<std::string> const& argv,
+        posix_spawn_file_actions_t const* = nullptr,
+        posix_spawnattr_t const* = nullptr,
+        std::optional<std::vector<std::string>> const& environ
     ) = 0;
 };
 
