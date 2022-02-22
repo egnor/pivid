@@ -18,8 +18,6 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
-#include <xf86drm.h>
-#include <xf86drmMode.h>
 
 #include "display_output.h"
 #include "unix_system.h"
@@ -27,6 +25,16 @@
 namespace pivid {
 
 bool print_properties_flag = false;  // Set by flag in main()
+
+// Support KMS/DRM ioctl conventions for variable size arrays;
+// returns true if the ioctl needs to be re-submitted with a resized array.
+template <typename Pointer, typename Count, typename Item>
+bool size_vec(Pointer* ptr, Count* count, std::vector<Item>* v) {
+    if (*count == v->size() && *ptr == (Pointer) v->data()) return false;
+    v->resize(*count);
+    *ptr = (Pointer) v->data();
+    return true;
+}
 
 // Scan and describe all DRM/KMS capable video cards
 std::optional<DisplayDriverListing> scan_devices(std::string const& dev_arg) {
@@ -42,24 +50,45 @@ std::optional<DisplayDriverListing> scan_devices(std::string const& dev_arg) {
     return found;
 }
 
+// Fetches a KMS property blob.
+std::vector<uint8_t> get_blob(std::shared_ptr<FileDescriptor> fd, uint32_t id) {
+    drm_mode_get_blob blob = {};
+    blob.blob_id = id;
+    std::vector<uint8_t> data;
+    do {
+        fd->ioc<DRM_IOCTL_MODE_GETPROPBLOB>(&blob).ex("GETPROPBLOB");
+    } while (size_vec(&blob.data, &blob.length, &data));
+    return data;
+}
+
 // Prints key/value properties about a KMS "object" ID,
 // using the generic KMS property-value interface.
-void print_properties(int const fd, uint32_t const id) {
-    auto* const props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_ANY);
-    if (!props) return;
+void print_properties(std::shared_ptr<FileDescriptor> fd, uint32_t id) {
+    std::vector<uint32_t> prop_ids;
+    std::vector<uint64_t> values;
+    drm_mode_obj_get_properties gp = {};
+    gp.obj_id = id;
+    do {
+        fd->ioc<DRM_IOCTL_MODE_OBJ_GETPROPERTIES>(&gp).ex("OBJ_GETPROPERTIES");
+    } while (
+        size_vec(&gp.props_ptr, &gp.count_props, &prop_ids) +
+        size_vec(&gp.prop_values_ptr, &gp.count_props, &values)
+    );
 
-    for (uint32_t pi = 0; pi < props->count_props; ++pi) {
-        auto* const meta = drmModeGetProperty(fd, props->props[pi]);
-        if (!meta) {
-            fmt::print("*** Prop #{}: {}\n", props->props[pi], strerror(errno));
-            exit(1);
-        }
+    for (size_t pi = 0; pi < prop_ids.size(); ++pi) {
+        std::vector<drm_mode_property_enum> enums;
+        drm_mode_get_property meta = {};
+        meta.prop_id = prop_ids[pi];
+        do {
+            meta.count_values = 0;
+            fd->ioc<DRM_IOCTL_MODE_GETPROPERTY>(&meta).ex("MODE_GETPROPERTY");
+        } while (size_vec(&meta.enum_blob_ptr, &meta.count_enum_blobs, &enums));
 
-        std::string const name = meta->name;
-        fmt::print("        prop #{:<2} ", props->props[pi]);
-        if (meta->flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
-        if (meta->flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
-        if (meta->flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
+        std::string const name = meta.name;
+        fmt::print("        prop #{:<3} ", prop_ids[pi]);
+        if (meta.flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
+        if (meta.flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
+        if (meta.flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
         fmt::print("{} =", name);
 
         auto const print_fourccs = [](uint8_t const* data, int count) {
@@ -75,59 +104,53 @@ void print_properties(int const fd, uint32_t const id) {
         };
 
         // TODO handle RANGE and SIGNED_RANGE if we ever see any
-        auto const value = props->prop_values[pi];
-        if (meta->flags & DRM_MODE_PROP_BITMASK) {
+        auto const value = values[pi];
+        if (meta.flags & DRM_MODE_PROP_BITMASK) {
             fmt::print(" 0x{:x}{}", value, value ? ":" : "");
-            for (int ei = 0; ei < meta->count_enums; ++ei) {
-                if (value & (1 << meta->enums[ei].value)) {
-                    fmt::print(" {}", meta->enums[ei].name);
+            for (auto const& en : enums) {
+                if (value & (1 << en.value)) {
+                    fmt::print(" {}", en.name);
                     break;
                 }
             }
-        } else if (!(meta->flags & DRM_MODE_PROP_BLOB)) {
+        } else if (!(meta.flags & DRM_MODE_PROP_BLOB)) {
             fmt::print(" {}", value);
-            for (int ei = 0; ei < meta->count_enums; ++ei) {
-                if (meta->enums[ei].value == value) {
-                    fmt::print(" ({})", meta->enums[ei].name);
+            for (auto const& en : enums) {
+                if (en.value == value) {
+                    fmt::print(" ({})", en.name);
                     break;
                 }
             }
         } else if (name == "MODE_ID") {
-            auto* const blob = drmModeGetPropertyBlob(fd, value);
-            if (blob) {
-                auto const* const mode = (drmModeModeInfoPtr) blob->data;
+            if (value) {
+                auto const blob = get_blob(fd, value);
+                auto const* const mode = (drm_mode_modeinfo const*) blob.data();
                 fmt::print(
                     " {}x{} {}Hz",
                     mode->hdisplay, mode->vdisplay, mode->vrefresh
                 );
-                drmModeFreePropertyBlob(blob);
             } else {
-                fmt::print(" <none>");
+                fmt::print(" (none)");
             }
         } else if (name == "IN_FORMATS") {
-            auto* const blob = drmModeGetPropertyBlob(fd, value);
-            auto const header = (drm_format_modifier_blob const*) blob->data;
+            auto const blob = get_blob(fd, value);
+            auto const header = (drm_format_modifier_blob const*) blob.data();
             if (header->version == FORMAT_BLOB_CURRENT) {
                 print_fourccs(
-                    (uint8_t const*) blob->data + header->formats_offset,
+                    blob.data() + header->formats_offset,
                     header->count_formats
                 );
             } else {
-                fmt::print(" ?0x{:x}? ({}b)", header->version, blob->length);
+                fmt::print(" ?0x{:x}? ({}b)", header->version, blob.size());
             }
-            drmModeFreePropertyBlob(blob);
         } else if (name == "WRITEBACK_PIXEL_FORMATS") {
-            auto* const blob = drmModeGetPropertyBlob(fd, value);
-            print_fourccs((uint8_t const*) blob->data, blob->length / 4);
-            drmModeFreePropertyBlob(blob);
+            auto const blob = get_blob(fd, value);
+            print_fourccs(blob.data(), blob.size() / 4);
         } else {
             fmt::print(" <blob>");
         }
         fmt::print("\n");
-        drmModeFreeProperty(meta);
     }
-
-    drmModeFreeObjectProperties(props);
 }
 
 // Print information about the DRM/KMS resources associated with a video card.
@@ -142,7 +165,6 @@ void inspect_device(DisplayDriverListing const& listing) {
     fmt::print("\n");
 
     auto const dev = global_system()->open(path, O_RDWR).ex(path);
-    int const fd = dev->raw_fd();
 
     // Enable any client capabilities that expose more information.
     for (auto const& cap : {
@@ -152,21 +174,26 @@ void inspect_device(DisplayDriverListing const& listing) {
         drm_set_client_cap{DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1},
         drm_set_client_cap{DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1}
     }) {
-        dev->ioc<DRM_IOCTL_SET_CLIENT_CAP>(cap).ex("DRM_IOCTL_SET_CLIENT_CAP");
+        dev->ioc<DRM_IOCTL_SET_CLIENT_CAP>(cap).ex("SET_CLIENT_CAP");
     }
 
-    auto* const res = drmModeGetResources(fd);
-    if (!res) {
-        fmt::print("*** Reading resources ({}): {}\n", path, strerror(errno));
-        exit(1);
-    }
+    drm_mode_card_res res = {};
+    std::vector<uint32_t> crtc_ids, conn_ids, enc_ids;
+    do {
+fmt::print("crtcs={} conns={} encs={}", res.count_crtcs, res.count_connectors, res.count_encoders);
+        res.count_fbs = 0;  // Framebuffer IDs are not reported to kibitzers.
+        dev->ioc<DRM_IOCTL_MODE_GETRESOURCES>(&res).ex("MODE_GETRESOURCES");
+    } while (
+        size_vec(&res.crtc_id_ptr, &res.count_crtcs, &crtc_ids) +
+        size_vec(&res.connector_id_ptr, &res.count_connectors, &conn_ids) +
+        size_vec(&res.encoder_id_ptr, &res.count_encoders, &enc_ids)
+    );
 
     fmt::print(
         "Size: {}x{} min - {}x{} max\n",
-        res->min_width, res->min_height, res->max_width, res->max_height
+        res.min_width, res.min_height, res.max_width, res.max_height
     );
 
-    fmt::print("Capabilities:\n");
     for (auto const& cap_name : {
 #define C(X) std::pair<uint64_t, std::string>{DRM_CAP_##X, #X}
         C(DUMB_BUFFER),
@@ -187,7 +214,7 @@ void inspect_device(DisplayDriverListing const& listing) {
     }) {
         drm_get_cap get = {cap_name.first, 0};
         if (!dev->ioc<DRM_IOCTL_GET_CAP>(&get).err)
-            fmt::print("    {} = {}\n", cap_name.second, get.value);
+            fmt::print("[cap] {} = {}\n", cap_name.second, get.value);
     }
 
     fmt::print("\n");
@@ -196,94 +223,93 @@ void inspect_device(DisplayDriverListing const& listing) {
     // Planes (framebuffers can't be inspected from another process, sadly)
     //
 
-    auto* const planes = drmModeGetPlaneResources(fd);
-    if (!planes) {
-        fmt::print("*** Plane resources ({}): {}\n", path, strerror(errno));
-        exit(1);
-    }
+    drm_mode_get_plane_res planes = {};
+    std::vector<uint32_t> plane_ids;
+    do {
+        dev->ioc<DRM_IOCTL_MODE_GETPLANERESOURCES>(&planes).ex(
+            "MODE_GETPLANERESOURCES"
+        );
+    } while (size_vec(&planes.plane_id_ptr, &planes.count_planes, &plane_ids));
 
-    fmt::print("{} image planes:\n", planes->count_planes);
-    for (uint32_t p = 0; p < planes->count_planes; ++p) {
-        auto const id = planes->planes[p];
-        auto* const plane = drmModeGetPlane(fd, id);
-        if (!plane) {
-            fmt::print("*** Plane #{} ({}): {}\n", id, path, strerror(errno));
-            exit(1);
-        }
+    fmt::print("{} image planes:\n", plane_ids.size());
+    for (auto const plane_id : plane_ids) {
+        drm_mode_get_plane plane = {};
+        plane.plane_id = plane_id;
+        dev->ioc<DRM_IOCTL_MODE_GETPLANE>(&plane).ex("MODE_GETPLANE");
 
-        fmt::print("    Plane #{:<3} [CRTC", id);
-        for (int ci = 0; ci < res->count_crtcs; ++ci) {
-            if (plane->possible_crtcs & (1 << ci))
+        fmt::print("    Plane #{:<3} [CRTC", plane.plane_id);
+        for (size_t ci = 0; ci < crtc_ids.size(); ++ci) {
+            if (plane.possible_crtcs & (1 << ci)) {
                 fmt::print(
-                    " #{}{}", res->crtcs[ci],
-                    res->crtcs[ci] == plane->crtc_id ? "*" : ""
+                    " #{}{}", crtc_ids[ci],
+                    crtc_ids[ci] == plane.crtc_id ? "*" : ""
                 );
+            }
         }
         fmt::print("]");
 
-        if (plane->fb_id) {
-            fmt::print(
-                " [FB #{}* ({},{})=>({},{})]", plane->fb_id,
-                plane->x, plane->y, plane->crtc_x, plane->crtc_y
-           );
-        }
+        if (plane.fb_id) fmt::print(" [FB #{}*]", plane.fb_id);
 
-        auto const obj_type = DRM_MODE_OBJECT_PLANE;
-        auto* const props = drmModeObjectGetProperties(fd, id, obj_type);
-        if (props) {
-            for (uint32_t pi = 0; pi < props->count_props; ++pi) {
-                auto* const meta = drmModeGetProperty(fd, props->props[pi]);
-                if (!meta) continue;
-                if (std::string(meta->name) == "type") {
-                    for (int ei = 0; ei < meta->count_enums; ++ei) {
-                        if (meta->enums[ei].value == props->prop_values[pi])
-                            fmt::print(" {}", meta->enums[ei].name);
-                    }
-                }
-                drmModeFreeProperty(meta);
+        std::vector<uint32_t> prop_ids;
+        std::vector<uint64_t> values;
+        drm_mode_obj_get_properties gp = {};
+        gp.obj_id = plane.plane_id;
+        gp.obj_type = DRM_MODE_OBJECT_PLANE;
+        do {
+            dev->ioc<DRM_IOCTL_MODE_OBJ_GETPROPERTIES>(&gp).ex("GETPROPERTIES");
+        } while (
+            size_vec(&gp.props_ptr, &gp.count_props, &prop_ids) +
+            size_vec(&gp.prop_values_ptr, &gp.count_props, &values)
+        );
+
+        for (size_t pi = 0; pi < prop_ids.size(); ++pi) {
+            std::vector<drm_mode_property_enum> enums;
+            drm_mode_get_property m = {};
+            m.prop_id = prop_ids[pi];
+            do {
+                m.count_values = 0;
+                dev->ioc<DRM_IOCTL_MODE_GETPROPERTY>(&m).ex("MODE_GETPROPERTY");
+            } while (size_vec(&m.enum_blob_ptr, &m.count_enum_blobs, &enums));
+
+            if (std::string(m.name) == "type") {
+                for (auto const& en : enums) 
+                    if (en.value == values[pi]) fmt::print(" {}", en.name);
             }
-            drmModeFreeObjectProperties(props);
         }
 
         fmt::print("\n");
-        if (print_properties_flag) print_properties(fd, id);
-        drmModeFreePlane(plane);
+        if (print_properties_flag) print_properties(dev, plane_id);
     }
     fmt::print("\n");
-    drmModeFreePlaneResources(planes);
 
     //
     // CRT controllers
     //
 
-    fmt::print("{} CRT/scanout controllers:\n", res->count_crtcs);
-    for (int ci = 0; ci < res->count_crtcs; ++ci) {
-        auto const id = res->crtcs[ci];
-        auto* const crtc = drmModeGetCrtc(fd, id);
-        if (!crtc) {
-            fmt::print("*** CRTC #{} ({}): {}\n", id, path, strerror(errno));
-            exit(1);
-        }
+    fmt::print("{} CRT/scanout controllers:\n", res.count_crtcs);
+    for (auto const id : crtc_ids) {
+        drm_mode_crtc crtc = {};
+        crtc.crtc_id = id;
+        dev->ioc<DRM_IOCTL_MODE_GETCRTC>(&crtc).ex("MODE_GETCRTC");
 
-        if (crtc->buffer_id != 0) {
+        if (crtc.fb_id != 0) {
             fmt::print(
                 "  * CRTC #{:<3} [FB #{}* ({},{})]",
-                id, crtc->buffer_id, crtc->x, crtc->y
+                id, crtc.fb_id, crtc.x, crtc.y
             );
         } else {
             fmt::print("    CRTC #{:<3}", id);
         }
 
-        if (crtc->mode_valid) {
+        if (crtc.mode_valid) {
             fmt::print(
                 " => {}x{} {}Hz",
-                crtc->mode.hdisplay, crtc->mode.vdisplay, crtc->mode.vrefresh
+                crtc.mode.hdisplay, crtc.mode.vdisplay, crtc.mode.vrefresh
             );
         }
 
         fmt::print("\n");
-        if (print_properties_flag) print_properties(fd, id);
-        drmModeFreeCrtc(crtc);
+        if (print_properties_flag) print_properties(dev, id);
     }
     fmt::print("\n");
 
@@ -291,28 +317,23 @@ void inspect_device(DisplayDriverListing const& listing) {
     // Encoders
     //
 
-    fmt::print("{} signal encoders:\n", res->count_encoders);
-    for (int ei = 0; ei < res->count_encoders; ++ei) {
-        auto const id = res->encoders[ei];
-        auto* const enc = drmModeGetEncoder(fd, id);
-        if (!enc) {
-            fmt::print("*** Encoder #{} ({}): {}\n", id, path, strerror(errno));
-            exit(1);
-        }
+    fmt::print("{} signal encoders:\n", res.count_encoders);
+    for (auto const id : enc_ids) {
+        drm_mode_get_encoder enc = {};
+        enc.encoder_id = id;
+        dev->ioc<DRM_IOCTL_MODE_GETENCODER>(&enc).ex("MODE_GETENCODER");
 
-        fmt::print(
-            "  {} Enc #{:<3} [CRTC", enc->crtc_id != 0 ? '*' : ' ', id
-        );
-        for (int c = 0; c < res->count_crtcs; ++c) {
-            if (enc->possible_crtcs & (1 << c))
+        fmt::print("  {} Enc #{:<3} [CRTC", enc.crtc_id != 0 ? '*' : ' ', id);
+        for (size_t c = 0; c < crtc_ids.size(); ++c) {
+            if (enc.possible_crtcs & (1 << c))
                 fmt::print(
-                    " #{}{}", res->crtcs[c],
-                    res->crtcs[c] == enc->crtc_id ? "*" : ""
+                    " #{}{}", crtc_ids[c],
+                    crtc_ids[c] == enc.crtc_id ? "*" : ""
                 );
         }
         fmt::print("]");
 
-        switch (enc->encoder_type) {
+        switch (enc.encoder_type) {
 #define E(X) case DRM_MODE_ENCODER_##X: fmt::print(" {}", #X); break
             E(NONE);
             E(DAC);
@@ -324,12 +345,11 @@ void inspect_device(DisplayDriverListing const& listing) {
             E(DPMST);
             E(DPI);
 #undef E
-            default: fmt::print(" ?{}?", enc->encoder_type); break;
+            default: fmt::print(" ?{}?", enc.encoder_type); break;
         }
 
         fmt::print("\n");
-        if (print_properties_flag) print_properties(fd, id);
-        drmModeFreeEncoder(enc);
+        // Note: Encoders don't have object properties.
     }
     fmt::print("\n");
 
@@ -337,30 +357,30 @@ void inspect_device(DisplayDriverListing const& listing) {
     // Connectors
     //
 
-    fmt::print("{} video connectors:\n", res->count_connectors);
-    for (int ci = 0; ci < res->count_connectors; ++ci) {
-        auto const id = res->connectors[ci];
-        auto* const conn = drmModeGetConnector(fd, id);
-        if (!conn) {
-            fmt::print("*** Conn #{} ({}): {}\n", id, path, strerror(errno));
-            exit(1);
-        }
+    fmt::print("{} video connectors:\n", res.count_connectors);
+    for (auto const id : conn_ids) {
+        std::vector<uint32_t> enc_ids;
+        std::vector<drm_mode_modeinfo> modes;
+        drm_mode_get_connector conn = {};
+        conn.connector_id = id;
+        do {
+            conn.count_props = 0;
+            dev->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&conn).ex("DRM conn");
+        } while (
+            size_vec(&conn.encoders_ptr, &conn.count_encoders, &enc_ids) +
+            size_vec(&conn.modes_ptr, &conn.count_modes, &modes)
+        );
 
         fmt::print(
-            "  {} Conn #{:<3}",
-            conn->connection == DRM_MODE_CONNECTED ? '*' : ' ', id
+            "  {} Conn #{:<3}", conn.connection == 1 ? '*' : ' ', id
         );
 
         fmt::print(" [Enc");
-        for (int e = 0; e < conn->count_encoders; ++e) {
-            fmt::print(
-                " #{}{}", conn->encoders[e],
-                conn->encoders[e] == conn->encoder_id ? "*" : ""
-            );
-        }
+        for (auto const enc_id : enc_ids)
+            fmt::print(" #{}{}", enc_id, enc_id == conn.encoder_id ? "*" : "");
         fmt::print("]");
 
-        switch (conn->connector_type) {
+        switch (conn.connector_type) {
 #define C(X) case DRM_MODE_CONNECTOR_##X: fmt::print(" {}", #X); break
             C(Unknown);
             C(VGA);
@@ -381,19 +401,18 @@ void inspect_device(DisplayDriverListing const& listing) {
             C(DSI);
             C(WRITEBACK);
 #undef C
-            default: fmt::print(" ?{}?", conn->connector_type); break;
+            default: fmt::print(" ?{}?", conn.connector_type); break;
         }
 
-        fmt::print("-{}", conn->connector_type_id);
-        if (conn->mmWidth || conn->mmHeight) {
-            fmt::print(" ({}x{}mm)", conn->mmWidth, conn->mmHeight);
+        fmt::print("-{}", conn.connector_type_id);
+        if (conn.mm_width || conn.mm_height) {
+            fmt::print(" ({}x{}mm)", conn.mm_width, conn.mm_height);
         }
         fmt::print("\n");
 
         if (print_properties_flag) {
-            print_properties(fd, id);
-            for (int mi = 0; mi < conn->count_modes; ++mi) {
-                auto const& mode = conn->modes[mi];
+            print_properties(dev, id);
+            for (auto const& mode : modes) {
                 fmt::print(
                     "        [mode] {:>4}x{:<4} {}Hz",
                     mode.hdisplay, mode.vdisplay, mode.vrefresh
@@ -452,11 +471,8 @@ void inspect_device(DisplayDriverListing const& listing) {
                 fmt::print("\n");
             }
         }
-
-        drmModeFreeConnector(conn);
     }
     fmt::print("\n");
-    drmModeFreeResources(res);
 }
 
 }  // namespace pivid

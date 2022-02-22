@@ -698,8 +698,7 @@ class DrmDriver : public DisplayDriver {
         ).ex("Enable DRM universal planes");
 
         drm_mode_card_res res = {};
-        std::vector<uint32_t> crtc_ids;
-        std::vector<uint32_t> conn_ids;
+        std::vector<uint32_t> crtc_ids, conn_ids;
         do {
             res.count_fbs = res.count_encoders = 0;  // Don't use these.
             fd->ioc<DRM_IOCTL_MODE_GETRESOURCES>(&res).ex("DRM resources");

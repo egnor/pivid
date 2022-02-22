@@ -27,8 +27,6 @@ libav_deps = [
     dependency('libavutil'),
 ]
 
-libdrm_dep = dependency('libdrm')
-
 linux_dep = dependency('linux-headers-generic')
 
 pivid_lib = library(
@@ -51,7 +49,7 @@ executable(
 executable(
     'pivid_inspect_kms', 'pivid_inspect_kms.cpp',
     link_with: [pivid_lib],
-    dependencies: [libdrm_dep, util_deps],
+    dependencies: [util_deps],
 )
 
 executable(
