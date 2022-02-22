@@ -64,7 +64,7 @@ executable(
 )
 
 executable(
-    'pivid_play', 'pivid_play.cpp',
+    'pivid_play_media', 'pivid_play_media.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )
