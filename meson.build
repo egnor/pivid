@@ -72,7 +72,7 @@ executable(
 pivid_test = executable(
     'pivid_test', [
         'geometry_test.cpp',
-        'pivid_test.cpp',
+        'pivid_test_main.cpp',
     ],
     link_with: [pivid_lib],
     dependencies: [util_deps],
