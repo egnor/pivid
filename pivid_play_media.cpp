@@ -255,7 +255,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             std::this_thread::sleep_for(sleep_time);
         }
     } catch (std::exception const& e) {
-        main_logger()->critical("*** {}", e.what());
+        main_logger()->critical("{}", e.what());
     }
 
     fmt::print("Done!\n\n");

@@ -151,7 +151,7 @@ class ThreadFrameWindow : public FrameWindow {
                 ));
             }
 
-            // Don't hold shared->lock while seeking/fetching
+            // Hold decoder_lock but not shared->lock while seeking/fetching
             std::unique_lock decoder_lock{best->decoder_mutex};
             if (!best->decoder) {
                 throw std::logic_error(fmt::format(
@@ -161,6 +161,7 @@ class ThreadFrameWindow : public FrameWindow {
             }
 
             lock.unlock();
+
             if (tail != std::max(best->decoder_seek, best->decoder_fetch)) {
                 if (logger->should_log(log_level::trace)) {
                     logger->trace(
@@ -173,8 +174,14 @@ class ThreadFrameWindow : public FrameWindow {
                 best->decoder_seek = tail;
             }
 
-            auto const frame = best->decoder->next_frame();
-            best->decoder_fetch = frame->time;
+            std::optional<MediaFrame> frame = {};
+            try {
+                frame = best->decoder->next_frame();
+                if (frame) best->decoder_fetch = frame->time;
+            } catch (std::runtime_error const& e) {
+                logger->critical("Frame loading: {}", e.what());
+                frame = {};  // Treat error as EOF
+            }
 
             // Release decoder before re-acquiring shared (maintain lock order)
             // so state may have changed, e.g. 'best' may have been deleted!
