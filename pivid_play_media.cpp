@@ -161,7 +161,7 @@ void play_video(
     auto const loader = make_frame_loader(driver.get());
     auto const window = loader->open_window(std::move(decoder));
 
-    logger->info("Offset {:.3f} seconds...", start_arg);
+    logger->info("Start at {:.3f} seconds...", start_arg);
     auto const start_time = sys->steady_time() - Seconds(start_arg);
 
     for (;;) {
