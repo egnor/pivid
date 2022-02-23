@@ -5,8 +5,9 @@
 namespace pivid {
 
 // A simple synchronization event (like a simpler version of C++20
-// std::counting_semaphore, which isn't implemented in libstdc++ yet).
+// std::counting_semaphore, which isn't implemented in our libstdc++).
 // *Internally synchronized* for use from multiple threads.
+// TODO: Replace with std::counting_semaphore once available in distros
 class ThreadSignal {
   public:
     virtual ~ThreadSignal() = default;
