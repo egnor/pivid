@@ -36,6 +36,7 @@ pivid_lib = library(
         'frame_player.cpp',
         'image_buffer.cpp',
         'media_decoder.cpp',
+        'thread_signal.cpp',
         'unix_system.cpp',
     ],
     dependencies: [libav_deps, util_deps],

@@ -7,6 +7,7 @@
 #include <fmt/core.h>
 
 #include "logging_policy.h"
+#include "thread_signal.h"
 
 namespace pivid {
 
@@ -98,7 +99,6 @@ class ThreadFramePlayer : public FramePlayer {
         logger->debug("Frame player thread running...");
 
         std::unique_lock lock{mutex};
-        wakeup = sys->make_signal();
         while (!shutdown) {
             if (timeline.empty()) {
                 logger->trace("PLAY (no frames, waiting for wakeup)");
@@ -182,7 +182,7 @@ class ThreadFramePlayer : public FramePlayer {
     // Constant from start to ~
     std::shared_ptr<log::logger> const logger = player_logger();
     std::thread thread;
-    std::shared_ptr<ThreadSignal> wakeup;
+    std::shared_ptr<ThreadSignal> wakeup = make_signal();
 
     // Guarded by mutex
     std::mutex mutable mutex;

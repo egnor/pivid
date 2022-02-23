@@ -23,7 +23,7 @@ class ThreadFrameWindow;
 
 struct SharedState {
     std::shared_ptr<log::logger> const logger = loader_logger();
-    std::shared_ptr<ThreadSignal> wakeup;
+    std::shared_ptr<ThreadSignal> wakeup = make_signal();
     DisplayDriver* display = nullptr;
 
     // Guarded by mutex
@@ -347,9 +347,8 @@ class ThreadFrameLoader : public FrameLoader {
         return window;
     }
 
-    void start(std::shared_ptr<UnixSystem> sys, DisplayDriver* display) {
+    void start(DisplayDriver* display) {
         shared->logger->info("Launching frame loader...");
-        shared->wakeup = sys->make_signal();
         shared->display = display;
         thread = std::thread(&ThreadFrameWindow::loader_thread, shared);
     }
@@ -361,11 +360,9 @@ class ThreadFrameLoader : public FrameLoader {
 
 }  // anonymous namespace
 
-std::unique_ptr<FrameLoader> make_frame_loader(
-    std::shared_ptr<UnixSystem> sys, DisplayDriver* display
-) {
+std::unique_ptr<FrameLoader> make_frame_loader(DisplayDriver* display) {
     auto loader = std::make_unique<ThreadFrameLoader>();
-    loader->start(sys, display);
+    loader->start(display);
     return loader;
 }
 

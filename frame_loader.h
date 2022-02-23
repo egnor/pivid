@@ -7,6 +7,7 @@
 
 #include "media_decoder.h"
 #include "display_output.h"
+#include "thread_signal.h"
 #include "unix_system.h"
 
 namespace pivid {
@@ -60,9 +61,7 @@ class FrameLoader {
 };
 
 // Creates a FrameLoader targeted to a particular GPU.
-std::unique_ptr<FrameLoader> make_frame_loader(
-    std::shared_ptr<UnixSystem> sys, DisplayDriver*
-);
+std::unique_ptr<FrameLoader> make_frame_loader(DisplayDriver*);
 
 // Debugging description of the request structure.
 std::string debug(FrameWindow::Request const&);

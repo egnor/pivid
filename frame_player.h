@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "display_output.h"
+#include "thread_signal.h"
 #include "unix_system.h"
 
 namespace pivid {

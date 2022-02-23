@@ -156,9 +156,9 @@ void play_video(
         overlay_layer.alpha = overlay_alpha_arg;
     }
 
-    auto const signal = sys->make_signal();
+    auto const signal = make_signal();
     auto const player = start_frame_player(sys, driver.get(), conn.id, mode);
-    auto const loader = make_frame_loader(sys, driver.get());
+    auto const loader = make_frame_loader(driver.get());
     auto const window = loader->open_window(std::move(decoder));
 
     logger->info("Offset {:.3f} seconds...", start_arg);
