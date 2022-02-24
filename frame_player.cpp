@@ -167,8 +167,8 @@ class ThreadFramePlayer : public FramePlayer {
             try {
                 driver->update(connector_id, mode, show->second);
             } catch (std::runtime_error const& e) {
-                logger->critical("Frame display: {}", e.what());
-                continue;
+                logger->error("Display: {}", e.what());
+                // Continue as if displayed to avoid looping
             }
 
             shown = show->first;

@@ -179,7 +179,7 @@ class ThreadFrameWindow : public FrameWindow {
                 frame = best->decoder->next_frame();
                 if (frame) best->decoder_fetch = frame->time;
             } catch (std::runtime_error const& e) {
-                logger->critical("Frame loading: {}", e.what());
+                logger->error("Loading: {}", e.what());
                 frame = {};  // Treat error as EOF
             }
 

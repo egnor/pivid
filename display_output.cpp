@@ -582,19 +582,17 @@ class DrmDriver : public DisplayDriver {
                 (*plane_props)[&plane->CRTC_ID] = crtc->id;
                 (*plane_props)[&plane->FB_ID] = fb_id;
 
-                auto fix = [](double d) -> int64_t { return d * 65536.0; };
-                (*plane_props)[&plane->SRC_X] = fix(layer.from.x);
-                (*plane_props)[&plane->SRC_Y] = fix(layer.from.y);
-                (*plane_props)[&plane->SRC_W] = fix(layer.from_size.x);
-                (*plane_props)[&plane->SRC_H] = fix(layer.from_size.y);
+                (*plane_props)[&plane->SRC_X] = 65536.0 * layer.from.x;
+                (*plane_props)[&plane->SRC_Y] = 65536.0 * layer.from.y;
+                (*plane_props)[&plane->SRC_W] = 65536.0 * layer.from_size.x;
+                (*plane_props)[&plane->SRC_H] = 65536.0 * layer.from_size.y;
                 (*plane_props)[&plane->CRTC_X] = layer.to.x;
                 (*plane_props)[&plane->CRTC_Y] = layer.to.y;
                 (*plane_props)[&plane->CRTC_W] = layer.to_size.x;
                 (*plane_props)[&plane->CRTC_H] = layer.to_size.y;
 
-                // https://forums.raspberrypi.com/viewtopic.php?t=330191
-                if (false /* plane->alpha.prop_id */) {
-                    (*plane_props)[&plane->alpha] = fix(layer.alpha);
+                if (plane->alpha.prop_id) {
+                    (*plane_props)[&plane->alpha] = layer.alpha * 65535.0;
                 } else if (layer.alpha < 1.0) {
                     throw std::runtime_error("Alpha property not supported");
                 }
@@ -605,10 +603,14 @@ class DrmDriver : public DisplayDriver {
         std::vector<uint32_t> obj_prop_counts;
         std::vector<uint32_t> prop_ids;
         std::vector<uint64_t> prop_values;
-        for (auto const& obj_prop : props) {
-            obj_ids.push_back(obj_prop.first);
-            obj_prop_counts.push_back(obj_prop.second.size());
-            for (auto const& prop_value : obj_prop.second) {
+        for (auto const& obj_props : props) {
+            obj_ids.push_back(obj_props.first);
+            obj_prop_counts.push_back(obj_props.second.size());
+            for (auto const& prop_value : obj_props.second) {
+               logger->trace(
+                   "> #{} {} = {}",
+                   obj_props.first, prop_value.first->name, prop_value.second
+               );
                prop_ids.push_back(prop_value.first->prop_id);
                prop_values.push_back(prop_value.second);
             }
@@ -822,7 +824,8 @@ class DrmDriver : public DisplayDriver {
   private:
     struct PropId {
         using Map = std::map<std::string_view, PropId*>;
-        PropId(std::string_view n, Map* map) { (*map)[n] = this; }
+        PropId(std::string_view n, Map* map) : name(n) { (*map)[n] = this; }
+        std::string_view name;
         uint32_t prop_id = 0;     // Filled by open() -> lookup_prop_ids()
         uint64_t init_value = 0;  // The property value at open() time
     };
