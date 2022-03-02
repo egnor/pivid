@@ -30,7 +30,7 @@ struct CubicBezier {
     struct Point { double t, x; };
 
     // A cubic segment defined by four Bezier control points nondecreasing in t.
-    struct Segment { ControlPoint begin, p1, p2, end; };
+    struct Segment { Point begin, p1, p2, end; };
 
     std::vector<Segment> segments;  // Nonoverlapping and increasing in t.
     double repeat_every = 0.0;      // If nonzero, repeat the curve infinitely.
