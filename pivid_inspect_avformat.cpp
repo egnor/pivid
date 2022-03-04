@@ -89,7 +89,7 @@ void inspect_media(AVFormatContext* const avc) {
         auto const* stream = avc->streams[si];
         double const time_base = av_q2d(stream->time_base);
 
-        fmt::print("    Str #{}", stream->id);
+        fmt::print("    S{}", stream->id);
         if (stream->start_time > 0)
             fmt::print(" {:.3f} +", stream->start_time * time_base);
         if (stream->duration > 0)
@@ -97,7 +97,7 @@ void inspect_media(AVFormatContext* const avc) {
         if (stream->nb_frames > 0)
             fmt::print(" {}f", stream->nb_frames);
         if (stream->nb_index_entries > 0)
-            fmt::print(" ({}idx)", stream->nb_index_entries);
+            fmt::print(" {}ix", stream->nb_index_entries);
         if (stream->avg_frame_rate.num > 0)
             fmt::print(" {:.1f}fps", av_q2d(stream->avg_frame_rate));
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
@@ -140,7 +140,8 @@ void inspect_media(AVFormatContext* const avc) {
 #undef T
                 default: fmt::print(" ?type=%d?", par->codec_type); break;
             }
-            fmt::print(" ({})", avcodec_get_name(par->codec_id));
+            if (par->codec_id)
+                fmt::print(" ({})", avcodec_get_name(par->codec_id));
             if (par->bit_rate)
                 fmt::print(" {}bps", par->bit_rate);
             if (par->width || par->height)
@@ -181,13 +182,11 @@ void print_frames(AVFormatContext* const avc) {
     fmt::print("--- Frames ---\n");
     while (av_read_frame(avc, &packet) >= 0) {
         auto const* stream = avc->streams[packet.stream_index];
-        fmt::print(
-            "S{} ({}) {:4d}kB",
-            packet.stream_index,
-            avcodec_get_name(stream->codecpar->codec_id),
-            packet.size / 1024
-        );
+        fmt::print("S{}", avc->streams[packet.stream_index]->id);
+        if (stream->codecpar->codec_id)
+            fmt::print(" ({})", avcodec_get_name(stream->codecpar->codec_id));
 
+        fmt::print(" {:4d}kB", packet.size / 1024);
         if (packet.pos >= 0)
             fmt::print(" @{:<8d}", packet.pos);
 
