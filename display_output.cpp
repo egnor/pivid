@@ -334,7 +334,7 @@ class DrmDriver : public DisplayDriver {
                 edat.encoder_id = cdat.encoder_id;
                 fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
                 if (edat.crtc_id) {
-                    // We are DRM master, so assume no sneaky mode changes.
+                    // We are DRM master, assume no sneaky mode changes.
                     auto const& drm_mode = crtcs.at(edat.crtc_id).active.mode;
                     connector.active_mode = mode_from_drm(drm_mode);
                 }
@@ -688,7 +688,13 @@ class DrmDriver : public DisplayDriver {
         logger->info("Opening display \"{}\"...", dev);
         this->sys = std::move(sys);
         fd = this->sys->open(dev.c_str(), O_RDWR | O_NONBLOCK).ex(dev);
-        fd->ioc<DRM_IOCTL_SET_MASTER>().ex("Become DRM master");
+        try {
+            fd->ioc<DRM_IOCTL_SET_MASTER>().ex("DRM master mode");
+        } catch (std::system_error const& e) {
+            logger->error("{}", e.what());
+            // Continue, though something will probably fail later
+        }
+
         fd->ioc<DRM_IOCTL_SET_CLIENT_CAP>(
             drm_set_client_cap{DRM_CLIENT_CAP_ATOMIC, 1}
         ).ex("Enable DRM atomic modesetting");

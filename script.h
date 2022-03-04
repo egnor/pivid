@@ -1,6 +1,7 @@
 #pragma once
 
-#include "geometry.h"
+#include "cubic_bezier.h"
+#include "xy.h"
 
 namespace pivid {
 
