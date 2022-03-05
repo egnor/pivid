@@ -12,11 +12,8 @@
 
 namespace pivid {
 
-// Access to frames loaded into a GPU from a particular time range within a
-// media file (typically a section being played, or preparing to be played).
-// Frames load asynchronously, and refill if the range is expanded or shifted.
-//
-// Returned by FrameLoader::open_window() using a MediaDecoder instance.
+// Access to an asynchronously preloaded frames in a particular time range
+// (typically a section about to be played) using a MediaDecoder instance.
 // *Internally synchronized* for multithreaded access.
 class FrameWindow {
   public:
@@ -28,19 +25,19 @@ class FrameWindow {
         std::shared_ptr<ThreadSignal> signal = {};
     };
 
-    // Frame cache contents.
+    // Loaded frames.
     struct Results {
         std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
         bool filled = false;
         bool at_eof = false;
     };
 
-    // Discards these cached frames.
+    // Discards the frame cache.
     virtual ~FrameWindow() = default;
 
-    // Updates the window parameters and starts loading in the background.
+    // Updates the time range and (re)starts background loading.
     // If .freeze is true, set_request() may not be called again.
-    // If .signal is present, it will be set when frames load.
+    // If .signal is present, it will be set every time frames load.
     virtual void set_request(Request const&) = 0;
 
     // Returns the frames loaded into the window so far.

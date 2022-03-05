@@ -1,6 +1,6 @@
 #include "xy.h"
 
-#include "doctest/doctest.h"
+#include <doctest/doctest.h>
 
 namespace pivid {
 

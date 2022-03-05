@@ -2,7 +2,7 @@
 
 #include <drm_fourcc.h>
 
-#include "fmt/core.h"
+#include <fmt/core.h>
 
 namespace pivid {
 

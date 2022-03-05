@@ -31,6 +31,7 @@ linux_dep = dependency('linux-headers-generic')
 
 pivid_lib = library(
     'pivid', [
+        'cubic_bezier.cpp',
         'display_output.cpp',
         'frame_loader.cpp',
         'frame_player.cpp',
