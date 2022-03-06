@@ -65,11 +65,16 @@ class ThreadFrameWindow : public FrameWindow {
         }
 
         // Clear cached frames outside the new window (allowing one past end).
-        loaded.erase(loaded.begin(), loaded.lower_bound(new_request.begin));
-        auto last = loaded.lower_bound(new_request.end);
-        if (last != loaded.end()) {
-            loaded.erase(std::next(last), loaded.end());
-            loaded_eof = false;
+        if (new_request.begin > request.begin) {
+            auto first = loaded.lower_bound(new_request.begin);
+            loaded.erase(loaded.begin(), first);
+        }
+        if (new_request.end < request.end) {
+            auto last = loaded.lower_bound(new_request.end);
+            if (last != loaded.end()) {
+                loaded.erase(std::next(last), loaded.end());
+                loaded_eof = false;
+            }
         }
 
         request = new_request;
@@ -82,7 +87,6 @@ class ThreadFrameWindow : public FrameWindow {
 
     virtual Results results() const {
         std::lock_guard const lock{shared->mutex};
-
         auto const begin = loaded.begin();
         auto const end = loaded.end();
         if (end != begin) {

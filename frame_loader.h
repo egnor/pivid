@@ -12,8 +12,8 @@
 
 namespace pivid {
 
-// Access to an asynchronously preloaded frames in a particular time range
-// (typically a section about to be played) using a MediaDecoder instance.
+// Access to asynchronously loaded frames within a particular time range
+// (typically a section being/about to be played) from a MediaDecoder instance.
 // *Internally synchronized* for multithreaded access.
 class FrameWindow {
   public:
