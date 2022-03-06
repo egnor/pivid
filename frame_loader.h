@@ -40,8 +40,7 @@ class FrameWindow {
     // If .signal is present, it will be set every time frames load.
     virtual void set_request(Request const&) = 0;
 
-    // Returns the frames loaded into the window so far.
-    // (The window is always filled from request.begin forward.)
+    // Returns the frames loaded so far (filled from request.begin forward).
     virtual Results results() const = 0;
 };
 
