@@ -63,7 +63,7 @@ class FileDescriptor {
         return this->ioctl(nr, nullptr);
     }
 
-    // Executes a kernel-to-user ioctl, checking object size & ioctl type.
+    // Executes a user-to-kernel ioctl, checking object size & ioctl type.
     template <uint32_t nr, typename T>
     ErrnoOr<int> ioc(T const& v) {
         static_assert(std::is_standard_layout<T>::value);
@@ -87,7 +87,7 @@ class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
 
-    // Clock and synchronization
+    // System clocks
     virtual SystemTime system_time() const = 0;
     virtual SteadyTime steady_time() const = 0;
     virtual void sleep_until(SteadyTime) const = 0;
