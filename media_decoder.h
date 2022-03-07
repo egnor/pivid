@@ -16,7 +16,7 @@ namespace pivid {
 
 // Static metadata about a media (video/image) file. Unchanged during playback.
 // Returned by MediaDecoder::info().
-struct MediaInfo {
+struct MediaFileInfo {
     std::string filename;
     std::string container_type;        // Like "matroska,webm"
     std::string codec_name;            // Like "h264_v4l2m2m"
@@ -32,6 +32,7 @@ struct MediaInfo {
 struct MediaFrame {
     ImageBuffer image;
     Seconds time;                 // Time into the video
+    Seconds next_time;            // The time of the frame after
     std::string_view frame_type;  // "B", "I", "P" etc for debugging
     bool is_key_frame = false;    // True if the frame can be seeked to
     bool is_corrupt = false;      // True if the codec had an error
@@ -45,7 +46,7 @@ class MediaDecoder {
     virtual ~MediaDecoder() = default;
 
     // Returns static metadata for the media file.
-    virtual MediaInfo const& info() const = 0;
+    virtual MediaFileInfo const& file_info() const = 0;
 
     // Reset to the key frame preceding the timestamp.
     virtual void seek_before(Seconds) = 0;
@@ -62,6 +63,6 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const&);
 
 // Debugging descriptions of structures.
 std::string debug(MediaFrame const&);
-std::string debug(MediaInfo const&);
+std::string debug(MediaFileInfo const&);
 
 }  // namespace pivid

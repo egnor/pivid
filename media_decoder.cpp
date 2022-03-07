@@ -75,7 +75,7 @@ class LibavDrmFrameMemory : public MemoryBuffer {
     virtual int dma_fd() const { return av_obj->fd; }
 
     virtual uint8_t const* read() {
-        std::lock_guard const lock{mem_mutex};
+        std::scoped_lock const lock{mem_mutex};
         if (!mem) {
             int const prot = PROT_READ, flags = MAP_SHARED;
             void* r = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
@@ -180,7 +180,13 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     MediaFrame out = {};
-    out.time = Seconds(1.0 * av->pts * time_base.num / time_base.den);
+    auto const ts = av->best_effort_timestamp;
+    out.time = Seconds(1.0 * ts * time_base.num / time_base.den);
+    if (av->pkt_duration) {
+        auto const next_ts = timestamp + av->pkt_duration;
+        out.next_time = Seconds(1.0 * next_ts * time_base.num / time_base.den);
+    }
+
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
     switch (av->pict_type) {
@@ -222,7 +228,7 @@ class LibavMediaDecoder : public MediaDecoder {
         if (format_context) avformat_close_input(&format_context);
     }
 
-    virtual MediaInfo const& info() const { return media_info; }
+    virtual MediaFileInfo const& file_info() const { return media_info; }
 
     virtual void seek_before(Seconds when) {
         assert(format_context && codec_context);
@@ -328,11 +334,10 @@ class LibavMediaDecoder : public MediaDecoder {
 
         logger->trace("Converting frame...");
         auto const* stream = format_context->streams[stream_index];
-        auto f = frame_from_av(std::move(av_shared), stream->time_base);
+        auto out = frame_from_av(std::move(av_shared), stream->time_base);
         if (logger->should_log(log_level::debug))
-            logger->debug("{}", debug(f));
-
-        return f;
+            logger->debug("{}", debug(out));
+        return out;
     }
 
     void init(std::string const& fn) {
@@ -416,7 +421,7 @@ class LibavMediaDecoder : public MediaDecoder {
     AVFormatContext* format_context = nullptr;
     AVCodecContext* codec_context = nullptr;
     int stream_index = -1;
-    MediaInfo media_info = {};
+    MediaFileInfo media_info = {};
 
     AVPacket* av_packet = nullptr;
     AVFrame* av_frame = nullptr;
@@ -526,7 +531,7 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
     return {packet->data, packet->data + packet->size};
 }
 
-std::string debug(MediaInfo const& i) {
+std::string debug(MediaFileInfo const& i) {
     auto out = fmt::format(
         "\"{}\" {}:{}:{}",
         i.filename, i.container_type, i.codec_name, i.pixel_format

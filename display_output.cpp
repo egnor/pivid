@@ -189,7 +189,7 @@ class DrmDumbBuffer : public MemoryBuffer {
     virtual size_t size() const { return ddat.size; }
 
     virtual uint8_t const* read() {
-        std::lock_guard const lock{mem_mutex};
+        std::scoped_lock const lock{mem_mutex};
         if (!mem) {
             drm_mode_map_dumb mdat = {};
             mdat.handle = ddat.handle;
@@ -479,7 +479,7 @@ class DrmDriver : public DisplayDriver {
         auto* const conn = &connectors.at(connector_id);
         logger->trace("Starting {} update...", conn->name);
 
-        std::lock_guard const lock{mutex};
+        std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
         if (crtc && crtc->pending_flip)
             throw std::invalid_argument("Update requested before prev done");
@@ -661,7 +661,7 @@ class DrmDriver : public DisplayDriver {
         auto* const conn = &connectors.at(id);
         logger->trace("Checking {} completion...", conn->name);
 
-        std::lock_guard const lock{mutex};
+        std::scoped_lock const lock{mutex};
         if (conn->using_crtc && conn->using_crtc->pending_flip) {
             process_events(lock);
             if (conn->using_crtc && conn->using_crtc->pending_flip) {
@@ -915,7 +915,7 @@ class DrmDriver : public DisplayDriver {
     std::map<uint32_t, Connector> connectors;
     std::map<uint32_t, std::string> prop_names;
 
-    void process_events(std::lock_guard<std::mutex> const&) {
+    void process_events(std::scoped_lock<std::mutex> const&) {
         logger->trace("Checking for DRM events...");
         drm_event_vblank ev = {};
         for (;;) {

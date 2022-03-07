@@ -15,11 +15,11 @@ class ThreadSignal {
     // Increments the internal signal count by 1.
     virtual void set() = 0;
 
-    // Waits until the signal count is nonzero, then decrement it by one.
+    // Waits until the signal count is nonzero, then decrements it by one.
     virtual void wait() = 0;
 
     // Waits until the signal count is nonzero (as above) OR the time given.
-    // Returns true if a signal was found.
+    // Returns true if a signal was found (and decremented).
     virtual bool wait_until(SteadyTime) = 0;
 };
 

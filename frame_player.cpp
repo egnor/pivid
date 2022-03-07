@@ -68,7 +68,7 @@ class ThreadFramePlayer : public FramePlayer {
     }
 
     virtual SteadyTime last_shown() const {
-        std::lock_guard const lock{mutex};
+        std::scoped_lock const lock{mutex};
         return shown;
     }
 

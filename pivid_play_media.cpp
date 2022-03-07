@@ -16,7 +16,7 @@ extern "C" {
 }
 
 #include "display_output.h"
-#include "frame_loader.h"
+#include "frame_loader.old.h"
 #include "frame_player.h"
 #include "logging_policy.h"
 #include "media_decoder.h"

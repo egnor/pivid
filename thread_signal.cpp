@@ -9,7 +9,7 @@ namespace pivid {
 class CondVarSignal : public ThreadSignal {
   public:
     virtual void set() {
-        std::lock_guard<std::mutex> lock{mutex};
+        std::scoped_lock<std::mutex> lock{mutex};
         if (!signal_count) {
             ++signal_count;
             condvar.notify_one();

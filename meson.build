@@ -34,6 +34,7 @@ pivid_lib = library(
         'cubic_bezier.cpp',
         'display_output.cpp',
         'frame_loader.cpp',
+        'frame_loader.old.cpp',
         'frame_player.cpp',
         'image_buffer.cpp',
         'media_decoder.cpp',
