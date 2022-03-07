@@ -182,10 +182,9 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     MediaFrame out = {};
     auto const ts = av->best_effort_timestamp;
     out.time = Seconds(1.0 * ts * time_base.num / time_base.den);
-    if (av->pkt_duration) {
-        auto const next_ts = timestamp + av->pkt_duration;
-        out.next_time = Seconds(1.0 * next_ts * time_base.num / time_base.den);
-    }
+
+    auto const next_ts = ts + av->pkt_duration;
+    out.next_time = Seconds(1.0 * next_ts * time_base.num / time_base.den);
 
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
@@ -545,7 +544,7 @@ std::string debug(MediaFileInfo const& i) {
 }
 
 std::string debug(MediaFrame const& f) {
-    auto out = fmt::format("{:5}", f.time);
+    auto out = fmt::format("{:5}~{:5}", f.time, f.next_time);
     if (!f.frame_type.empty())
         out += fmt::format(" {:<2s}", f.frame_type);
     out += fmt::format(" {}", debug(f.image));
