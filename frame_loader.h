@@ -15,12 +15,6 @@ namespace pivid {
 
 class FrameLoader {
   public:
-    struct Frames {
-        std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
-        std::map<Seconds, Seconds> cover;
-        bool includes_eof = false;
-    };
-
     struct Request {
         Seconds begin = {}, end = {};
     };
@@ -32,7 +26,7 @@ class FrameLoader {
         std::shared_ptr<ThreadSignal> = {}
     ) = 0;
 
-    virtual Frames loaded() const = 0;
+    virtual std::map<Seconds, std::shared_ptr<LoadedImage>> frames() const = 0;
 };
 
 std::unique_ptr<FrameLoader> make_frame_loader(

@@ -44,9 +44,9 @@ class ThreadFrameLoader : public FrameLoader {
         
     }
 
-    virtual Frames loaded() const {
+    virtual std::map<Seconds, std::shared_ptr<LoadedImage>> frames() const {
         std::unique_lock lock{mutex};
-        return frames;
+        return loaded;
     }
 
     void start(
@@ -68,9 +68,6 @@ class ThreadFrameLoader : public FrameLoader {
         while (!shutdown) {
             bool progress = false;
 
-            std::vector<Reader> spare_readers;
-            Seconds last_end = {};
-
             if (!progress) {
                 lock.unlock();
                 wakeup->wait();
@@ -85,7 +82,7 @@ class ThreadFrameLoader : public FrameLoader {
     struct Reader {
         std::unique_ptr<MediaDecoder> decoder;
         Seconds last_seek = {};
-        Seconds last_fetch = {};
+        Seconds next_fetch = {};
     };
 
     std::shared_ptr<log::logger> logger = loader_logger();
@@ -100,7 +97,8 @@ class ThreadFrameLoader : public FrameLoader {
 
     std::vector<Request> wanted;
     std::shared_ptr<ThreadSignal> notify = {};
-    Frames frames;
+    std::map<Seconds, std::shared_ptr<LoadedImage>> loaded;
+    std::map<Seconds, Seconds> cover;
 
     bool shutdown = false;
 };
