@@ -51,7 +51,9 @@ std::optional<DisplayDriverListing> scan_devices(std::string const& dev_arg) {
 }
 
 // Fetches a KMS property blob.
-std::vector<uint8_t> get_blob(std::shared_ptr<FileDescriptor> fd, uint32_t id) {
+std::vector<uint8_t> get_blob(
+    std::unique_ptr<FileDescriptor> const& fd, uint32_t id
+) {
     drm_mode_get_blob blob = {};
     blob.blob_id = id;
     std::vector<uint8_t> data;
@@ -63,7 +65,7 @@ std::vector<uint8_t> get_blob(std::shared_ptr<FileDescriptor> fd, uint32_t id) {
 
 // Prints key/value properties about a KMS "object" ID,
 // using the generic KMS property-value interface.
-void print_properties(std::shared_ptr<FileDescriptor> fd, uint32_t id) {
+void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
     std::vector<uint32_t> prop_ids;
     std::vector<uint64_t> values;
     drm_mode_obj_get_properties gp = {};

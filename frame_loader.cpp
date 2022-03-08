@@ -33,20 +33,32 @@ class ThreadFrameLoader : public FrameLoader {
         }
     }
 
-    virtual void set_wanted(
-        std::vector<Request> const& wanted,
+    virtual void set_request(
+        RangeSet<Seconds> const& wanted,
         std::shared_ptr<ThreadSignal> notify
     ) {
         std::unique_lock lock{mutex};
-        this->wanted = wanted;
         this->notify = notify;
-        wakeup->set();
-        
+        if (wanted != this->wanted) {
+            auto to_erase = res.done;
+            to_erase.erase(wanted);
+            for (auto erase_range : to_erase) {
+                res.done.erase(erase_range);
+                res.frames.erase(
+                    res.frames.lower_bound(erase_range.begin),
+                    res.frames.lower_bound(erase_range.end)
+                );
+            }
+
+            this->wanted = wanted;
+            lock.unlock();
+            wakeup->set();
+        }
     }
 
-    virtual std::map<Seconds, std::shared_ptr<LoadedImage>> frames() const {
-        std::unique_lock lock{mutex};
-        return loaded;
+    virtual Results results() const {
+        std::scoped_lock lock{mutex};
+        return res;
     }
 
     void start(
@@ -65,10 +77,32 @@ class ThreadFrameLoader : public FrameLoader {
         logger->debug("Loader thread ({}) running...", filename);
 
         std::map<Seconds, Reader> readers;
+        std::map<Seconds, Reader> spare_readers;
         while (!shutdown) {
             bool progress = false;
 
-            if (!progress) {
+            // TODO what about when a window is temporarily filled?
+            // Different treatment for a reader adjacent to wanted?
+
+            for (auto iter = readers.begin(); iter != readers.end(); ++iter) {
+            }
+
+            for (auto const& [time, reader] : readers) {
+                if (!wanted.contains(time) || res.done.contains(time)) {
+                    spare_readers.insert(readers.extract(time));
+                }
+            }
+
+            auto to_load = wanted;
+            to_load.erase(res.done);
+            for (auto load_range : to_load) {
+                auto read_iter = readers.find(load_range.begin);
+                (void) read_iter;
+            }
+
+            if (progress) {
+                if (notify) notify->set();
+            } else if (!progress) {
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
@@ -95,10 +129,9 @@ class ThreadFrameLoader : public FrameLoader {
     std::thread thread;
     std::shared_ptr<ThreadSignal> wakeup = make_signal();
 
-    std::vector<Request> wanted;
-    std::shared_ptr<ThreadSignal> notify = {};
-    std::map<Seconds, std::shared_ptr<LoadedImage>> loaded;
-    std::map<Seconds, Seconds> cover;
+    RangeSet<Seconds> wanted;
+    std::shared_ptr<ThreadSignal> notify;
+    Results res;
 
     bool shutdown = false;
 };
@@ -115,8 +148,17 @@ std::unique_ptr<FrameLoader> make_frame_loader(
     return loader;
 }
 
-std::string debug(FrameLoader::Request const& req) {
-    return fmt::format("{:.3}~{:.3}", req.begin, req.end);
+std::string debug(Range<Seconds> const& range) {
+    return fmt::format("{:.3}~{:.3}", range.begin, range.end);
+}
+
+std::string debug(RangeSet<Seconds> const& set) {
+    std::string out = "{";
+    for (auto const& range : set) {
+        if (out.size() > 1) out += ", ";
+        out += debug(range);
+    }
+    return out + "}";
 }
 
 }  // namespace pivid

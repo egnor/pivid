@@ -35,11 +35,12 @@ struct [[nodiscard]] ErrnoOr {
     int err = 0;
     T value = {};
 
-    // Throws for nonzero errno (with a description string), or returns value
-    T ex(std::string_view what) const {
+    // Throws for nonzero errno (with text), or returns value.
+    T ex(std::string_view what) const& { check(what); return value; }
+    T ex(std::string_view what) && { check(what); return std::move(value); }
+    void check(std::string_view what) const {
         static auto const& cat = std::system_category();
         if (err) throw std::system_error(err, cat, std::string{what});
-        return value;
     }
 };
 
@@ -100,12 +101,12 @@ class UnixSystem {
     ) const = 0;
 
     // Returns a file descriptor for a file, like open().
-    virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
+    virtual ErrnoOr<std::unique_ptr<FileDescriptor>> open(
         std::string const&, int flags, mode_t mode = 0
     ) = 0;
 
     // Adopts a raw file descriptor. Takes ownership of closing the file.
-    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) = 0;
+    virtual std::unique_ptr<FileDescriptor> adopt(int raw_fd) = 0;
 
     // Subprocess management, like posix_spawn() and waitid().
     virtual ErrnoOr<pid_t> spawn(

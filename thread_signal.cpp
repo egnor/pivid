@@ -10,39 +10,44 @@ class CondVarSignal : public ThreadSignal {
   public:
     virtual void set() {
         std::scoped_lock<std::mutex> lock{mutex};
-        if (!signal_count) {
-            ++signal_count;
+        if (!signal_flag) {
+            signal_flag = true;
             condvar.notify_one();
         }
     }
 
+    virtual bool test() const {
+        std::scoped_lock<std::mutex> lock{mutex};
+        return signal_flag;
+    }
+
     virtual void wait() {
         std::unique_lock<std::mutex> lock{mutex};
-        while (!signal_count)
+        while (!signal_flag)
             condvar.wait(lock);
-        --signal_count;
+        signal_flag = false;
     }
 
     virtual bool wait_until(SteadyTime t) {
         using std::chrono::time_point_cast;
         auto u = time_point_cast<std::chrono::steady_clock::duration>(t);
         std::unique_lock<std::mutex> lock{mutex};
-        while (!signal_count) {
+        while (!signal_flag) {
             if (condvar.wait_until(lock, u) == std::cv_status::timeout)
                 return false;
         }
-        --signal_count;
+        signal_flag = false;
         return true;
     }
 
   private:
-    std::mutex mutex;
+    std::mutex mutable mutex;
     std::condition_variable condvar;
-    int signal_count = 0;
+    bool signal_flag = false;
 };
 
-std::shared_ptr<ThreadSignal> make_signal() {
-    return std::make_shared<CondVarSignal>();
+std::unique_ptr<ThreadSignal> make_signal() {
+    return std::make_unique<CondVarSignal>();
 }
 
 }  // namespace pivid

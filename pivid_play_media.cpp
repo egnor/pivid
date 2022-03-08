@@ -156,7 +156,7 @@ void play_video(
         overlay_layer.alpha = overlay_alpha_arg;
     }
 
-    auto const signal = make_signal();
+    std::shared_ptr const signal = make_signal();
     auto const player = start_frame_player(sys, driver.get(), conn.id, mode);
     auto const loader = make_frame_loader(driver.get());
     auto const window = loader->open_window(std::move(decoder));

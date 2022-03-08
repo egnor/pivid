@@ -95,7 +95,7 @@ class GlobalSystem : public UnixSystem {
         return {0, buf};
     }
 
-    virtual ErrnoOr<std::shared_ptr<FileDescriptor>> open(
+    virtual ErrnoOr<std::unique_ptr<FileDescriptor>> open(
         std::string const& path, int flags, mode_t mode
     ) {
         auto const r = run_sys([&] {return ::open(path.c_str(), flags, mode);});
@@ -103,8 +103,8 @@ class GlobalSystem : public UnixSystem {
         return {0, adopt(r.value)};
     }
 
-    virtual std::shared_ptr<FileDescriptor> adopt(int raw_fd) {
-        return std::make_shared<SystemFileDescriptor>(raw_fd);
+    virtual std::unique_ptr<FileDescriptor> adopt(int raw_fd) {
+        return std::make_unique<SystemFileDescriptor>(raw_fd);
     }
 
     virtual ErrnoOr<pid_t> spawn(

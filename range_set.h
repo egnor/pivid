@@ -1,27 +1,42 @@
 #pragma once
 
-#include <map>
-#include <stdexcept>
+#include <compare>
+#include <set>
 
 namespace pivid {
 
 template <typename T>
+struct Range {
+    T begin, end;
+    auto operator<=>(Range const& o) const { return begin <=> o.begin; }
+    bool operator==(Range const& o) const = default;
+};
+
+template <typename T>
 class RangeSet {
   public:
-    using RangePair = std::map<T, T>::value_type;
-    using iterator = std::map<T, T>::const_iterator;
+    using Range = pivid::Range<T>;
+    using iterator = std::set<Range>::const_iterator;
 
-    void add(RangePair range);
-    void remove(RangePair range);
+    void insert(Range);
+    void insert(RangeSet const& s) { for (auto r : s) insert(r); }
+
+    void erase(Range);
+    void erase(RangeSet const& s) { for (auto r : s) erase(r); }
 
     iterator begin() const { return ranges.begin(); }
     iterator end() const { return ranges.end(); }
-    iterator next_after(T t) const { return ranges.upper_bound(t); }
+    int size() const { return ranges.size(); }
 
-    int operator<=>(RangeSet const&) const = default;
+    iterator overlap_begin(T t) const;
+    iterator overlap_end(T t) const { return ranges.lower_bound({t, {}}); }
+    bool contains(T) const;
+
+    auto operator<=>(RangeSet const& o) const = default;
+    bool operator==(RangeSet const& o) const = default;
 
   private:
-    std::map<T, T> ranges;
+    std::set<Range> ranges;
 };
 
 //
@@ -29,50 +44,59 @@ class RangeSet {
 //
 
 template <typename T>
-void RangeSet<T>::add(RangePair range) {
-    if (range.first > range.second)
-        throw std::invalid_argument("Bad range order");
+void RangeSet<T>::insert(Range add) {
+    if (add.begin >= add.end) return;
 
-    auto iter = ranges.upper_bound(range.first);
-    if (iter == ranges.begin() || (--iter)->second < range.first) {
-        iter = ranges.insert(range).first;
-    } else if (iter->second >= range.second) {
-        return;  // Range is already covered.
-    } else {
-        iter->second = range.second;
+    auto next_contact = ranges.upper_bound(add);
+    if (next_contact != ranges.begin()) {
+        auto const at_or_before = std::prev(next_contact);
+        if (at_or_before->end >= add.end) return;
+        if (at_or_before->end >= add.begin) {
+            next_contact = at_or_before;
+            add.begin = at_or_before->begin;
+        }
     }
 
-    auto next = std::next(iter);
-    while (next != ranges.end() && next->first <= iter->second) {
-        if (next->second > iter->second) {
-            iter->second = next->second;
-            ranges.erase(next);
-            break;
-        }
-        next = ranges.erase(next);
+    while (next_contact != ranges.end() && next_contact->begin <= add.end) {
+        if (next_contact->end > add.end) add.end = next_contact->end;
+        next_contact = ranges.erase(next_contact);
+    }
+
+    ranges.insert(add);
+}
+
+template <typename T>
+void RangeSet<T>::erase(Range remove) {
+    if (remove.begin >= remove.end) return;
+
+    auto next_overlap = ranges.upper_bound(remove);
+    if (next_overlap != ranges.begin()) {
+        auto const at_or_before = std::prev(next_overlap);
+        if (at_or_before->end > remove.begin) next_overlap = at_or_before;
+    }
+
+    while (next_overlap != ranges.end() && next_overlap->begin < remove.end) {
+        auto const overlap = *next_overlap;
+        next_overlap = ranges.erase(next_overlap);
+        if (overlap.begin < remove.begin)
+            ranges.insert({overlap.begin, remove.begin});
+        if (overlap.end > remove.end)
+            ranges.insert({remove.end, overlap.end});
     }
 }
 
 template <typename T>
-void RangeSet<T>::remove(RangePair range) {
-    if (range.first > range.second)
-        throw std::invalid_argument("Bad range order");
+RangeSet<T>::iterator RangeSet<T>::overlap_begin(T value) const {
+    auto const next_after = ranges.upper_bound({value, {}});
+    if (next_after == ranges.begin()) return next_after;
+    auto const at_or_before = std::prev(next_after);
+    return (at_or_before->end > value) ? at_or_before : next_after;
+}
 
-    auto iter = ranges.lower_bound(range.first);
-    if (iter != ranges.begin()) {
-        const auto prev = std::prev(iter);
-        if (prev->second > range.first)
-            prev->second = range.first;
-    }
-
-    while (iter != ranges.end() && iter->first < range.second) {
-        if (iter->second > range.second) {
-            ranges.insert({range.second, iter->second});
-            ranges.erase(iter);
-            break;
-        }
-        iter = ranges.erase(iter);
-    }
+template <typename T>
+bool RangeSet<T>::contains(T value) const {
+    auto const iter = overlap_begin(value);
+    return iter != ranges.end() && iter->begin <= value;
 }
 
 }  // namespace pivid

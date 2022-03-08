@@ -273,6 +273,7 @@ class DrmLoadedImage : public LoadedImage {
             }
         }
 
+        auto const logger = display_logger();
         logger->trace("Creating DRM framebuffer...");
         this->fd = std::move(fd);
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fdat).ex("DRM framebuffer");
@@ -282,6 +283,7 @@ class DrmLoadedImage : public LoadedImage {
 
     ~DrmLoadedImage() {
         if (!fdat.fb_id) return;
+        auto const logger = display_logger();
         logger->trace("Removing DRM framebuffer...");
         (void) fd->ioc<DRM_IOCTL_MODE_RMFB>(&fdat.fb_id);
         logger->debug("Unload fb{} {}x{}", fdat.fb_id, fdat.width, fdat.height);
@@ -291,7 +293,6 @@ class DrmLoadedImage : public LoadedImage {
     virtual XY<int> size() const { return XY<int>(fdat.width, fdat.height); }
 
   private:
-    std::shared_ptr<log::logger> logger = display_logger();
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_fb_cmd2 fdat = {};
 

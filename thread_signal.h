@@ -12,17 +12,20 @@ class ThreadSignal {
   public:
     virtual ~ThreadSignal() = default;
 
-    // Increments the internal signal count by 1.
+    // Sets the internal signal flag.
     virtual void set() = 0;
 
-    // Waits until the signal count is nonzero, then decrements it by one.
+    // Returns the internal signal flag without modification.
+    virtual bool test() const = 0;
+
+    // Waits until the signal flag is set, then resets it and returns.
     virtual void wait() = 0;
 
-    // Waits until the signal count is nonzero (as above) OR the time given.
-    // Returns true if a signal was found (and decremented).
+    // Waits until the signal flag is set (as above) OR the time given.
+    // Returns true if a signal was found (and cleared).
     virtual bool wait_until(SteadyTime) = 0;
 };
 
-std::shared_ptr<ThreadSignal> make_signal();
+std::unique_ptr<ThreadSignal> make_signal();
 
 }  // namespace pivid
