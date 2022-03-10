@@ -77,36 +77,44 @@ class ThreadFrameLoader : public FrameLoader {
         logger->debug("Loader thread ({}) running...", filename);
 
         std::map<Seconds, Reader> readers;
-        std::map<Seconds, Reader> spare_readers;
         while (!shutdown) {
-            bool progress = false;
+            // Mark usefully positioned readers that shouldn't get recycled
+            std::map<Seconds, Reader> keep_readers;
 
-            // TODO what about when a window is temporarily filled?
-            // Different treatment for a reader adjacent to wanted?
-
-            for (auto iter = readers.begin(); iter != readers.end(); ++iter) {
+            // Don't recycle readers positioned to handle request extension
+            for (auto const& want_range : wanted) {
+                auto iter = readers.find(want_range.end);
+                if (iter != readers.end())
+                    keep_readers.insert(readers.extract(iter));
             }
 
-            for (auto const& [time, reader] : readers) {
-                if (!wanted.contains(time) || res.done.contains(time)) {
-                    spare_readers.insert(readers.extract(time));
-                }
-            }
+            // Find regions needed to load (requested but not yet loaded)
+            auto needed = wanted;
+            needed.erase(res.done);
 
-            auto to_load = wanted;
-            to_load.erase(res.done);
-            for (auto load_range : to_load) {
-                auto read_iter = readers.find(load_range.begin);
-                (void) read_iter;
-            }
-
-            if (progress) {
-                if (notify) notify->set();
-            } else if (!progress) {
+            // If no regions are needed, recycle readers & wait for a change
+            if (needed.empty()) {
+                readers = std::move(keep_readers);
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
+                continue;
             }
+
+            // Don't recycle readers positioned to fill needed regions
+            for (auto const& load_range : needed) {
+                auto iter = readers.find(load_range.begin);
+                if (iter != readers.end())
+                    keep_readers.insert(readers.extract(iter));
+            }
+
+            for (auto load_range : to_load) {
+                auto read_iter = keep_readers.find(load_range.begin);
+                if (read_iter != readers.end()) {
+                }
+            }
+
+            if (notify) notify->set();
         }
 
         logger->debug("Loader thread ({}) ending...", filename);

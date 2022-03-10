@@ -26,6 +26,7 @@ class RangeSet {
 
     iterator begin() const { return ranges.begin(); }
     iterator end() const { return ranges.end(); }
+    bool empty() const { return ranges.empty(); }
     int size() const { return ranges.size(); }
 
     iterator overlap_begin(T t) const;
