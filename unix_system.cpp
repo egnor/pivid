@@ -6,6 +6,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -80,6 +81,7 @@ class GlobalSystem : public UnixSystem {
         ErrnoOr<std::vector<std::string>> ret;
         while (dirent* ent = readdir(dp.get()))
             ret.value.push_back(ent->d_name);
+        std::sort(ret.value.begin(), ret.value.end());
         return ret;
     }
 

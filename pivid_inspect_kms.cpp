@@ -44,7 +44,7 @@ std::optional<DisplayDriverListing> scan_devices(std::string const& dev_arg) {
         auto const text = debug(d);
         if (!found && text.find(dev_arg) != std::string::npos)
             found = d;
-        fmt::print("{} {}\n", (found == d) ? "=>" : " ", debug(d));
+        fmt::print("{} {}\n", (found == d) ? "=>" : "  ", debug(d));
     }
     fmt::print("\n");
     return found;
@@ -169,20 +169,26 @@ void inspect_device(DisplayDriverListing const& listing) {
     auto const dev = global_system()->open(path, O_RDWR).ex(path);
 
     // Enable any client capabilities that expose more information.
-    for (auto const& cap : {
-        drm_set_client_cap{DRM_CLIENT_CAP_ASPECT_RATIO, 1},
-        drm_set_client_cap{DRM_CLIENT_CAP_ATOMIC, 1},
-        drm_set_client_cap{DRM_CLIENT_CAP_STEREO_3D, 1},
-        drm_set_client_cap{DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1},
-        drm_set_client_cap{DRM_CLIENT_CAP_WRITEBACK_CONNECTORS, 1}
+    for (auto const& [name, cap] : {
+#define C(x) std::pair<std::string_view, uint64_t>(#x, DRM_CLIENT_CAP_##x)
+        C(ASPECT_RATIO),
+        C(ATOMIC),
+        C(STEREO_3D),
+        C(UNIVERSAL_PLANES),
+        C(WRITEBACK_CONNECTORS),
+#undef C
     }) {
-        dev->ioc<DRM_IOCTL_SET_CLIENT_CAP>(cap).ex("SET_CLIENT_CAP");
+        try {
+            drm_set_client_cap setcap{cap, 1};
+            dev->ioc<DRM_IOCTL_SET_CLIENT_CAP>(setcap).ex(name);
+        } catch (std::exception const& e) {
+            fmt::print("[client cap] {}\n", e.what());
+        }
     }
 
     drm_mode_card_res res = {};
     std::vector<uint32_t> crtc_ids, conn_ids, enc_ids;
     do {
-fmt::print("crtcs={} conns={} encs={}", res.count_crtcs, res.count_connectors, res.count_encoders);
         res.count_fbs = 0;  // Framebuffer IDs are not reported to kibitzers.
         dev->ioc<DRM_IOCTL_MODE_GETRESOURCES>(&res).ex("MODE_GETRESOURCES");
     } while (

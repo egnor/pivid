@@ -1066,11 +1066,18 @@ std::vector<DisplayDriverListing> list_display_drivers(
             );
         }
 
-        auto const fd = sys->open(listing.dev_file, O_RDWR).ex(fname);
+        std::unique_ptr<FileDescriptor> fd;
+        try {
+            fd = sys->open(listing.dev_file, O_RDWR).ex(listing.dev_file);
+        } catch (std::runtime_error const& e) {  // Skip but log on open error
+            display_logger()->error("{}", e.what());
+            continue;
+        }
+
         drm_mode_card_res res = {};
-        auto const ret = fd->ioc<DRM_IOCTL_MODE_GETRESOURCES>(&res);
-        if (ret.err == ENOTSUP) continue;  // Not a KMS driver.
-        ret.ex("DRM resource probe");
+        auto const res_ret = fd->ioc<DRM_IOCTL_MODE_GETRESOURCES>(&res);
+        if (res_ret.err == ENOTSUP) continue;  // Not a KMS driver.
+        res_ret.ex("DRM resource probe");
 
         auto const maj = major(fstat.st_rdev), min = minor(fstat.st_rdev);
         auto const dev_link = fmt::format("/sys/dev/char/{}:{}", maj, min);
