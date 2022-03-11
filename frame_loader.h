@@ -39,6 +39,7 @@ std::unique_ptr<FrameLoader> make_frame_loader(
         open_media_decoder
 );
 
+// Debugging descriptions of data structures.
 std::string debug(Interval<Seconds> const&);
 std::string debug(IntervalSet<Seconds> const&);
 

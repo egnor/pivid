@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "image_buffer.h"
+#include "interval_set.h"
 #include "unix_system.h"
 #include "xy.h"
 
@@ -31,8 +32,7 @@ struct MediaFileInfo {
 // Returned by MediaDecoder::next_frame().
 struct MediaFrame {
     ImageBuffer image;
-    Seconds time;                 // Time into the video
-    Seconds next_time;            // The time of the frame after
+    Interval<Seconds> time;       // Display interval since video start
     std::string_view frame_type;  // "B", "I", "P" etc for debugging
     bool is_key_frame = false;    // True if the frame can be seeked to
     bool is_corrupt = false;      // True if the codec had an error

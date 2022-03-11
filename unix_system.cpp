@@ -12,6 +12,9 @@
 #include <mutex>
 #include <thread>
 
+#include <fmt/chrono.h>
+#include <fmt/core.h>
+
 namespace pivid {
 
 namespace {
@@ -145,6 +148,10 @@ class GlobalSystem : public UnixSystem {
 std::shared_ptr<UnixSystem> global_system() {
     static const auto system = std::make_shared<GlobalSystem>();
     return system;
+}
+
+std::string debug(Seconds s) {
+    return fmt::format("{:.3}", s);
 }
 
 }  // namespace pivid

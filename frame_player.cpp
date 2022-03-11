@@ -47,12 +47,11 @@ class ThreadFramePlayer : public FramePlayer {
         if (timeline.empty()) {
             TRACE(logger, "Set timeline empty");
         } else {
-            using namespace std::chrono_literals;
             TRACE(logger, 
-                "Set timeline {}f {:.3}~{:.3} {}",
+                "Set timeline {}f {}~{} {}",
                 timeline.size(),
-                timeline.begin()->first.time_since_epoch(),
-                timeline.rbegin()->first.time_since_epoch(),
+                debug(timeline.begin()->first.time_since_epoch()),
+                debug(timeline.rbegin()->first.time_since_epoch()),
                 same_keys ? "[same]" : "[diff]"
             );
         }
@@ -107,10 +106,10 @@ class ThreadFramePlayer : public FramePlayer {
             }
 
             TRACE(logger, 
-                "PLAY timeline {}f {:.3}~{:.3}",
+                "PLAY timeline {}f {}~{}",
                 timeline.size(),
-                timeline.begin()->first.time_since_epoch(),
-                timeline.rbegin()->first.time_since_epoch()
+                debug(timeline.begin()->first.time_since_epoch()),
+                debug(timeline.rbegin()->first.time_since_epoch())
             );
 
             auto const now = sys->steady_time();
@@ -123,8 +122,8 @@ class ThreadFramePlayer : public FramePlayer {
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 logger->warn(
-                    "Skip frame sched={:.3} ({:.3} old)",
-                    s->first.time_since_epoch(), now - s->first
+                    "Skip frame sched={} ({} old)",
+                    debug(s->first.time_since_epoch()), debug(now - s->first)
                 );
                 shown = s->first;
             }
@@ -139,7 +138,7 @@ class ThreadFramePlayer : public FramePlayer {
 
             if (show->first > now) {
                 auto const delay = show->first - now;
-                TRACE(logger, "> (waiting {:.3} for frame)", delay);
+                TRACE(logger, "> (waiting {} for frame)", debug(delay));
                 lock.unlock();
                 wakeup->wait_until(show->first);
                 lock.lock();
@@ -168,8 +167,8 @@ class ThreadFramePlayer : public FramePlayer {
 
             auto const lag = now - shown;
             logger->debug(
-                "Show frame sched={:.3} ({:.3} old)",
-                shown.time_since_epoch(), lag
+                "Show frame sched={} ({} old)",
+                debug(shown.time_since_epoch()), debug(lag)
             );
         }
 

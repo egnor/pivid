@@ -7,7 +7,10 @@ namespace pivid {
 
 template <typename T>
 struct Interval {
-    T begin, end;
+    T begin = {}, end = {};
+
+    bool empty() const { return begin >= end; }
+    bool contains(T t) const { return begin <= t && t < end; }
     auto operator<=>(Interval const& o) const { return begin <=> o.begin; }
     bool operator==(Interval const& o) const = default;
 };
@@ -27,7 +30,7 @@ class IntervalSet {
     iterator begin() const { return ranges.begin(); }
     iterator end() const { return ranges.end(); }
     bool empty() const { return ranges.empty(); }
-    int size() const { return ranges.size(); }
+    int count() const { return ranges.size(); }
 
     iterator overlap_begin(T t) const;
     iterator overlap_end(T t) const { return ranges.lower_bound({t, {}}); }
