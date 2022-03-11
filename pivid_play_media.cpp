@@ -16,7 +16,7 @@ extern "C" {
 }
 
 #include "display_output.h"
-#include "frame_loader.old.h"
+#include "frame_loader.h"
 #include "frame_player.h"
 #include "logging_policy.h"
 #include "media_decoder.h"
@@ -34,17 +34,17 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     if (dev_arg == "none" || dev_arg == "/dev/null") return {};
 
     fmt::print("=== Video drivers ===\n");
-    std::string found;
+    std::optional<DisplayDriverListing> found;
     for (auto const& d : list_display_drivers(global_system())) {
         auto const text = debug(d);
-        if (found.empty() && text.find(dev_arg) != std::string::npos)
-            found = d.dev_file;
-        fmt::print("{} {}\n", (found == d.dev_file) ? "=>" : "  ", debug(d));
+        if (!found && text.find(dev_arg) != std::string::npos)
+            found = d;
+        fmt::print("{} {}\n", (found == d) ? "=>" : "  ", debug(d));
     }
     fmt::print("\n");
 
-    if (found.empty()) throw std::runtime_error("No matching device");
-    return open_display_driver(global_system(), found);
+    if (!found) throw std::runtime_error("No matching device");
+    return open_display_driver(global_system(), found->dev_file);
 }
 
 DisplayConnector find_connector(
@@ -120,17 +120,9 @@ void set_kernel_debug(bool enable) {
     fd->write(val.data(), val.size()).ex(debug_file);
 }
 
-std::unique_ptr<MediaDecoder> find_media(std::string const& media_arg) {
-    if (media_arg.empty()) return {};
-
-    fmt::print("=== Playing media ({}) ===\n", media_arg);
-    auto decoder = open_media_decoder(media_arg);
-    return decoder;
-}
-
 void play_video(
-    std::unique_ptr<MediaDecoder> decoder,
-    std::unique_ptr<MediaDecoder> overlay,
+    std::string const& media_file, 
+    std::string const& overlay_file,
     std::unique_ptr<DisplayDriver> const& driver,
     DisplayConnector const& conn,
     DisplayMode const& mode,
@@ -143,8 +135,9 @@ void play_video(
     auto const sys = global_system();
 
     DisplayLayer overlay_layer = {};
-    if (overlay) {
-        logger->trace("Loading overlay image...");
+    if (!overlay_file.empty()) {
+        logger->info("Loading overlay: {}", overlay_file);
+        auto const overlay = open_media_decoder(overlay_file);
         std::optional<MediaFrame> frame = overlay->next_frame();
         if (!frame)
             throw std::runtime_error("No frames in overlay media");
@@ -158,36 +151,37 @@ void play_video(
 
     std::shared_ptr const signal = make_signal();
     auto const player = start_frame_player(sys, driver.get(), conn.id, mode);
-    auto const loader = make_frame_loader(driver.get());
-    auto const window = loader->open_window(std::move(decoder));
+    auto const loader = make_frame_loader(driver.get(), media_file);
 
     logger->info("Start at {:.3f} seconds...", start_arg);
     auto const start_time = sys->steady_time() - Seconds(start_arg);
 
     for (;;) {
         auto now = sys->steady_time();
-        logger->trace("UPDATE at {:.3}", now.time_since_epoch());
+        TRACE(logger, "UPDATE at {:.3}", now.time_since_epoch());
 
-        FrameWindow::Request req = {};
+        Interval<Seconds> req;
         req.begin = std::max(player->last_shown() + 0.001s - start_time, 0.0s);
         req.end = std::max(req.begin, now - start_time) + Seconds(buffer_arg);
-        req.signal = signal;
-        window->set_request(req);
 
-        auto const results = window->results();
-        if (results.frames.empty() && results.at_eof) break;
+        IntervalSet<Seconds> req_set;
+        req_set.insert(req);
+        loader->set_request(req_set, signal);
+
+        auto const loaded = loader->loaded();
+        if (loaded.eof && req.begin >= *loaded.eof) break;
 
         FramePlayer::Timeline timeline;
-        for (auto const& time_frame : results.frames) {
+        for (auto const& [frame_time, frame_image] : loaded.frames) {
             DisplayLayer frame_layer = {};
-            frame_layer.image = time_frame.second;
-            frame_layer.from_size = time_frame.second->size().as<double>();
+            frame_layer.image = frame_image;
+            frame_layer.from_size = frame_image->size().as<double>();
             frame_layer.to_size = mode.size;
 
             std::vector<DisplayLayer> layers;
             layers.push_back(std::move(frame_layer));
             if (overlay_layer.image) layers.push_back(overlay_layer);
-            timeline[start_time + time_frame.first] = std::move(layers);
+            timeline[start_time + frame_time] = std::move(layers);
         }
         player->set_timeline(timeline, signal);
 
@@ -237,14 +231,10 @@ extern "C" int main(int const argc, char const* const* const argv) {
         auto const driver = find_driver(dev_arg);
         auto const conn = find_connector(driver, conn_arg);
         auto const mode = find_mode(driver, conn, mode_arg);
-        auto decoder = find_media(media_arg);
-        auto overlay = find_media(overlay_arg);
 
-        if (decoder && driver) {
+        if (!media_arg.empty() && driver) {
             play_video(
-                std::move(decoder),
-                std::move(overlay),
-                driver, conn, mode,
+                media_arg, overlay_arg, driver, conn, mode,
                 start_arg, buffer_arg, overlay_alpha_arg
             );
         }

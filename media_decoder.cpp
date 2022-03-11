@@ -254,26 +254,26 @@ class LibavMediaDecoder : public MediaDecoder {
 
         do {
             if (eof_seen_from_codec) {
-                logger->trace("> (EOF reached, no more frames)");
+                TRACE(logger, "> (EOF reached, no more frames)");
                 return {};
             }
 
             if (!av_frame->width) {
-                logger->trace("Checking for frame from codec...");
+                TRACE(logger, "Checking for frame from codec...");
                 auto const err = avcodec_receive_frame(codec_context, av_frame);
                 if (err == AVERROR(EAGAIN)) {
-                    logger->trace("> (codec needs more data, can't get frame)");
+                    TRACE(logger, "> (codec needs more data, can't get frame)");
                 } else if (err == AVERROR_EOF) {
                     logger->info("Got EOF from codec");
                     eof_seen_from_codec = true;
                 } else {
                     check_av(err, "Decode frame", codec_context->codec->name);
-                    logger->trace("> Got frame from codec");
+                    TRACE(logger, "> Got frame from codec");
                 }
             }
 
             if (!av_packet->data && !eof_seen_from_file) {
-                logger->trace("Reading from file...");
+                TRACE(logger, "Reading from file...");
                 auto const err = av_read_frame(format_context, av_packet);
                 if (err == AVERROR_EOF) {
                     logger->debug("> Got EOF from file");
@@ -281,29 +281,29 @@ class LibavMediaDecoder : public MediaDecoder {
                 } else {
                     check_av(err, "Read", media_info.filename);
                     if (av_packet->stream_index == stream_index) {
-                        logger->trace(
+                        TRACE(logger, 
                             "> Read packet from file ({})",
                             debug_size(av_packet->size)
                         );
                     } else {
                         av_packet_unref(av_packet);
                         assert(av_packet->data == nullptr);
-                        logger->trace("> (got other stream packet, ignoring)");
+                        TRACE(logger, "> (got other stream packet, ignoring)");
                     }
                 }
             }
 
             if (av_packet->data) {
-                logger->trace(
+                TRACE(logger, 
                     "Sending packet to codec ({})...",
                     debug_size(av_packet->size)
                 );
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
-                    logger->trace("> (app-to-codec full, can't send data)");
+                    TRACE(logger, "> (app-to-codec full, can't send data)");
                 } else {
                     check_av(err, "Decode packet", codec_context->codec->name);
-                    logger->trace("> Sent packet to codec");
+                    TRACE(logger, "> Sent packet to codec");
                     av_packet_unref(av_packet);
                     assert(av_packet->data == nullptr);
                 }
@@ -311,10 +311,10 @@ class LibavMediaDecoder : public MediaDecoder {
 
             if (eof_seen_from_file && !eof_sent_to_codec) {
                 assert(av_packet->data == nullptr);
-                logger->trace("Sending EOF to codec...");
+                TRACE(logger, "Sending EOF to codec...");
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
-                    logger->trace("> (app-to-codec full, can't send EOF)");
+                    TRACE(logger, "> (app-to-codec full, can't send EOF)");
                 } else {
                     if (err != AVERROR_EOF)
                         check_av(err, "Decode EOF", codec_context->codec->name);
@@ -331,7 +331,7 @@ class LibavMediaDecoder : public MediaDecoder {
         std::shared_ptr<AVFrame> av_shared{this->av_frame, std::move(deleter)};
         av_frame = nullptr;  // Owned by shared_ptr now.
 
-        logger->trace("Converting frame...");
+        TRACE(logger, "Converting frame...");
         auto const* stream = format_context->streams[stream_index];
         auto out = frame_from_av(std::move(av_shared), stream->time_base);
         if (logger->should_log(log_level::debug))
@@ -340,7 +340,7 @@ class LibavMediaDecoder : public MediaDecoder {
     }
 
     void init(std::string const& fn) {
-        logger->trace("Opening media ({})...", fn);
+        TRACE(logger, "Opening media ({})...", fn);
         media_info.filename = fn;
 
         check_av(

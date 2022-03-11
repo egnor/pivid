@@ -75,8 +75,8 @@ executable(
 pivid_test = executable(
     'pivid_test', [
         'cubic_bezier_test.cpp',
+        'interval_set_test.cpp',
         'pivid_test_main.cpp',
-        'range_set_test.cpp',
         'xy_test.cpp',
     ],
     link_with: [pivid_lib],

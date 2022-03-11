@@ -34,19 +34,27 @@ class ThreadFrameLoader : public FrameLoader {
     }
 
     virtual void set_request(
-        RangeSet<Seconds> const& wanted,
+        IntervalSet<Seconds> const& wanted,
         std::shared_ptr<ThreadSignal> notify
     ) {
         std::unique_lock lock{mutex};
         this->notify = notify;
-        if (wanted != this->wanted) {
-            auto to_erase = res.done;
+
+        // TODO expand wanted to include frame-past-the-end
+
+        if (wanted == this->wanted) {
+            TRACE(logger, "{}: request {} (same)", filename, debug(wanted));
+        } else {
+            TRACE(logger, "{}: request {}", filename, debug(wanted));
+
+            auto to_erase = load.done;
             to_erase.erase(wanted);
-            for (auto erase_range : to_erase) {
-                res.done.erase(erase_range);
-                res.frames.erase(
-                    res.frames.lower_bound(erase_range.begin),
-                    res.frames.lower_bound(erase_range.end)
+            if (!to_erase.empty()) TRACE(logger, "> erase {}", debug(to_erase));
+            for (auto const& erase : to_erase) {
+                load.done.erase(erase);
+                load.frames.erase(
+                    load.frames.lower_bound(erase.begin),
+                    load.frames.lower_bound(erase.end)
                 );
             }
 
@@ -56,9 +64,9 @@ class ThreadFrameLoader : public FrameLoader {
         }
     }
 
-    virtual Results results() const {
+    virtual Loaded loaded() const {
         std::scoped_lock lock{mutex};
-        return res;
+        return load;
     }
 
     void start(
@@ -74,26 +82,31 @@ class ThreadFrameLoader : public FrameLoader {
 
     void loader_thread() {
         std::unique_lock lock{mutex};
-        logger->debug("Loader thread ({}) running...", filename);
+        logger->debug("{}: Loader thread running...", filename);
 
         std::map<Seconds, Reader> readers;
         while (!shutdown) {
-            // Mark usefully positioned readers that shouldn't get recycled
-            std::map<Seconds, Reader> keep_readers;
+            TRACE(logger, "LOAD {}", filename);
 
             // Don't recycle readers positioned to handle request extension
-            for (auto const& want_range : wanted) {
-                auto iter = readers.find(want_range.end);
-                if (iter != readers.end())
+            std::map<Seconds, Reader> keep_readers;
+            for (auto const& want : wanted) {
+                auto iter = readers.find(want.end);
+                if (iter != readers.end()) {
+                    TRACE(logger, "> keep end reader {}", debug(want));
                     keep_readers.insert(readers.extract(iter));
+                }
             }
 
-            // Find regions needed to load (requested but not yet loaded)
+            // Find regions needed to load (requested, not loaded, not >EOF)
             auto needed = wanted;
-            needed.erase(res.done);
+            if (load.eof) needed.erase({*load.eof, forever});
+            needed.erase(load.done);
 
-            // If no regions are needed, recycle readers & wait for a change
+            // If no regions are needed, recycle unneeded readers & wait
             if (needed.empty()) {
+                const auto nr = readers.size();
+                TRACE(logger, "> nothing needed, waiting (drop {}r)", nr);
                 readers = std::move(keep_readers);
                 lock.unlock();
                 wakeup->wait();
@@ -101,30 +114,124 @@ class ThreadFrameLoader : public FrameLoader {
                 continue;
             }
 
-            // Don't recycle readers positioned to fill needed regions
-            for (auto const& load_range : needed) {
-                auto iter = readers.find(load_range.begin);
+            // Reserve readers positioned exactly fill needed regions
+            for (auto const need : needed) {
+                auto iter = readers.find(need.begin);
                 if (iter != readers.end())
                     keep_readers.insert(readers.extract(iter));
             }
 
-            for (auto load_range : to_load) {
-                auto read_iter = keep_readers.find(load_range.begin);
-                if (read_iter != readers.end()) {
+            bool changed = false;
+            for (auto const need : needed) {
+                // Find the reader to use for this interval.
+                // Use an exact "keeper", the best leftover, or a new reader.
+                Reader reader;
+                auto iter = keep_readers.find(need.begin);
+                if (iter != keep_readers.end()) {
+                    TRACE(logger, "> reuse {}", debug(need));
+                    reader = std::move(iter->second);
+                    keep_readers.erase(iter);
+                } else {
+                    iter = readers.find(need.begin);
+                    if (iter != readers.begin()) --iter;
+                    if (iter != readers.end()) {
+                        const auto t = iter->first;
+                        TRACE(logger, "> repos {:.3} => {}", t, debug(need));
+                        reader = std::move(iter->second);
+                        readers.erase(iter);
+                    } else {
+                        TRACE(logger, "> open! {}", debug(need));
+                        try {
+                            reader.decoder = opener(filename);
+                        } catch (std::runtime_error const& e) {
+                            logger->error("{}", e.what());
+                            load.done.insert(need);
+                            changed = true;
+                            continue;  // Pretend as if loaded to avoid looping
+                        }
+                    }
+                }
+
+                //
+                // UNLOCK, seek as needed and read a frame
+                //
+
+                std::optional<MediaFrame> frame;
+                std::unique_ptr<LoadedImage> image;
+
+                lock.unlock();
+
+                try {
+                    auto rt = std::max(reader.last_seek, reader.last_fetch);
+                    if (need.begin != rt) {
+                        reader.decoder->seek_before(need.begin);
+                        reader.last_seek = need.begin;
+                        reader.last_fetch = {};
+                    }
+
+                    frame = reader.decoder->next_frame();
+                    if (frame) {
+                        reader.last_fetch = frame->time;
+                        image = display->load_image(frame->image);
+                    }
+                } catch (std::runtime_error const& e) {
+                    logger->error("{}", e.what());
+                    // Pretend as if EOF to avoid looping
+                }
+
+                //
+                // RE-LOCK, add this frame if it's useful
+                //
+
+                lock.lock();
+
+                if (!frame) {
+                    if (!load.eof || need.begin < *load.eof) {
+                        TRACE(logger, "> EOF {:.3}", need.begin);
+                        load.eof = need.begin;
+                        wanted.erase({*load.eof, forever});
+                        changed = true;
+                    } else {
+                        TRACE(logger, "> EOF {:.3} (after)", need.begin);
+                    }
+                } else if (frame->time < need.begin) {
+                    TRACE(
+                        logger, "> fr {:.3} but < {}", frame->time, debug(need)
+                    );
+                } else if (!wanted.contains(need.begin)) {
+                    TRACE(
+                        logger, "> fr {:.3} but {} now unwanted",
+                        frame->time, debug(need)
+                    );
+                } else if (load.done.contains(need.begin)) {
+                    TRACE(
+                        logger, "> fr {:.3} but {} already done",
+                        frame->time, debug(need)
+                    );
+                } else {
+                    TRACE(logger, "> fr {:.3}~{:.3}", need.begin, frame->time);
+                    load.done.insert({need.begin, frame->time});
+                    load.frames.insert({frame->time, std::move(image)});
+                    auto rt = std::max(reader.last_seek, reader.last_fetch);
+                    keep_readers.insert({rt, std::move(reader)});
+                    changed = true;
                 }
             }
 
-            if (notify) notify->set();
+            if (!readers.empty())
+                TRACE(logger, "> load pass done, drop {}r", readers.size());
+            readers = std::move(keep_readers);
+            if (changed && notify) notify->set();
         }
 
-        logger->debug("Loader thread ({}) ending...", filename);
+        logger->debug("{}: Loader thread ending...", filename);
     }
 
   private:
     struct Reader {
         std::unique_ptr<MediaDecoder> decoder;
         Seconds last_seek = {};
-        Seconds next_fetch = {};
+        Seconds last_fetch = {};
     };
 
     std::shared_ptr<log::logger> logger = loader_logger();
@@ -137,9 +244,9 @@ class ThreadFrameLoader : public FrameLoader {
     std::thread thread;
     std::shared_ptr<ThreadSignal> wakeup = make_signal();
 
-    RangeSet<Seconds> wanted;
+    IntervalSet<Seconds> wanted;
     std::shared_ptr<ThreadSignal> notify;
-    Results res;
+    Loaded load;
 
     bool shutdown = false;
 };
@@ -156,15 +263,15 @@ std::unique_ptr<FrameLoader> make_frame_loader(
     return loader;
 }
 
-std::string debug(Range<Seconds> const& range) {
-    return fmt::format("{:.3}~{:.3}", range.begin, range.end);
+std::string debug(Interval<Seconds> const& interval) {
+    return fmt::format("{:.3}~{:.3}", interval.begin, interval.end);
 }
 
-std::string debug(RangeSet<Seconds> const& set) {
+std::string debug(IntervalSet<Seconds> const& set) {
     std::string out = "{";
-    for (auto const& range : set) {
+    for (auto const& interval : set) {
         if (out.size() > 1) out += ", ";
-        out += debug(range);
+        out += debug(interval);
     }
     return out + "}";
 }

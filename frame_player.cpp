@@ -44,19 +44,17 @@ class ThreadFramePlayer : public FramePlayer {
                 [] (auto const& a, auto const& b) { return a.first == b.first; }
             );
 
-        if (logger->should_log(log_level::trace)) {
-            if (timeline.empty()) {
-                logger->trace("Set timeline empty");
-            } else {
-                using namespace std::chrono_literals;
-                logger->trace(
-                    "Set timeline {}f {:.3}~{:.3} {}",
-                    timeline.size(),
-                    timeline.begin()->first.time_since_epoch(),
-                    timeline.rbegin()->first.time_since_epoch(),
-                    same_keys ? "[same]" : "[diff]"
-                );
-            }
+        if (timeline.empty()) {
+            TRACE(logger, "Set timeline empty");
+        } else {
+            using namespace std::chrono_literals;
+            TRACE(logger, 
+                "Set timeline {}f {:.3}~{:.3} {}",
+                timeline.size(),
+                timeline.begin()->first.time_since_epoch(),
+                timeline.rbegin()->first.time_since_epoch(),
+                same_keys ? "[same]" : "[diff]"
+            );
         }
 
         this->timeline = std::move(timeline);
@@ -101,21 +99,19 @@ class ThreadFramePlayer : public FramePlayer {
         std::unique_lock lock{mutex};
         while (!shutdown) {
             if (timeline.empty()) {
-                logger->trace("PLAY (no frames, waiting for wakeup)");
+                TRACE(logger, "PLAY (no frames, waiting for wakeup)");
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
                 continue;
             }
 
-            if (logger->should_log(log_level::trace)) {
-                logger->trace(
-                    "PLAY timeline {}f {:.3}~{:.3}",
-                    timeline.size(),
-                    timeline.begin()->first.time_since_epoch(),
-                    timeline.rbegin()->first.time_since_epoch()
-                );
-            }
+            TRACE(logger, 
+                "PLAY timeline {}f {:.3}~{:.3}",
+                timeline.size(),
+                timeline.begin()->first.time_since_epoch(),
+                timeline.rbegin()->first.time_since_epoch()
+            );
 
             auto const now = sys->steady_time();
             auto show = timeline.upper_bound(now);
@@ -126,17 +122,15 @@ class ThreadFramePlayer : public FramePlayer {
             }
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
-                if (logger->should_log(log_level::warn)) {
-                    logger->warn(
-                        "Skip frame sched={:.3} ({:.3} old)",
-                        s->first.time_since_epoch(), now - s->first
-                    );
-                }
+                logger->warn(
+                    "Skip frame sched={:.3} ({:.3} old)",
+                    s->first.time_since_epoch(), now - s->first
+                );
                 shown = s->first;
             }
 
             if (show == timeline.end()) {
-                logger->trace("> (no more frames, waiting for wakeup)");
+                TRACE(logger, "> (no more frames, waiting for wakeup)");
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
@@ -144,10 +138,8 @@ class ThreadFramePlayer : public FramePlayer {
             }
 
             if (show->first > now) {
-                if (logger->should_log(log_level::trace)) {
-                    auto const delay = show->first - now;
-                    logger->trace("> (waiting {:.3} for frame)", delay);
-                }
+                auto const delay = show->first - now;
+                TRACE(logger, "> (waiting {:.3} for frame)", delay);
                 lock.unlock();
                 wakeup->wait_until(show->first);
                 lock.lock();
@@ -156,7 +148,7 @@ class ThreadFramePlayer : public FramePlayer {
 
             auto const done = driver->update_done_yet(connector_id);
             if (!done) {
-                logger->trace("> (update pending, waiting 5ms)");
+                TRACE(logger, "> (update pending, waiting 5ms)");
                 auto const try_again = now + 5ms;
                 lock.unlock();
                 wakeup->wait_until(try_again);
@@ -173,14 +165,14 @@ class ThreadFramePlayer : public FramePlayer {
 
             shown = show->first;
             if (notify) notify->set();
-            if (logger->should_log(log_level::debug)) {
-                auto const lag = now - shown;
-                logger->debug(
-                    "Show frame sched={:.3} ({:.3} old)",
-                    shown.time_since_epoch(), lag
-                );
-            }
+
+            auto const lag = now - shown;
+            logger->debug(
+                "Show frame sched={:.3} ({:.3} old)",
+                shown.time_since_epoch(), lag
+            );
         }
+
         logger->debug("Frame player thread ending...");
     }
 

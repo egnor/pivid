@@ -6,23 +6,23 @@
 namespace pivid {
 
 template <typename T>
-struct Range {
+struct Interval {
     T begin, end;
-    auto operator<=>(Range const& o) const { return begin <=> o.begin; }
-    bool operator==(Range const& o) const = default;
+    auto operator<=>(Interval const& o) const { return begin <=> o.begin; }
+    bool operator==(Interval const& o) const = default;
 };
 
 template <typename T>
-class RangeSet {
+class IntervalSet {
   public:
-    using Range = pivid::Range<T>;
-    using iterator = std::set<Range>::const_iterator;
+    using Interval = pivid::Interval<T>;
+    using iterator = std::set<Interval>::const_iterator;
 
-    void insert(Range);
-    void insert(RangeSet const& s) { for (auto r : s) insert(r); }
+    void insert(Interval);
+    void insert(IntervalSet const& s) { for (auto r : s) insert(r); }
 
-    void erase(Range);
-    void erase(RangeSet const& s) { for (auto r : s) erase(r); }
+    void erase(Interval);
+    void erase(IntervalSet const& s) { for (auto r : s) erase(r); }
 
     iterator begin() const { return ranges.begin(); }
     iterator end() const { return ranges.end(); }
@@ -33,11 +33,11 @@ class RangeSet {
     iterator overlap_end(T t) const { return ranges.lower_bound({t, {}}); }
     bool contains(T) const;
 
-    auto operator<=>(RangeSet const& o) const = default;
-    bool operator==(RangeSet const& o) const = default;
+    auto operator<=>(IntervalSet const& o) const = default;
+    bool operator==(IntervalSet const& o) const = default;
 
   private:
-    std::set<Range> ranges;
+    std::set<Interval> ranges;
 };
 
 //
@@ -45,7 +45,7 @@ class RangeSet {
 //
 
 template <typename T>
-void RangeSet<T>::insert(Range add) {
+void IntervalSet<T>::insert(Interval add) {
     if (add.begin >= add.end) return;
 
     auto next_contact = ranges.upper_bound(add);
@@ -67,7 +67,7 @@ void RangeSet<T>::insert(Range add) {
 }
 
 template <typename T>
-void RangeSet<T>::erase(Range remove) {
+void IntervalSet<T>::erase(Interval remove) {
     if (remove.begin >= remove.end) return;
 
     auto next_overlap = ranges.upper_bound(remove);
@@ -87,7 +87,7 @@ void RangeSet<T>::erase(Range remove) {
 }
 
 template <typename T>
-RangeSet<T>::iterator RangeSet<T>::overlap_begin(T value) const {
+IntervalSet<T>::iterator IntervalSet<T>::overlap_begin(T value) const {
     auto const next_after = ranges.upper_bound({value, {}});
     if (next_after == ranges.begin()) return next_after;
     auto const at_or_before = std::prev(next_after);
@@ -95,7 +95,7 @@ RangeSet<T>::iterator RangeSet<T>::overlap_begin(T value) const {
 }
 
 template <typename T>
-bool RangeSet<T>::contains(T value) const {
+bool IntervalSet<T>::contains(T value) const {
     auto const iter = overlap_begin(value);
     return iter != ranges.end() && iter->begin <= value;
 }

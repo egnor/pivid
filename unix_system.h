@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 
 #include <chrono>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -28,6 +29,8 @@ namespace pivid {
 using Seconds = std::chrono::duration<double>;
 using SystemTime = std::chrono::sys_time<Seconds>;
 using SteadyTime = std::chrono::time_point<std::chrono::steady_clock, Seconds>;
+
+constexpr auto forever = Seconds{std::numeric_limits<double>::infinity()};
 
 // The return from a system call, with an errno *or* some return value.
 template <typename T>

@@ -35,8 +35,8 @@ struct DisplayMode {
 // Returned by scan_connectors().
 struct DisplayConnector {
     uint32_t id = 0;
-    std::string name;               // Like "HDMI-1"
-    bool display_detected = false;  // True if a monitor is connected
+    std::string name;                // Like "HDMI-1"
+    bool display_detected = false;   // True if a monitor is connected
     DisplayMode active_mode;
     std::vector<DisplayMode> modes;  // First mode is the "best".
 };
@@ -67,7 +67,7 @@ class DisplayDriver {
     virtual std::vector<DisplayConnector> scan_connectors() = 0;
 
     // Imports an image into the GPU for use in DisplayUpdateRequest.
-    virtual std::shared_ptr<LoadedImage> load_image(ImageBuffer) = 0;
+    virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer) = 0;
 
     // Updates a connector's screen contents &/or video mode at the next vsync.
     // Do not call again until the update completes (per update_done_yet()).

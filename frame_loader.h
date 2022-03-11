@@ -8,7 +8,7 @@
 
 #include "media_decoder.h"
 #include "display_output.h"
-#include "range_set.h"
+#include "interval_set.h"
 #include "thread_signal.h"
 #include "unix_system.h"
 
@@ -16,19 +16,20 @@ namespace pivid {
 
 class FrameLoader {
   public:
-    struct Results {
+    struct Loaded {
         std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
-        RangeSet<Seconds> done;
+        std::optional<Seconds> eof;
+        IntervalSet<Seconds> done;
     };
 
     virtual ~FrameLoader() = default;
 
     virtual void set_request(
-        RangeSet<Seconds> const&,
+        IntervalSet<Seconds> const&,
         std::shared_ptr<ThreadSignal> = {}
     ) = 0;
 
-    virtual Results results() const = 0;
+    virtual Loaded loaded() const = 0;
 };
 
 std::unique_ptr<FrameLoader> make_frame_loader(
@@ -38,7 +39,7 @@ std::unique_ptr<FrameLoader> make_frame_loader(
         open_media_decoder
 );
 
-std::string debug(Range<Seconds> const&);
-std::string debug(RangeSet<Seconds> const&);
+std::string debug(Interval<Seconds> const&);
+std::string debug(IntervalSet<Seconds> const&);
 
 }  // namespace pivid
