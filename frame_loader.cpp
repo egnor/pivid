@@ -40,26 +40,30 @@ class ThreadFrameLoader : public FrameLoader {
         std::unique_lock lock{mutex};
         this->notify = std::move(notify);
 
-        TRACE(logger, "{}: REQUEST", filename);
-
         if (wanted == this->wanted) {
-            TRACE(logger, "req> want {} (same)", debug(wanted));
+            TRACE(logger, "Req {} (same) {}", debug(wanted), filename);
         } else {
-            TRACE(logger, "req> want {}", debug(wanted));
+            if (logger->should_log(log_level::debug))
+                logger->debug("Req {} {}", debug(wanted), filename);
 
-            // Remove no-longer-wanted frames & done-regions
-            auto to_erase = load.done;
+            // Remove no-longer-wanted frames & have-regions
+            auto to_erase = load.have;
             for (auto const& want : wanted) {
-                // Preserve the wanted zone plus its "load tail"
                 auto keep_end = want.end;
-                auto const tail_done = load.done.overlap_begin(want.end);
-                if (tail_done != load.done.overlap_end(want.end)) {
-                    ASSERT(tail_done->end >= want.end);
-                    keep_end = tail_done->end;
-                    auto const tail_frame = load.frames.lower_bound(want.end);
+
+                // Keep one loaded frame past the end of each wanted interval
+                // (stop at the second frame) to handle skipahead frames.
+                auto const tail_have = load.have.overlap_begin(want.end);
+                if (tail_have != load.have.overlap_end(want.end)) {
+                    ASSERT(tail_have->end >= want.end);
+                    keep_end = tail_have->end;
+                    auto tail_frame = load.frames.lower_bound(want.end);
                     if (tail_frame != load.frames.end()) {
-                        ASSERT(tail_frame->first >= want.end);
-                        keep_end = std::min(keep_end, tail_frame->first);
+                        ++tail_frame;
+                        if (tail_frame != load.frames.end()) {
+                            ASSERT(tail_frame->first >= want.end);
+                            keep_end = std::min(keep_end, tail_frame->first);
+                        }
                     }
                 }
 
@@ -67,15 +71,16 @@ class ThreadFrameLoader : public FrameLoader {
             }
 
             if (!to_erase.empty()) {
+                int nframe = 0;
                 for (auto const& erase : to_erase) {
-                    load.done.erase(erase);
-                    load.frames.erase(
-                        load.frames.lower_bound(erase.begin),
-                        load.frames.lower_bound(erase.end)
-                    );
+                    load.have.erase(erase);
+                    auto const fbegin = load.frames.lower_bound(erase.begin);
+                    auto const fend = load.frames.lower_bound(erase.end);
+                    nframe += std::distance(fbegin, fend);
+                    load.frames.erase(fbegin, fend);
                 }
-                TRACE(logger, "req> erased {}", debug(to_erase));
-                TRACE(logger, "req> done   {}", debug(load.done));
+                TRACE(logger, "req> dele {} ({}fr)", debug(to_erase), nframe);
+                TRACE(logger, "req> have {}", debug(load.have));
             }
 
             this->wanted = wanted;
@@ -106,31 +111,36 @@ class ThreadFrameLoader : public FrameLoader {
 
         std::map<Seconds, std::unique_ptr<MediaDecoder>> decoders;
         while (!shutdown) {
-            TRACE(logger, "{}: LOAD", filename);
+            TRACE(logger, "LOAD {}", filename);
 
             // Don't recycle decoders positioned to handle extension
             std::map<Seconds, std::unique_ptr<MediaDecoder>> save_decoders;
-            for (auto const& done : load.done) {
-                auto iter = decoders.find(done.end);
+            for (auto const& have : load.have) {
+                auto iter = decoders.find(have.end);
                 if (iter != decoders.end()) {
-                    TRACE(logger, "> keep end decoder {}", debug(done));
-                    save_decoders.insert(decoders.extract(iter));
+                    if (!load.eof || iter->first < *load.eof) {
+                        TRACE(logger, "> keep: {} end decoder", debug(have));
+                        save_decoders.insert(decoders.extract(iter));
+                    }
                 }
             }
 
             // Find regions needed to load (requested, not loaded, not >EOF)
             auto needed = wanted;
             if (load.eof) needed.erase({*load.eof, forever});
-            needed.erase(load.done);
+            needed.erase(load.have);
 
             TRACE(logger, "> want {}", debug(wanted));
-            TRACE(logger, "> load {}", debug(load.done));
+            TRACE(
+                logger, "> have {}{}", debug(load.have),
+                load.eof ? " eof " + debug(*load.eof) : ""
+            );
             TRACE(logger, "> need {}", debug(needed));
 
             // If no regions are needed, recycle unneeded decoders & wait
             if (needed.empty()) {
                 if (!decoders.empty())
-                    TRACE(logger, "> drop! {} decoders", decoders.size());
+                    TRACE(logger, "> drop: {} decoders", decoders.size());
                 decoders = std::move(save_decoders);
                 lock.unlock();
                 TRACE(logger, "> waiting (nothing needed)");
@@ -147,7 +157,7 @@ class ThreadFrameLoader : public FrameLoader {
                 auto iter = save_decoders.find(need.begin);
                 if (iter != save_decoders.end()) {
                     TRACE(
-                        logger, "> needs {} => use {}",
+                        logger, "> deco: {} => use {}",
                         debug(need), debug(iter->first)
                     );
                     decoder_pos = iter->first;
@@ -158,7 +168,7 @@ class ThreadFrameLoader : public FrameLoader {
                     if (iter != decoders.begin()) --iter;
                     if (iter != decoders.end()) {
                         TRACE(
-                            logger, "> needs {} => reuse {}",
+                            logger, "> deco: {} => reuse {}",
                             debug(need), debug(iter->first)
                         );
                         decoder_pos = iter->first;
@@ -171,21 +181,20 @@ class ThreadFrameLoader : public FrameLoader {
                 // UNLOCK, seek as needed and read a frame
                 //
 
-                std::optional<MediaFrame> frame;
-                std::unique_ptr<LoadedImage> image;
-
                 lock.unlock();
 
+                std::optional<MediaFrame> frame;
+                std::unique_ptr<LoadedImage> image;
                 try {
                     if (!decoder) {
-                        TRACE(logger, "> needs {} => open!", debug(need.begin));
+                        TRACE(logger, "> fill: {} => open!", debug(need.begin));
                         decoder = opener(filename);
                         decoder_pos = {};
                     }
 
                     if (need.begin != decoder_pos) {
                         TRACE(
-                            logger, "> seek! {} => {}",
+                            logger, "> seek: {} => {}",
                             debug(decoder_pos), debug(need.begin)
                         );
                         decoder->seek_before(need.begin);
@@ -199,7 +208,7 @@ class ThreadFrameLoader : public FrameLoader {
                     }
                 } catch (std::runtime_error const& e) {
                     logger->error("{}", e.what());
-                    // Pretend as if EOF to avoid looping
+                    // Pretend as if EOF (frame == nullptr) to avoid looping
                 }
 
                 //
@@ -220,22 +229,22 @@ class ThreadFrameLoader : public FrameLoader {
                         TRACE(logger, "> EOF (after {})", *load.eof);
                     }
                 } else {
-                    auto const overlap = wanted.overlap_begin(need.begin);
-                    if (overlap == wanted.overlap_end(frame->time.end)) {
-                        TRACE(logger, "> obsolete! {}", debug(frame->time));
-                    } else if (overlap->begin > frame->time.begin) {
-                        TRACE(
-                            logger, "> load! {} enters {}",
-                            debug(frame->time), debug(*overlap)
-                        );
-                        load.done.insert({overlap->begin, frame->time.end});
+                    if (logger->should_log(log_level::debug))
+                        logger->debug("> {}", debug(*frame));
+
+                    auto const want = wanted.overlap_begin(need.begin);
+                    if (want == wanted.overlap_end(frame->time.end)) {
+                        TRACE(logger, "> frame old, discarded");
+                    } else if (frame->time.begin < want->begin) {
+                        TRACE(logger, "> frame enters {}", debug(*want));
+                        load.have.insert({want->begin, frame->time.end});
                         ++changes;
                     } else {
-                        TRACE(
-                            logger, "> load! {} within {}",
-                            debug(frame->time), debug(*overlap)
-                        );
-                        load.done.insert(frame->time);
+                        TRACE(logger, "> frame inside {}", debug(*want));
+                        load.have.insert({
+                            std::max(want->begin, need.begin),
+                            frame->time.end
+                        });
                         load.frames[frame->time.begin] = std::move(image);
                         ++changes;
                     }
@@ -246,11 +255,11 @@ class ThreadFrameLoader : public FrameLoader {
             }
 
             if (!decoders.empty())
-                TRACE(logger, "> drop! {} decoders", decoders.size());
+                TRACE(logger, "> drop: {} decoders", decoders.size());
             decoders = std::move(save_decoders);
 
             if (changes) {
-                TRACE(logger, "> done {}", debug(load.done));
+                TRACE(logger, "> have {}", debug(load.have));
                 TRACE(logger, "> load pass done ({} changes)", changes);
                 if (notify) notify->set();
             } else {
