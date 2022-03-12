@@ -1,7 +1,5 @@
 #include "media_decoder.h"
 
-#undef NDEBUG
-#include <assert.h>
 #include <drm_fourcc.h>
 #include <sys/mman.h>
 
@@ -109,8 +107,8 @@ class LibavPlainFrameMemory : public MemoryBuffer {
     virtual uint8_t const* read() { return avf->data[index]; }
 
     void init(std::shared_ptr<AVFrame> avf, int index) {
-        assert(index >= 0 && index < AV_NUM_DATA_POINTERS);
-        assert(avf->data[index]);
+        ASSERT(index >= 0 && index < AV_NUM_DATA_POINTERS);
+        ASSERT(avf->data[index]);
         this->index = index;
         this->avf = std::move(avf);
     }
@@ -203,7 +201,7 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     }
 
     if (av->format == AV_PIX_FMT_DRM_PRIME) {
-        assert(av->data[0] && !av->data[1]);
+        ASSERT(av->data[0] && !av->data[1]);
         XY<int> const size = {av->width, av->height};
         auto const* d = (AVDRMFrameDescriptor const*) av->data[0];
         std::shared_ptr<AVDRMFrameDescriptor const> sd{std::move(av), d};
@@ -230,7 +228,7 @@ class LibavMediaDecoder : public MediaDecoder {
     virtual MediaFileInfo const& file_info() const { return media_info; }
 
     virtual void seek_before(Seconds when) {
-        assert(format_context && codec_context);
+        ASSERT(format_context && codec_context);
         if (av_packet) av_packet_unref(av_packet);
         if (av_frame) av_frame_unref(av_frame);
 
@@ -248,7 +246,7 @@ class LibavMediaDecoder : public MediaDecoder {
     }
 
     virtual std::optional<MediaFrame> next_frame() {
-        assert(format_context && codec_context);
+        ASSERT(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
 
@@ -287,7 +285,7 @@ class LibavMediaDecoder : public MediaDecoder {
                         );
                     } else {
                         av_packet_unref(av_packet);
-                        assert(av_packet->data == nullptr);
+                        ASSERT(av_packet->data == nullptr);
                         TRACE(logger, "> (got other stream packet, ignoring)");
                     }
                 }
@@ -305,12 +303,12 @@ class LibavMediaDecoder : public MediaDecoder {
                     check_av(err, "Decode packet", codec_context->codec->name);
                     TRACE(logger, "> Sent packet to codec");
                     av_packet_unref(av_packet);
-                    assert(av_packet->data == nullptr);
+                    ASSERT(av_packet->data == nullptr);
                 }
             }
 
             if (eof_seen_from_file && !eof_sent_to_codec) {
-                assert(av_packet->data == nullptr);
+                ASSERT(av_packet->data == nullptr);
                 TRACE(logger, "Sending EOF to codec...");
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
@@ -386,7 +384,7 @@ class LibavMediaDecoder : public MediaDecoder {
         }
 
         check_av(open_err, "Open codec", default_codec->name);
-        assert(codec_context);
+        ASSERT(codec_context);
 
         media_info.container_type = format_context->iformat->name;
         media_info.codec_name = codec_context->codec->name;

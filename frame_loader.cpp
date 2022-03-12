@@ -40,22 +40,42 @@ class ThreadFrameLoader : public FrameLoader {
         std::unique_lock lock{mutex};
         this->notify = std::move(notify);
 
-        // TODO expand wanted to include frame-past-the-end
+        TRACE(logger, "{}: REQUEST", filename);
 
         if (wanted == this->wanted) {
-            TRACE(logger, "{}: request {} (same)", filename, debug(wanted));
+            TRACE(logger, "req> want {} (same)", debug(wanted));
         } else {
-            TRACE(logger, "{}: request {}", filename, debug(wanted));
+            TRACE(logger, "req> want {}", debug(wanted));
 
+            // Remove no-longer-wanted frames & done-regions
             auto to_erase = load.done;
-            to_erase.erase(wanted);
-            if (!to_erase.empty()) TRACE(logger, "> erase {}", debug(to_erase));
-            for (auto const& erase : to_erase) {
-                load.done.erase(erase);
-                load.frames.erase(
-                    load.frames.lower_bound(erase.begin),
-                    load.frames.lower_bound(erase.end)
-                );
+            for (auto const& want : wanted) {
+                // Preserve the wanted zone plus its "load tail"
+                auto keep_end = want.end;
+                auto const tail_done = load.done.overlap_begin(want.end);
+                if (tail_done != load.done.overlap_end(want.end)) {
+                    ASSERT(tail_done->end >= want.end);
+                    keep_end = tail_done->end;
+                    auto const tail_frame = load.frames.lower_bound(want.end);
+                    if (tail_frame != load.frames.end()) {
+                        ASSERT(tail_frame->first >= want.end);
+                        keep_end = std::min(keep_end, tail_frame->first);
+                    }
+                }
+
+                to_erase.erase({want.begin, keep_end});
+            }
+
+            if (!to_erase.empty()) {
+                for (auto const& erase : to_erase) {
+                    load.done.erase(erase);
+                    load.frames.erase(
+                        load.frames.lower_bound(erase.begin),
+                        load.frames.lower_bound(erase.end)
+                    );
+                }
+                TRACE(logger, "req> erased {}", debug(to_erase));
+                TRACE(logger, "req> done   {}", debug(load.done));
             }
 
             this->wanted = wanted;
@@ -88,13 +108,13 @@ class ThreadFrameLoader : public FrameLoader {
         while (!shutdown) {
             TRACE(logger, "{}: LOAD", filename);
 
-            // Don't recycle decoders positioned to handle request extension
-            std::map<Seconds, std::unique_ptr<MediaDecoder>> keep_decoders;
-            for (auto const& want : wanted) {
-                auto iter = decoders.find(want.end);
+            // Don't recycle decoders positioned to handle extension
+            std::map<Seconds, std::unique_ptr<MediaDecoder>> save_decoders;
+            for (auto const& done : load.done) {
+                auto iter = decoders.find(done.end);
                 if (iter != decoders.end()) {
-                    TRACE(logger, "> keep end decoder {}", debug(want));
-                    keep_decoders.insert(decoders.extract(iter));
+                    TRACE(logger, "> keep end decoder {}", debug(done));
+                    save_decoders.insert(decoders.extract(iter));
                 }
             }
 
@@ -103,15 +123,15 @@ class ThreadFrameLoader : public FrameLoader {
             if (load.eof) needed.erase({*load.eof, forever});
             needed.erase(load.done);
 
-            TRACE(logger, "> wanted {}", debug(wanted));
-            TRACE(logger, "> loaded {}", debug(load.done));
-            TRACE(logger, "> needed {}", debug(needed));
+            TRACE(logger, "> want {}", debug(wanted));
+            TRACE(logger, "> load {}", debug(load.done));
+            TRACE(logger, "> need {}", debug(needed));
 
             // If no regions are needed, recycle unneeded decoders & wait
             if (needed.empty()) {
                 if (!decoders.empty())
-                    TRACE(logger, "> dropping! {} decoders", decoders.size());
-                decoders = std::move(keep_decoders);
+                    TRACE(logger, "> drop! {} decoders", decoders.size());
+                decoders = std::move(save_decoders);
                 lock.unlock();
                 TRACE(logger, "> waiting (nothing needed)");
                 wakeup->wait();
@@ -124,26 +144,26 @@ class ThreadFrameLoader : public FrameLoader {
                 // Reuse or create a decoder to use for this interval.
                 Seconds decoder_pos = {};
                 std::unique_ptr<MediaDecoder> decoder;
-                auto iter = decoders.upper_bound(need.begin);
-                if (iter != decoders.begin()) --iter;
-                if (iter != decoders.end()) {
+                auto iter = save_decoders.find(need.begin);
+                if (iter != save_decoders.end()) {
                     TRACE(
-                        logger, "> need {} => reuse {}",
+                        logger, "> needs {} => use {}",
                         debug(need), debug(iter->first)
                     );
                     decoder_pos = iter->first;
                     decoder = std::move(iter->second);
-                    decoders.erase(iter);
+                    save_decoders.erase(iter);
                 } else {
-                    TRACE(logger, "> need {} => open!", debug(need));
-                    try {
-                        decoder_pos = {};
-                        decoder = opener(filename);
-                    } catch (std::runtime_error const& e) {
-                        logger->error("{}", e.what());
-                        load.done.insert(need);
-                        ++changes;
-                        continue;  // Pretend as if loaded to avoid looping
+                    auto iter = decoders.upper_bound(need.begin);
+                    if (iter != decoders.begin()) --iter;
+                    if (iter != decoders.end()) {
+                        TRACE(
+                            logger, "> needs {} => reuse {}",
+                            debug(need), debug(iter->first)
+                        );
+                        decoder_pos = iter->first;
+                        decoder = std::move(iter->second);
+                        decoders.erase(iter);
                     }
                 }
 
@@ -157,6 +177,12 @@ class ThreadFrameLoader : public FrameLoader {
                 lock.unlock();
 
                 try {
+                    if (!decoder) {
+                        TRACE(logger, "> needs {} => open!", debug(need.begin));
+                        decoder = opener(filename);
+                        decoder_pos = {};
+                    }
+
                     if (need.begin != decoder_pos) {
                         TRACE(
                             logger, "> seek! {} => {}",
@@ -196,17 +222,17 @@ class ThreadFrameLoader : public FrameLoader {
                 } else {
                     auto const overlap = wanted.overlap_begin(need.begin);
                     if (overlap == wanted.overlap_end(frame->time.end)) {
-                        TRACE(logger, "> fr {} obsolete", debug(frame->time));
+                        TRACE(logger, "> obsolete! {}", debug(frame->time));
                     } else if (overlap->begin > frame->time.begin) {
                         TRACE(
-                            logger, "> fr {} partial {}",
+                            logger, "> load! {} enters {}",
                             debug(frame->time), debug(*overlap)
                         );
                         load.done.insert({overlap->begin, frame->time.end});
                         ++changes;
                     } else {
                         TRACE(
-                            logger, "> fr {} wanted {}",
+                            logger, "> load! {} within {}",
                             debug(frame->time), debug(*overlap)
                         );
                         load.done.insert(frame->time);
@@ -215,15 +241,21 @@ class ThreadFrameLoader : public FrameLoader {
                     }
                 }
 
-                // Keep the decoder used, with its updated position
-                keep_decoders.insert({decoder_pos, std::move(decoder)});
+                // Keep the decoder that was used, with its updated position
+                save_decoders.insert({decoder_pos, std::move(decoder)});
             }
 
             if (!decoders.empty())
-                TRACE(logger, "> dropping! {} decoders", decoders.size());
-            decoders = std::move(keep_decoders);
-            TRACE(logger, "> load pass done ({} changes)", changes);
-            if (changes && notify) notify->set();
+                TRACE(logger, "> drop! {} decoders", decoders.size());
+            decoders = std::move(save_decoders);
+
+            if (changes) {
+                TRACE(logger, "> done {}", debug(load.done));
+                TRACE(logger, "> load pass done ({} changes)", changes);
+                if (notify) notify->set();
+            } else {
+                TRACE(logger, "> load pass done (no changes)");
+            }
         }
 
         logger->debug("{}: Loader thread ending...", filename);

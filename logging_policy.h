@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <stdexcept>
 #include <string>
 
 #include <spdlog/cfg/helpers.h>
@@ -16,6 +17,9 @@ using log_level = ::spdlog::level::level_enum;
 
 #define TRACE(l, ...) \
     do { if (l->should_log(log_level::trace)) l->trace(__VA_ARGS__); } while (0)
+
+#define ASSERT(f) \
+    do { if (!(f)) throw std::logic_error("ASSERT fail: " #f); } while (0)
 
 // Configures the logger output format with our preferred pattern.
 // Sets log levels based on a string, typically a command line --log arg,
