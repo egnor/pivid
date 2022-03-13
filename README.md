@@ -17,7 +17,8 @@ dtoverlay=rpivid-v4l2
 
 Notable programs:
 
-* `pivid_test_playback` - play a video file via KMS/DRM (stop X first)
+* `pivid_play_media` - play a video file via KMS/DRM (stop X first)
+* `pivid_save_frames` - split a video file into .tiff images
 * `pivid_inspect_avformat` - print a summary of streams in a video file
 * `pivid_inspect_kms` - print capabilities & properties of KMS/DRM devices
 * `pivid_inspect_v4l2` - print capabilities & properties of V4L2 devices
@@ -33,7 +34,7 @@ Use `--help` to see usage (and/or read the source).
 * [rpi kernel source: include/uapi/v3d_drm.h](https://github.com/raspberrypi/linux/blob/rpi-5.10.y/include/uapi/drm/v3d_drm.h) - ioctl defs for RPi 4 GPU kernel driver
 
 ### Graphics output: DRM and KMS
-* [Wikipedia: Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) - a good overview
+* [Wikipedia: Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) - a decent overview
 * [Blog post: "From pre-history to beyond the global thermonuclear war"](https://ppaalanen.blogspot.com/2014/06/from-pre-history-to-beyond-global.html) - Linux graphics history
 * [LWN article: Atomic mode setting design overview](https://lwn.net/Articles/653071/) - the current KMS API
 * [Man page: Direct Rendering Manager - Kernel Mode-Setting](https://manpages.debian.org/testing/libdrm-dev/drm-kms.7.en.html) - incomplete but helpful
@@ -44,16 +45,11 @@ Use `--help` to see usage (and/or read the source).
 * [kernel source: include/drm/drm_print.h](https://github.com/torvalds/linux/blob/master/include/drm/drm_print.h#L253) - debugging definitions 
 * [ST Micro: DRM/KMS Overview](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview) - decent general docs from a chip vendor
 * [ST Micro: How to trace and debug the framework](https://wiki.st.com/stm32mpu/wiki/DRM_KMS_overview#How_to_trace_and_debug_the_framework) - an especially useful section
-* [NVIDIA Jetson Linux API: Direct Rendering Manager](https://docs.nvidia.com/jetson/l4t-multimedia/group__direct__rendering__manager.html) - API reference, a bit NVIDIA-specific
 * [libdrm](https://gitlab.freedesktop.org/mesa/drm) - library wrapper; see [xf86drm.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drm.h) and [xf86drmMode.h](https://gitlab.freedesktop.org/mesa/drm/-/blob/main/xf86drmMode.h) (not X-specific despite "xf86")
 * [libgbm](https://gitlab.freedesktop.org/mesa/mesa/-/tree/main/src/gbm) - GPU allocation helper library; see [gbm.h](https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/gbm/main/gbm.h)
 * [modetest](https://cgit.freedesktop.org/drm/libdrm/tree/tests/modetest/modetest.c) - command line tool (in the [libdrm-tests](https://packages.debian.org/sid/main/libdrm-tests) Debian package)
 * [kmscube](https://gitlab.freedesktop.org/mesa/kmscube) - oft-referenced KMS/GL example program
 * [kms++](https://android.googlesource.com/platform/external/libkmsxx/) - C++ KMS wrapper & utilities
-
-Notes on DRM and KMS:
-* These interfaces are almost completely undocumented. Learn by examples.
-* But, many examples use "legacy" interfaces, prefer "atomic" update interfaces.
 
 ### Video decoding: V4L2
 * [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - kernel/user interface
@@ -68,10 +64,3 @@ Notes on DRM and KMS:
 * [kernel.org: Linux GPU Memory Management - PRIME buffer sharing](https://www.kernel.org/doc/html/v5.10/gpu/drm-mm.html#prime-buffer-sharing) - exporting GPU buffers as "dma-bufs"
 * [kernel.org: Video for Linux - Streaming I/O (DMA buffer importing)](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dmabuf.html) - using "dma-buf" objects in V4L2
 * [hello_drmprime](https://github.com/jc-kynesim/hello_drmprime) - nice example of hardware H.264/H.265 sending to DRM/KMS with zero copy
-
-Notes on memory management:
-* GPUs have all kinds of memory architectures. (The RPi is simple, everything is in CPU RAM without dedicated GPU RAM.)
-* DRM/KMS requires you to define a "framebuffer", giving it one or more "buffer objects" (aka "GEM handles") (opaque int32).
-* "DRM-PRIME" is a fancy name for ioctl's (`DRM_IOCTL_PRIME_FD_TO_HANDLE` and vice versa) to convert GEM handles to/from "dma-buf" descriptors.
-* On the Pi, memory is simple, so buffers allocated anywhere (V4L2, DRM, etc) can be used anywhere else (shared via "dma-buf").
-* Of course you need to get the data format right.
