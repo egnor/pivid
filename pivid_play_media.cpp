@@ -203,7 +203,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string media_arg;
     std::string overlay_arg;
     double overlay_alpha_arg = 1.0;
-    double start_arg = -0.1;
+    double start_arg = -0.2;
     bool debug_libav = false;
     bool debug_kernel = false;
     double sleep_arg = 0.0;

@@ -150,7 +150,7 @@ std::shared_ptr<UnixSystem> global_system() {
     return system;
 }
 
-std::string debug(Seconds s) { return fmt::format("{:.3}s", s.count()); }
+std::string debug(Seconds s) { return fmt::format("{:#.3f}s", s.count()); }
 
 std::string debug(Interval<Seconds> interval) {
     return fmt::format("{}~{}", debug(interval.begin), debug(interval.end));
@@ -163,6 +163,10 @@ std::string debug(IntervalSet<Seconds> const& interval_set) {
         out += pivid::debug(interval);
     }
     return out + "}";
+}
+
+std::string debug(SteadyTime s) {
+    return fmt::format("{:.3}t", debug(s.time_since_epoch()));
 }
 
 }  // namespace pivid

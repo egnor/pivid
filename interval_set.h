@@ -21,10 +21,10 @@ class IntervalSet {
     using Interval = pivid::Interval<T>;
     using iterator = std::set<Interval>::const_iterator;
 
-    void insert(Interval);
+    iterator insert(Interval);
     void insert(IntervalSet const& s) { for (auto r : s) insert(r); }
 
-    void erase(Interval);
+    iterator erase(Interval);
     void erase(IntervalSet const& s) { for (auto r : s) erase(r); }
 
     iterator begin() const { return ranges.begin(); }
@@ -48,13 +48,13 @@ class IntervalSet {
 //
 
 template <typename T>
-void IntervalSet<T>::insert(Interval add) {
-    if (add.begin >= add.end) return;
+IntervalSet<T>::iterator IntervalSet<T>::insert(Interval add) {
+    if (add.begin >= add.end) return ranges.end();
 
     auto next_contact = ranges.upper_bound(add);
     if (next_contact != ranges.begin()) {
         auto const at_or_before = std::prev(next_contact);
-        if (at_or_before->end >= add.end) return;
+        if (at_or_before->end >= add.end) return next_contact;
         if (at_or_before->end >= add.begin) {
             next_contact = at_or_before;
             add.begin = at_or_before->begin;
@@ -66,12 +66,12 @@ void IntervalSet<T>::insert(Interval add) {
         next_contact = ranges.erase(next_contact);
     }
 
-    ranges.insert(add);
+    return ranges.insert(add).first;
 }
 
 template <typename T>
-void IntervalSet<T>::erase(Interval remove) {
-    if (remove.begin >= remove.end) return;
+IntervalSet<T>::iterator IntervalSet<T>::erase(Interval remove) {
+    if (remove.begin >= remove.end) return ranges.end();
 
     auto next_overlap = ranges.upper_bound(remove);
     if (next_overlap != ranges.begin()) {
@@ -87,6 +87,8 @@ void IntervalSet<T>::erase(Interval remove) {
         if (overlap.end > remove.end)
             ranges.insert({remove.end, overlap.end});
     }
+
+    return next_overlap;
 }
 
 template <typename T>

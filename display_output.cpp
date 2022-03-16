@@ -277,8 +277,7 @@ class DrmLoadedImage : public LoadedImage {
         TRACE(logger, "Creating DRM framebuffer...");
         this->fd = std::move(fd);
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fdat).ex("DRM framebuffer");
-        if (logger->should_log(log_level::debug))
-            logger->debug("Loaded fb{} {}", fdat.fb_id, debug(im));
+        DEBUG(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
     }
 
     ~DrmLoadedImage() {
@@ -516,16 +515,13 @@ class DrmDriver : public DisplayDriver {
             next.mode = mode_to_drm(mode);
             static_assert(sizeof(crtc->active.mode) == sizeof(next.mode));
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
-                if (logger->should_log(log_level::debug)) {
-                    auto const old_mode = mode_from_drm(crtc->active.mode);
-                    logger->debug("{} OLD {}", conn->name, debug(old_mode));
-                    logger->debug("{} NEW {}", conn->name, debug(mode));
-                }
+                auto const old_mode = mode_from_drm(crtc->active.mode);
+                DEBUG(logger, "{} OLD {}", conn->name, debug(old_mode));
+                DEBUG(logger, "{} NEW {}", conn->name, debug(mode));
                 mode_blob = create_blob(next.mode);
                 props[crtc->id][&crtc->MODE_ID] = *mode_blob;
             } else {
-                if (logger->should_log(log_level::debug))
-                    logger->debug("{} SAME {}", conn->name, debug(mode));
+                DEBUG(logger, "{} SAME {}", conn->name, debug(mode));
             }
 
             if (conn->WRITEBACK_FB_ID.prop_id) {
@@ -945,10 +941,10 @@ class DrmDriver : public DisplayDriver {
             double const seconds = ev.tv_sec + 1e-6 * ev.tv_usec;
             conn->pageflip_time = SteadyTime(Seconds(seconds));
 
-            if (logger->should_log(log_level::debug)) {
-                auto seconds = conn->pageflip_time.time_since_epoch();
-                logger->debug("Update pageflip: {} {:.3}", conn->name, seconds);
-            }
+            DEBUG(
+                logger, "Update pageflip: {} {:.3}",
+                conn->name, debug(conn->pageflip_time)
+            );
 
             if (!crtc->pending_flip->mode.vrefresh) {
                 if (conn->using_crtc != crtc)

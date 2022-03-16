@@ -20,7 +20,7 @@ class FrameLoader {
     // Currently loaded frames.
     struct Content {
         std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
-        IntervalSet<Seconds> cover;  // Regions that are fully loaded
+        IntervalSet<Seconds> have;  // Regions that are fully loaded
         std::optional<Seconds> eof;  // Where EOF is, if known
     };
 

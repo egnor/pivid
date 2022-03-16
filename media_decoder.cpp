@@ -332,8 +332,7 @@ class LibavMediaDecoder : public MediaDecoder {
         TRACE(logger, "Converting frame...");
         auto const* stream = format_context->streams[stream_index];
         auto out = frame_from_av(std::move(av_shared), stream->time_base);
-        if (logger->should_log(log_level::debug))
-            logger->debug("{}", debug(out));
+        DEBUG(logger, "{}", debug(out));
         return out;
     }
 

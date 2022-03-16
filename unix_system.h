@@ -132,6 +132,7 @@ std::string debug(Seconds);
 std::string debug(Interval<Seconds>);
 std::string debug(IntervalSet<Seconds> const&);
 
-// TODO add SystemTime, SteadyTime
+std::string debug(SteadyTime);
+// TODO add SystemTime
 
 }  // namespace pivid

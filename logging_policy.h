@@ -18,6 +18,9 @@ using log_level = ::spdlog::level::level_enum;
 #define TRACE(l, ...) \
     do { if (l->should_log(log_level::trace)) l->trace(__VA_ARGS__); } while (0)
 
+#define DEBUG(l, ...) \
+    do { if (l->should_log(log_level::debug)) l->debug(__VA_ARGS__); } while (0)
+
 #define ASSERT(f) \
     do { if (!(f)) throw std::logic_error("ASSERT fail: " #f); } while (0)
 
