@@ -10,6 +10,7 @@
 
 #include "logging_policy.h"
 #include "thread_signal.h"
+#include "unix_system.h"
 
 namespace pivid {
 
@@ -157,7 +158,7 @@ class ThreadFrameLoader : public FrameLoader {
                 auto iter = save_decoders.find(load.begin);
                 if (iter != save_decoders.end()) {
                     TRACE(
-                        logger, "> deco: {} => use {}",
+                        logger, "> load: {} => use {}",
                         debug(load), debug(iter->first)
                     );
                     decoder_pos = iter->first;
@@ -169,7 +170,7 @@ class ThreadFrameLoader : public FrameLoader {
                         if (iter != decoders.begin()) --iter;
                     }
                     TRACE(
-                        logger, "> deco: {} => reuse {}",
+                        logger, "> load: {} => reuse {}",
                         debug(load), debug(iter->first)
                     );
                     decoder_pos = iter->first;
@@ -188,7 +189,7 @@ class ThreadFrameLoader : public FrameLoader {
                 std::unique_ptr<LoadedImage> image;
                 try {
                     if (!decoder) {
-                        TRACE(logger, "> fill: {} => open!", debug(load.begin));
+                        TRACE(logger, "> load: {} => open!", debug(load.begin));
                         decoder = opener(filename);
                         decoder_pos = {};
                     }
@@ -233,7 +234,7 @@ class ThreadFrameLoader : public FrameLoader {
                     }
                 } else {
                     if (logger->should_log(log_level::debug))
-                        logger->debug("> {}", debug(*frame));
+                        logger->debug("{}~{}", debug(load_pos), debug(*frame));
 
                     auto const want = wanted.overlap_begin(load_pos);
                     if (want == wanted.overlap_end(frame->time.end)) {
@@ -304,19 +305,6 @@ std::unique_ptr<FrameLoader> make_frame_loader(
     auto loader = std::make_unique<ThreadFrameLoader>();
     loader->start(display, filename, std::move(opener));
     return loader;
-}
-
-std::string debug(Interval<Seconds> const& interval) {
-    return fmt::format("{}~{}", debug(interval.begin), debug(interval.end));
-}
-
-std::string debug(IntervalSet<Seconds> const& set) {
-    std::string out = "{";
-    for (auto const& interval : set) {
-        if (out.size() > 1) out += ", ";
-        out += debug(interval);
-    }
-    return out + "}";
 }
 
 }  // namespace pivid

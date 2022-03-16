@@ -23,6 +23,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "interval_set.h"
+
 namespace pivid {
 
 // Preferred duration and time point representations.
@@ -127,6 +129,9 @@ std::shared_ptr<UnixSystem> global_system();
 
 // Debugging descriptions of values.
 std::string debug(Seconds);
+std::string debug(Interval<Seconds>);
+std::string debug(IntervalSet<Seconds> const&);
+
 // TODO add SystemTime, SteadyTime
 
 }  // namespace pivid

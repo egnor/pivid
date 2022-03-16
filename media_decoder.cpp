@@ -542,7 +542,7 @@ std::string debug(MediaFileInfo const& i) {
 }
 
 std::string debug(MediaFrame const& f) {
-    auto out = fmt::format("{:5}~{:5}", f.time.begin, f.time.end);
+    auto out = debug(f.time);
     if (!f.frame_type.empty())
         out += fmt::format(" {:<2s}", f.frame_type);
     out += fmt::format(" {}", debug(f.image));
