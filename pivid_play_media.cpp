@@ -168,7 +168,7 @@ void play_video(
         req_set.insert(req);
         loader->set_request(req_set, signal);
 
-        auto const loaded = loader->loaded();
+        auto const loaded = loader->content();
         if (loaded.eof && now - start_time >= *loaded.eof) break;
 
         FramePlayer::Timeline timeline;

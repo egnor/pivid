@@ -18,9 +18,9 @@ namespace pivid {
 class FrameLoader {
   public:
     // Currently loaded frames.
-    struct Loaded {
+    struct Content {
         std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
-        IntervalSet<Seconds> have;   // Regions that are fully loaded
+        IntervalSet<Seconds> cover;  // Regions that are fully loaded
         std::optional<Seconds> eof;  // Where EOF is, if known
     };
 
@@ -34,7 +34,7 @@ class FrameLoader {
     ) = 0;
 
     // Returns the frames loaded so far.
-    virtual Loaded loaded() const = 0;
+    virtual Content content() const = 0;
 };
 
 // Creates a frame loader instance for a given media file and GPU device.
