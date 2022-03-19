@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <thread>
 
 #include <CLI/App.hpp>

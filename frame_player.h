@@ -33,7 +33,7 @@ class FramePlayer {
     virtual SteadyTime last_shown() const = 0;
 };
 
-// Creates a frame player instance for a given display and connector.
+// Creates a frame player instance for a given driver and screen.
 std::unique_ptr<FramePlayer> start_frame_player(
     std::shared_ptr<UnixSystem>, DisplayDriver*, uint32_t id, DisplayMode
 );

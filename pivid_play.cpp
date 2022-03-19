@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <numeric>
 #include <thread>
 
@@ -20,6 +21,7 @@ extern "C" {
 #include "frame_player.h"
 #include "logging_policy.h"
 #include "media_decoder.h"
+#include "script_parser.h"
 
 namespace pivid {
 
@@ -47,40 +49,44 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     return open_display_driver(global_system(), found->dev_file);
 }
 
-DisplayConnector find_connector(
-    std::unique_ptr<DisplayDriver> const& driver, std::string const& conn_arg
+DisplayScreen find_screen(
+    std::unique_ptr<DisplayDriver> const& driver, std::string const& screen_arg
 ) {
     if (!driver) return {};
 
-    fmt::print("=== Video display connectors ===\n");
-    DisplayConnector found = {};
-    for (auto const& conn : driver->scan_connectors()) {
-        if (found.name.empty() && conn.name.find(conn_arg) != std::string::npos)
-            found = conn;
+    fmt::print("=== Video screen connectors ===\n");
+    DisplayScreen found = {};
+    for (auto const& screen : driver->scan_screens()) {
+        if (
+            found.connector.empty() &&
+            screen.connector.find(screen_arg) != std::string::npos
+        ) {
+            found = screen;
+        }
 
         fmt::print(
-            "{} Conn #{:<3} {}{}\n",
-            found.id == conn.id ? "=>" : "  ", conn.id, conn.name,
-            conn.display_detected ? " [connected]" : " [no connection]"
+            "{} Screen #{:<3} {}{}\n",
+            found.id == screen.id ? "=>" : "  ", screen.id, screen.connector,
+            screen.display_detected ? " [connected]" : " [no connection]"
         );
     }
     fmt::print("\n");
 
-    if (!found.id) throw std::runtime_error("No matching connector");
+    if (!found.id) throw std::runtime_error("No matching screen");
     return found;
 }
 
 DisplayMode find_mode(
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayConnector const& conn,
+    DisplayScreen const& screen,
     std::string const& mode_arg
 ) {
-    if (!driver || !conn.id) return {};
+    if (!driver || !screen.id) return {};
 
     fmt::print("=== Video modes ===\n");
     std::set<std::string> seen;
-    DisplayMode found = mode_arg.empty() ? conn.active_mode : DisplayMode{};
-    for (auto const& mode : conn.modes) {
+    DisplayMode found = mode_arg.empty() ? screen.active_mode : DisplayMode{};
+    for (auto const& mode : screen.modes) {
         std::string const mode_str = debug(mode);
         if (found.name.empty() && mode_str.find(mode_arg) != std::string::npos)
             found = mode;
@@ -89,7 +95,7 @@ DisplayMode find_mode(
             fmt::print(
                 "{} {}{}\n",
                 found.name == mode.name ? "=>" : "  ", mode_str,
-                conn.active_mode.name == mode.name ? " [on]" : ""
+                screen.active_mode.name == mode.name ? " [on]" : ""
             );
         }
     }
@@ -97,6 +103,18 @@ DisplayMode find_mode(
 
     if (found.name.empty()) throw std::runtime_error("No matching mode");
     return found;
+}
+
+Script load_script(std::string const& filename) {
+    main_logger()->info("Loading script: {}", filename);
+    std::ifstream ifs;
+    ifs.exceptions(~std::ifstream::goodbit);
+    ifs.open(filename, std::ios::binary);
+    std::string const text(
+        (std::istreambuf_iterator<char>(ifs)),
+        (std::istreambuf_iterator<char>())
+    );
+    return parse_script(text);
 }
 
 void set_kernel_debug(bool enable) {
@@ -124,7 +142,7 @@ void play_video(
     std::string const& media_file, 
     std::string const& overlay_file,
     std::unique_ptr<DisplayDriver> const& driver,
-    DisplayConnector const& conn,
+    DisplayScreen const& screen,
     DisplayMode const& mode,
     double start_arg,
     double buffer_arg,
@@ -150,7 +168,7 @@ void play_video(
     }
 
     std::shared_ptr const signal = make_signal();
-    auto const player = start_frame_player(sys, driver.get(), conn.id, mode);
+    auto const player = start_frame_player(sys, driver.get(), screen.id, mode);
     auto const loader = make_frame_loader(driver.get(), media_file);
 
     logger->info("Start at {:.3f} seconds...", start_arg);
@@ -197,11 +215,12 @@ void play_video(
 extern "C" int main(int const argc, char const* const* const argv) {
     double buffer_arg = 0.1;
     std::string dev_arg;
-    std::string conn_arg;
+    std::string screen_arg;
     std::string log_arg;
     std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
+    std::string script_arg;
     double overlay_alpha_arg = 1.0;
     double start_arg = -0.2;
     bool debug_libav = false;
@@ -211,16 +230,20 @@ extern "C" int main(int const argc, char const* const* const argv) {
     CLI::App app("Decode and show a media file");
     app.add_option("--buffer", buffer_arg, "Seconds of readahead");
     app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
-    app.add_option("--connector", conn_arg, "Video output");
+    app.add_option("--screen", screen_arg, "Video output connector");
     app.add_option("--log", log_arg, "Log level/configuration");
     app.add_option("--mode", mode_arg, "Video mode");
-    app.add_option("--media", media_arg, "Media file to play");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
     app.add_option("--overlay_alpha", overlay_alpha_arg, "Overlay opacity");
     app.add_option("--start", start_arg, "Seconds into media to start");
     app.add_option("--sleep", sleep_arg, "Seconds to wait before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
+
+    auto input = app.add_option_group("Input")->require_option(0, 1);
+    input->add_option("--media", media_arg, "Media file to play");
+    input->add_option("--script", script_arg, "Script file to play");
+
     CLI11_PARSE(app, argc, argv);
 
     configure_logging(log_arg);
@@ -228,15 +251,23 @@ extern "C" int main(int const argc, char const* const* const argv) {
     pivid::set_kernel_debug(debug_kernel);
 
     try {
+        if (!media_arg.empty() && !script_arg.empty()) {
+            throw std::runtime_error("");
+        }
+
         auto const driver = find_driver(dev_arg);
-        auto const conn = find_connector(driver, conn_arg);
-        auto const mode = find_mode(driver, conn, mode_arg);
+        auto const screen = find_screen(driver, screen_arg);
+        auto const mode = find_mode(driver, screen, mode_arg);
 
         if (!media_arg.empty() && driver) {
             play_video(
-                media_arg, overlay_arg, driver, conn, mode,
+                media_arg, overlay_arg, driver, screen, mode,
                 start_arg, buffer_arg, overlay_alpha_arg
             );
+        }
+
+        if (!script_arg.empty()) {
+            auto script = load_script(script_arg);
         }
 
         if (sleep_arg > 0) {

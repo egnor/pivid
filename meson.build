@@ -37,6 +37,7 @@ pivid_lib = library(
         'frame_player.cpp',
         'image_buffer.cpp',
         'media_decoder.cpp',
+        'script_parser.cpp',
         'thread_signal.cpp',
         'unix_system.cpp',
     ],
@@ -66,7 +67,7 @@ executable(
 )
 
 executable(
-    'pivid_play_media', 'pivid_play_media.cpp',
+    'pivid_play', 'pivid_play.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )

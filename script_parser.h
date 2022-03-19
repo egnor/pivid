@@ -1,5 +1,8 @@
 #pragma once
 
+#include <map>
+#include <string>
+
 #include "cubic_bezier.h"
 #include "xy.h"
 
@@ -14,12 +17,15 @@ struct Script {
         CubicBezier alpha;
     };
 
-    struct Display {
+    struct Screen {
         XY<int> mode_size;
         std::vector<Layer> layers;
     };
 
-    std::map<std::string, Display> displays;
+    std::map<std::string, Screen> screens;
+    std::vector<Layer> standbys;
 };
+
+Script parse_script(std::string);
 
 }  // namespace pivid

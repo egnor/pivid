@@ -72,7 +72,7 @@ class ThreadFramePlayer : public FramePlayer {
     void start(
         std::shared_ptr<UnixSystem> sys,
         DisplayDriver* driver,
-        uint32_t connector_id,
+        uint32_t screen_id,
         DisplayMode mode
     ) {
         logger->info("Launching frame player...");
@@ -81,7 +81,7 @@ class ThreadFramePlayer : public FramePlayer {
             this,
             std::move(sys),
             driver,
-            connector_id,
+            screen_id,
             std::move(mode)
         );
     }
@@ -89,7 +89,7 @@ class ThreadFramePlayer : public FramePlayer {
     void player_thread(
         std::shared_ptr<UnixSystem> sys,
         DisplayDriver* driver,
-        uint32_t connector_id,
+        uint32_t screen_id,
         DisplayMode mode
     ) {
         using namespace std::chrono_literals;
@@ -145,7 +145,7 @@ class ThreadFramePlayer : public FramePlayer {
                 continue;
             }
 
-            auto const done = driver->update_done_yet(connector_id);
+            auto const done = driver->update_done_yet(screen_id);
             if (!done) {
                 TRACE(logger, "> (update pending, waiting 5ms)");
                 auto const try_again = now + 5ms;
@@ -156,7 +156,7 @@ class ThreadFramePlayer : public FramePlayer {
             }
 
             try {
-                driver->update(connector_id, mode, show->second);
+                driver->update(screen_id, mode, show->second);
             } catch (std::runtime_error const& e) {
                 logger->error("Display: {}", e.what());
                 // Continue as if displayed to avoid looping
@@ -194,11 +194,11 @@ class ThreadFramePlayer : public FramePlayer {
 std::unique_ptr<FramePlayer> start_frame_player(
     std::shared_ptr<UnixSystem> sys,
     DisplayDriver* driver,
-    uint32_t connector_id,
+    uint32_t screen_id,
     DisplayMode mode
 ) {
     auto player = std::make_unique<ThreadFramePlayer>();
-    player->start(std::move(sys), driver, connector_id, std::move(mode));
+    player->start(std::move(sys), driver, screen_id, std::move(mode));
     return player;
 }
 

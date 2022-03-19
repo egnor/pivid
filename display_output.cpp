@@ -307,9 +307,9 @@ class DrmDriver : public DisplayDriver {
   public:
     DrmDriver() {}
 
-    virtual std::vector<DisplayConnector> scan_connectors() {
-        TRACE(logger, "Scanning connectors...");
-        std::vector<DisplayConnector> out;
+    virtual std::vector<DisplayScreen> scan_screens() {
+        TRACE(logger, "Scanning screens...");
+        std::vector<DisplayScreen> out;
         for (auto const& id_conn : connectors) {
             drm_mode_get_connector cdat = {};
             cdat.connector_id = id_conn.first;
@@ -319,14 +319,14 @@ class DrmDriver : public DisplayDriver {
                 fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
             } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
 
-            DisplayConnector connector = {};
-            connector.id = id_conn.first;
-            connector.name = id_conn.second.name;
-            connector.display_detected = (cdat.connection == 1);
+            DisplayScreen screen = {};
+            screen.id = id_conn.first;
+            screen.connector = id_conn.second.name;
+            screen.display_detected = (cdat.connection == 1);
 
             for (auto const& mode : modes) {
                 if (!(mode.flags & DRM_MODE_FLAG_3D_MASK))
-                    connector.modes.push_back(mode_from_drm(mode));
+                    screen.modes.push_back(mode_from_drm(mode));
             }
 
             if (cdat.encoder_id) {
@@ -336,13 +336,13 @@ class DrmDriver : public DisplayDriver {
                 if (edat.crtc_id) {
                     // We are DRM master, assume no sneaky mode changes.
                     auto const& drm_mode = crtcs.at(edat.crtc_id).active.mode;
-                    connector.active_mode = mode_from_drm(drm_mode);
+                    screen.active_mode = mode_from_drm(drm_mode);
                 }
             }
 
-            out.push_back(std::move(connector));
+            out.push_back(std::move(screen));
         }
-        logger->debug("Found {} display connectors", out.size());
+        logger->debug("Found {} display screens", out.size());
         return out;
     }
 
@@ -472,11 +472,11 @@ class DrmDriver : public DisplayDriver {
     }
 
     virtual void update(
-        uint32_t connector_id,
+        uint32_t screen_id,
         DisplayMode const& mode,
         std::vector<DisplayLayer> const& layers
     ) {
-        auto* const conn = &connectors.at(connector_id);
+        auto* const conn = &connectors.at(screen_id);
         TRACE(logger, "Starting {} update...", conn->name);
 
         std::scoped_lock const lock{mutex};
@@ -485,7 +485,7 @@ class DrmDriver : public DisplayDriver {
             throw std::invalid_argument("Update requested before prev done");
 
         if (!crtc && !mode.refresh_hz) {
-            TRACE(logger, "> (connector remains off, no change)");
+            TRACE(logger, "> (output remains off, no change)");
             return;
         }
 
@@ -665,7 +665,7 @@ class DrmDriver : public DisplayDriver {
 
         DisplayUpdateDone done = {};
         if (!conn->using_crtc) {
-            TRACE(logger, "> (connector off, no update pending)");
+            TRACE(logger, "> (output is off, no update pending)");
         } else if (conn->using_crtc->active.writeback) {
             done.writeback = conn->using_crtc->active.writeback->image;
             TRACE(logger, "> (update done with writeback)");
@@ -815,7 +815,7 @@ class DrmDriver : public DisplayDriver {
         }
 
         logger->debug(
-            "> opened fd={}: {} planes, {} crtcs, {} connectors",
+            "> opened fd={}: {} planes, {} crtcs, {} screen connectors",
             fd->raw_fd(), planes.size(), crtcs.size(), connectors.size()
         );
     }
