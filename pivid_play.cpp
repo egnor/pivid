@@ -154,7 +154,7 @@ void play_video(
     DisplayMode const& mode,
     double start_arg,
     double buffer_arg,
-    double overlay_alpha_arg
+    double overlay_opacity_arg
 ) {
     using namespace std::chrono_literals;
     auto const logger = main_logger();
@@ -172,7 +172,7 @@ void play_video(
         overlay_layer.from_size = frame->image.size.as<double>();
         overlay_layer.to = (mode.size - frame->image.size) / 2;
         overlay_layer.to_size = frame->image.size;
-        overlay_layer.alpha = overlay_alpha_arg;
+        overlay_layer.opacity = overlay_opacity_arg;
     }
 
     std::shared_ptr const signal = make_signal();
@@ -229,7 +229,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string media_arg;
     std::string overlay_arg;
     std::string script_arg;
-    double overlay_alpha_arg = 1.0;
+    double overlay_opacity_arg = 1.0;
     double start_arg = -0.2;
     bool debug_libav = false;
     bool debug_kernel = false;
@@ -242,7 +242,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--log", log_arg, "Log level/configuration");
     app.add_option("--mode", mode_arg, "Video mode");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
-    app.add_option("--overlay_alpha", overlay_alpha_arg, "Overlay opacity");
+    app.add_option("--overlay_opacity", overlay_opacity_arg, "Overlay alpha");
     app.add_option("--start", start_arg, "Seconds into media to start");
     app.add_option("--sleep", sleep_arg, "Seconds to wait before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
@@ -270,7 +270,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
         if (!media_arg.empty() && driver) {
             play_video(
                 media_arg, overlay_arg, driver, screen, mode,
-                start_arg, buffer_arg, overlay_alpha_arg
+                start_arg, buffer_arg, overlay_opacity_arg
             );
         }
 

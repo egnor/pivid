@@ -585,8 +585,8 @@ class DrmDriver : public DisplayDriver {
                 (*plane_props)[&plane->CRTC_H] = layer.to_size.y;
 
                 if (plane->alpha.prop_id) {
-                    (*plane_props)[&plane->alpha] = layer.alpha * 65535.0;
-                } else if (layer.alpha < 1.0) {
+                    (*plane_props)[&plane->alpha] = layer.opacity * 65535.0;
+                } else if (layer.opacity < 1.0) {
                     throw std::runtime_error("Alpha property not supported");
                 }
             }

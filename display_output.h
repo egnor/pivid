@@ -47,7 +47,7 @@ struct DisplayLayer {
     std::shared_ptr<LoadedImage> image;  // From DisplayDriver::load_image()
     XY<double> from = {}, from_size = {};
     XY<int> to = {}, to_size = {};
-    double alpha = 1.0;
+    double opacity = 1.0;
     // TODO: rotation?
 };
 
