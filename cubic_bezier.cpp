@@ -106,11 +106,10 @@ void add_minmax_nowrap(
 std::optional<double> bezier_value_at(CubicBezier const& bez, double t) {
     if (bez.segments.empty()) return {};
 
-    if (bez.repeat_every) {
-        double const begin_t = bez.segments.begin()->begin_t;
+    double const begin_t = bez.segments.begin()->begin_t;
+    if (t < begin_t) return {};
+    if (bez.repeat_every)
         t = std::fmod(t - begin_t, bez.repeat_every) + begin_t;
-        if (t < begin_t) t += bez.repeat_every;
-    }
 
     auto const& segs = bez.segments;
     auto const after = std::upper_bound(segs.begin(), segs.end(), t, lt_begin);
@@ -125,18 +124,20 @@ std::optional<double> bezier_value_at(CubicBezier const& bez, double t) {
 std::vector<std::pair<double, double>> bezier_minmax_over(
     CubicBezier const& bez, double from_t, double to_t
 ) {
+    if (bez.segments.empty()) return {};
+
+    double const begin_t = bez.segments.begin()->begin_t;
+    from_t = std::max(from_t, begin_t);
+
     double const len = to_t - from_t;
     if (len < 0) return {};
-    if (bez.segments.empty()) return {};
 
     std::vector<std::pair<double, double>> out;
     if (!bez.repeat_every) {
         add_minmax_nowrap(bez, from_t, to_t, &out);
     } else if (len >= bez.repeat_every) {
-        double const begin_t = bez.segments.begin()->begin_t;
         add_minmax_nowrap(bez, begin_t, begin_t + bez.repeat_every, &out);
     } else {
-        double const begin_t = bez.segments.begin()->begin_t;
         double rel_from_t = std::fmod(from_t - begin_t, bez.repeat_every);
         if (rel_from_t < 0) rel_from_t += bez.repeat_every;
 

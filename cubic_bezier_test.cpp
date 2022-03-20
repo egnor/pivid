@@ -58,8 +58,8 @@ TEST_CASE("bezier_value_at") {
                 CHECK_FALSE(bezier_value_at(bz, t + 10.0));
             } else {
                 double x = *bezier_value_at(bz, t);
-                CHECK(bezier_value_at(bz, t - 10.0) == doctest::Approx(x));
-                CHECK(bezier_value_at(bz, t - 5.0) == doctest::Approx(x));
+                CHECK_FALSE(bezier_value_at(bz, t - 10.0));
+                CHECK_FALSE(bezier_value_at(bz, t - 5.0));
                 CHECK(bezier_value_at(bz, t + 5.0) == doctest::Approx(x));
                 CHECK(bezier_value_at(bz, t + 10.0) == doctest::Approx(x));
             }
