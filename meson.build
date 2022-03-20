@@ -37,7 +37,7 @@ pivid_lib = library(
         'frame_player.cpp',
         'image_buffer.cpp',
         'media_decoder.cpp',
-        'script_parser.cpp',
+        'script_data.cpp',
         'thread_signal.cpp',
         'unix_system.cpp',
     ],

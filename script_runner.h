@@ -1,6 +1,6 @@
 #pragma once
 
-#include "script.h"
+#include "script_data.h"
 
 namespace pivid {
 

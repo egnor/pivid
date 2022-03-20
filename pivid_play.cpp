@@ -11,6 +11,7 @@
 #include <CLI/Formatter.hpp>
 #include <fmt/chrono.h>
 #include <fmt/core.h>
+#include <nlohmann/json.hpp>
 
 extern "C" {
 #include <libavutil/log.h>
@@ -21,7 +22,7 @@ extern "C" {
 #include "frame_player.h"
 #include "logging_policy.h"
 #include "media_decoder.h"
-#include "script_parser.h"
+#include "script_data.h"
 
 namespace pivid {
 
@@ -107,6 +108,7 @@ DisplayMode find_mode(
 
 Script load_script(std::string const& filename) {
     main_logger()->info("Loading script: {}", filename);
+
     std::ifstream ifs;
     ifs.exceptions(~std::ifstream::goodbit);
     ifs.open(filename, std::ios::binary);
@@ -114,7 +116,13 @@ Script load_script(std::string const& filename) {
         (std::istreambuf_iterator<char>(ifs)),
         (std::istreambuf_iterator<char>())
     );
-    return parse_script(text);
+
+    try {
+        auto const json = nlohmann::json::parse(text);
+        return json.get<Script>();
+    } catch (nlohmann::json::parse_error const& je) {
+        throw_with_nested(std::runtime_error(je.what()));
+    }
 }
 
 void set_kernel_debug(bool enable) {

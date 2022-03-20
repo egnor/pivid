@@ -3,6 +3,8 @@
 #include <map>
 #include <string>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "cubic_bezier.h"
 #include "xy.h"
 
@@ -26,6 +28,6 @@ struct Script {
     std::vector<Layer> standbys;
 };
 
-Script parse_script(std::string);
+void from_json(nlohmann::json const&, Script&);
 
 }  // namespace pivid
