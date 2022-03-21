@@ -1,5 +1,7 @@
 #include "cubic_bezier.h"
 
+#include <limits>
+
 #include <doctest/doctest.h>
 
 #include "logging_policy.h"
@@ -15,6 +17,10 @@ TEST_CASE("bezier_value_at") {
     bz.segments.push_back({
         .begin_t = 5.0, .end_t = 8.0,
         .begin_x = 10.0, .p1_x = 30.0, .p2_x = 50.0, .end_x = 40.0,
+    });
+    bz.segments.push_back({
+        .begin_t = 11.0, .end_t = std::numeric_limits<double>::infinity(),
+        .begin_x = 50.0, .p1_x = 60.0, .p2_x = 70.0, .end_x = 80.0,
     });
 
     SUBCASE("non-repeating") {
@@ -33,6 +39,10 @@ TEST_CASE("bezier_value_at") {
         CHECK(*bezier_value_at(bz, 7.9) == doctest::Approx(40.9).epsilon(0.01));
         CHECK(*bezier_value_at(bz, 8.0) == doctest::Approx(40.0));
         CHECK_FALSE(bezier_value_at(bz, 8.1));
+
+        CHECK_FALSE(bezier_value_at(bz, 10.9));
+        CHECK(*bezier_value_at(bz, 11.0) == doctest::Approx(50.0));
+        CHECK(*bezier_value_at(bz, 11000000.0) == doctest::Approx(50.0));
     }
 
     SUBCASE("repeating") {
@@ -103,6 +113,9 @@ TEST_CASE("bezier_minmax_over") {
             }
         }
     }
+
+    // TODO: Test minmax over infinite segments
+    // TODO: Test minmax over repeating curves
 }
 
 }  // namespace pivid
