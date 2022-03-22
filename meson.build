@@ -31,13 +31,13 @@ linux_dep = dependency('linux-headers-generic')
 
 pivid_lib = library(
     'pivid', [
-        'cubic_bezier.cpp',
+        'bezier_spline.cpp',
         'display_output.cpp',
         'frame_loader.cpp',
         'frame_player.cpp',
         'image_buffer.cpp',
         'media_decoder.cpp',
-        'script_data.cpp',
+        'script.cpp',
         'thread_signal.cpp',
         'unix_system.cpp',
     ],
@@ -74,7 +74,7 @@ executable(
 
 pivid_test = executable(
     'pivid_test', [
-        'cubic_bezier_test.cpp',
+        'bezier_spline_test.cpp',
         'interval_set_test.cpp',
         'pivid_test_main.cpp',
         'xy_test.cpp',

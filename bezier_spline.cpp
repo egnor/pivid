@@ -1,4 +1,4 @@
-#include "cubic_bezier.h"
+#include "bezier_spline.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,11 +13,11 @@ namespace pivid {
 
 namespace {
 
-bool lt_begin(double const t, CubicBezier::Segment const& seg) {
+bool lt_begin(double const t, BezierSegment const& seg) {
     return t < seg.begin_t;
 }
 
-double segment_value_at(CubicBezier::Segment const& seg, double t) {
+double segment_value_at(BezierSegment const& seg, double t) {
     double const t_len = seg.end_t - seg.begin_t;
     if (t_len < 0) {
         throw std::invalid_argument(
@@ -43,7 +43,7 @@ double segment_value_at(CubicBezier::Segment const& seg, double t) {
 }
 
 void add_minmax_nowrap(
-    CubicBezier const& bez, double from_t, double to_t, 
+    BezierSpline const& bez, double from_t, double to_t, 
     std::vector<std::pair<double, double>> *out
 ) {
     auto const& segs = bez.segments;
@@ -52,7 +52,7 @@ void add_minmax_nowrap(
 
     auto end = std::upper_bound(segs.begin(), segs.end(), to_t, lt_begin);
     for (; iter != end; ++iter) {
-        CubicBezier::Segment const& s = *iter;
+        BezierSegment const& s = *iter;
         double const seg_from_t = std::max(s.begin_t, from_t);
         double const seg_to_t = std::min(s.end_t, to_t);
         if (seg_from_t > seg_to_t) continue;
@@ -103,18 +103,18 @@ void add_minmax_nowrap(
 
 }  // anonymous namespace
 
-std::optional<double> bezier_value_at(CubicBezier const& bez, double t) {
+std::optional<double> bezier_value_at(BezierSpline const& bez, double t) {
     if (bez.segments.empty()) return {};
 
     double const begin_t = bez.segments.begin()->begin_t;
     if (t < begin_t) return {};
-    if (bez.repeat_every)
-        t = std::fmod(t - begin_t, bez.repeat_every) + begin_t;
+    if (bez.repeat)
+        t = std::fmod(t - begin_t, bez.repeat) + begin_t;
 
     auto const& segs = bez.segments;
     auto const after = std::upper_bound(segs.begin(), segs.end(), t, lt_begin);
     if (after == bez.segments.begin()) return {};
-    CubicBezier::Segment const& seg = *std::prev(after);
+    BezierSegment const& seg = *std::prev(after);
     if (t > seg.end_t) return {};
     if (t < seg.begin_t)
         throw std::logic_error(fmt::format("{} < {}", t, seg.begin_t));
@@ -122,7 +122,7 @@ std::optional<double> bezier_value_at(CubicBezier const& bez, double t) {
 }
 
 std::vector<std::pair<double, double>> bezier_minmax_over(
-    CubicBezier const& bez, double from_t, double to_t
+    BezierSpline const& bez, double from_t, double to_t
 ) {
     if (bez.segments.empty()) return {};
 
@@ -133,15 +133,15 @@ std::vector<std::pair<double, double>> bezier_minmax_over(
     if (len < 0) return {};
 
     std::vector<std::pair<double, double>> out;
-    if (!bez.repeat_every) {
+    if (!bez.repeat) {
         add_minmax_nowrap(bez, from_t, to_t, &out);
-    } else if (len >= bez.repeat_every) {
-        add_minmax_nowrap(bez, begin_t, begin_t + bez.repeat_every, &out);
+    } else if (len >= bez.repeat) {
+        add_minmax_nowrap(bez, begin_t, begin_t + bez.repeat, &out);
     } else {
-        double rel_from_t = std::fmod(from_t - begin_t, bez.repeat_every);
-        if (rel_from_t < 0) rel_from_t += bez.repeat_every;
+        double rel_from_t = std::fmod(from_t - begin_t, bez.repeat);
+        if (rel_from_t < 0) rel_from_t += bez.repeat;
 
-        double const rel_to_t = std::min(bez.repeat_every, rel_from_t + len);
+        double const rel_to_t = std::min(bez.repeat, rel_from_t + len);
         add_minmax_nowrap(bez, begin_t + rel_from_t, begin_t + rel_to_t, &out);
 
         double const wrap_t = rel_from_t + len - rel_to_t;

@@ -1,4 +1,4 @@
-#include "cubic_bezier.h"
+#include "bezier_spline.h"
 
 #include <limits>
 
@@ -9,7 +9,7 @@
 namespace pivid {
 
 TEST_CASE("bezier_value_at") {
-    CubicBezier bz = {};
+    BezierSpline bz = {};
     bz.segments.push_back({
         .begin_t = 1.0, .end_t = 4.0,
         .begin_x = 10.0, .p1_x = 20.0, .p2_x = 30.0, .end_x = 40.0,
@@ -46,7 +46,7 @@ TEST_CASE("bezier_value_at") {
     }
 
     SUBCASE("repeating") {
-        bz.repeat_every = 5.0;
+        bz.repeat = 5.0;
 
         CHECK(*bezier_value_at(bz, 1.0) == doctest::Approx(10.0));
         CHECK(*bezier_value_at(bz, 2.5) == doctest::Approx(25.0));
@@ -78,7 +78,7 @@ TEST_CASE("bezier_value_at") {
 }
 
 TEST_CASE("bezier_minmax_over") {
-    CubicBezier bz = {};
+    BezierSpline bz = {};
     bz.segments.push_back({
         .begin_t = -2.0, .end_t = 2.0,
         .begin_x = 10.0, .p1_x = -10.0, .p2_x = 50.0, .end_x = 40.0,

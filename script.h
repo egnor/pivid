@@ -5,17 +5,17 @@
 
 #include <nlohmann/json_fwd.hpp>
 
-#include "cubic_bezier.h"
+#include "bezier_spline.h"
 #include "xy.h"
 
 namespace pivid {
 
 struct ScriptLayer {
     std::string media_file;
-    CubicBezier frame_time;
-    XY<CubicBezier> from, from_size;
-    XY<CubicBezier> to, to_size;
-    CubicBezier opacity;
+    BezierSpline frame_time;
+    XY<BezierSpline> from, from_size;
+    XY<BezierSpline> to, to_size;
+    BezierSpline opacity;
 };
 
 struct ScriptScreen {
