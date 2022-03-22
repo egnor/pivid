@@ -26,13 +26,15 @@ class ThreadFrameLoader : public FrameLoader {
     virtual ~ThreadFrameLoader() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            logger->debug("Stopping loader ({})...", filename);
+            DEBUG(logger, "main> STOP {}", filename);
             shutdown = true;
             lock.unlock();
             wakeup->set();
             thread.join();
         }
     }
+
+    virtual MediaFileInfo const& file_info() const { return info; }
 
     virtual void set_request(
         IntervalSet<Seconds> const& wanted,
@@ -42,9 +44,9 @@ class ThreadFrameLoader : public FrameLoader {
         this->notify = std::move(notify);
 
         if (wanted == this->wanted) {
-            TRACE(logger, "DUP {}", filename);
+            TRACE(logger, "SAME {}", filename);
         } else {
-            DEBUG(logger, "REQ {}", filename);
+            DEBUG(logger, "REQ  {}", filename);
             DEBUG(logger, "req> want {}", debug(wanted));
 
             // Remove no-longer-wanted frames & have-regions
@@ -103,14 +105,25 @@ class ThreadFrameLoader : public FrameLoader {
         this->display = display;
         this->filename = filename;
         this->opener = opener;
-        thread = std::thread(&ThreadFrameLoader::loader_thread, this);
+        DEBUG(logger, "main> START {}", filename);
+
+        // Open one decoder in main thread to verify openability & get info
+        auto first_decoder = opener(filename);
+        info = first_decoder->file_info();
+        eof = info.duration;
+        thread = std::thread(
+            &ThreadFrameLoader::loader_thread,
+            this, std::move(first_decoder)
+        );
     }
 
-    void loader_thread() {
+    void loader_thread(std::unique_ptr<MediaDecoder> first_decoder) {
         std::unique_lock lock{mutex};
-        logger->debug("{}: Loader running...", filename);
+        DEBUG(logger, "START {}", filename);
 
         std::map<Seconds, std::unique_ptr<MediaDecoder>> decoders;
+        decoders.insert({Seconds(0), std::move(first_decoder)});
+
         while (!shutdown) {
             TRACE(logger, "LOAD {}", filename);
 
@@ -195,6 +208,12 @@ class ThreadFrameLoader : public FrameLoader {
                         debug(di->first), debug(*eof)
                     );
                     di = decoders.erase(di);
+                    continue;
+                }
+
+                if (have.empty() && di->first == Seconds(0)) {
+                    TRACE(logger, "> keep: starting decoder");
+                    ++di;
                     continue;
                 }
 
@@ -307,7 +326,7 @@ class ThreadFrameLoader : public FrameLoader {
             }
         }
 
-        logger->debug("{}: Loader ending...", filename);
+        DEBUG(logger, "STOP {}", filename);
     }
 
   private:
@@ -316,6 +335,7 @@ class ThreadFrameLoader : public FrameLoader {
     DisplayDriver* display;
     std::string filename;
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
+    MediaFileInfo info;
 
     std::mutex mutable mutex;
     std::thread thread;

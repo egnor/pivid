@@ -176,8 +176,8 @@ void play_video(
     }
 
     std::shared_ptr const signal = make_signal();
-    auto const player = start_frame_player(sys, driver.get(), screen.id, mode);
     auto const loader = make_frame_loader(driver.get(), media_file);
+    auto const player = start_frame_player(sys, driver.get(), screen.id, mode);
 
     logger->info("Start at {:.3f} seconds...", start_arg);
     auto const start_time = sys->steady_time() - Seconds(start_arg);
