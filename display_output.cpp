@@ -575,12 +575,12 @@ class DrmDriver : public DisplayDriver {
                 (*plane_props)[&plane->CRTC_ID] = crtc->id;
                 (*plane_props)[&plane->FB_ID] = fb_id;
 
-                (*plane_props)[&plane->SRC_X] = 65536.0 * layer.from.x;
-                (*plane_props)[&plane->SRC_Y] = 65536.0 * layer.from.y;
+                (*plane_props)[&plane->SRC_X] = 65536.0 * layer.from_xy.x;
+                (*plane_props)[&plane->SRC_Y] = 65536.0 * layer.from_xy.y;
                 (*plane_props)[&plane->SRC_W] = 65536.0 * layer.from_size.x;
                 (*plane_props)[&plane->SRC_H] = 65536.0 * layer.from_size.y;
-                (*plane_props)[&plane->CRTC_X] = layer.to.x;
-                (*plane_props)[&plane->CRTC_Y] = layer.to.y;
+                (*plane_props)[&plane->CRTC_X] = layer.to_xy.x;
+                (*plane_props)[&plane->CRTC_Y] = layer.to_xy.y;
                 (*plane_props)[&plane->CRTC_W] = layer.to_size.x;
                 (*plane_props)[&plane->CRTC_H] = layer.to_size.y;
 

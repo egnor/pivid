@@ -45,8 +45,8 @@ struct DisplayScreen {
 // Where one image (or a portion thereof) should be shown on screen
 struct DisplayLayer {
     std::shared_ptr<LoadedImage> image;  // From DisplayDriver::load_image()
-    XY<double> from = {}, from_size = {};
-    XY<int> to = {}, to_size = {};
+    XY<double> from_xy = {}, from_size = {};
+    XY<int> to_xy = {}, to_size = {};
     double opacity = 1.0;
     // TODO: rotation?
 };

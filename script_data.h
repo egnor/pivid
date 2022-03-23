@@ -11,15 +11,15 @@
 namespace pivid {
 
 struct ScriptLayer {
-    std::string media_file;
-    BezierSpline frame_time;
-    XY<BezierSpline> from, from_size;
-    XY<BezierSpline> to, to_size;
+    std::string media;
+    BezierSpline time;
+    XY<BezierSpline> from_xy, from_size;
+    XY<BezierSpline> to_xy, to_size;
     BezierSpline opacity;
 };
 
 struct ScriptScreen {
-    XY<int> mode_size;
+    std::string mode;
     std::vector<ScriptLayer> layers;
 };
 

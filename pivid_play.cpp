@@ -170,7 +170,7 @@ void play_video(
 
         overlay_layer.image = driver->load_image(frame->image);
         overlay_layer.from_size = frame->image.size.as<double>();
-        overlay_layer.to = (mode.size - frame->image.size) / 2;
+        overlay_layer.to_xy = (mode.size - frame->image.size) / 2;
         overlay_layer.to_size = frame->image.size;
         overlay_layer.opacity = overlay_opacity_arg;
     }

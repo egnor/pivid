@@ -34,11 +34,10 @@ double segment_value_at(BezierSegment const& seg, double t) {
     if (t_len <= 0) return 0.5 * (seg.begin_x + seg.end_x);
     double const f = (t - seg.begin_t) / t_len;
     double const nf = 1 - f;
-    return (
-        nf * nf * nf * seg.begin_x +
-        3 * nf * nf * f * seg.p1_x +
-        3 * nf * f * f * seg.p2_x +
-        f * f * f * seg.end_x
+    return seg.begin_x + (
+        3 * nf * nf * f * (seg.p1_x - seg.begin_x) +
+        3 * nf * f * f * (seg.p2_x - seg.begin_x) +
+        f * f * f * (seg.end_x - seg.begin_x)
     );
 }
 
