@@ -13,14 +13,14 @@ namespace pivid {
 
 namespace {
 
-std::shared_ptr<log::logger> const& player_logger() {
+auto const& player_logger() {
     static const auto logger = make_logger("player");
     return logger;
 }
 
-class ThreadFramePlayer : public FramePlayer {
+class FramePlayerDef : public FramePlayer {
   public:
-    virtual ~ThreadFramePlayer() {
+    virtual ~FramePlayerDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
             logger->debug("Stopping frame player...");
@@ -77,7 +77,7 @@ class ThreadFramePlayer : public FramePlayer {
     ) {
         logger->info("Launching frame player...");
         thread = std::thread(
-            &ThreadFramePlayer::player_thread,
+            &FramePlayerDef::player_thread,
             this,
             std::move(driver),
             screen_id,
@@ -197,7 +197,7 @@ std::unique_ptr<FramePlayer> start_frame_player(
     DisplayMode mode,
     std::shared_ptr<UnixSystem> sys
 ) {
-    auto p = std::make_unique<ThreadFramePlayer>();
+    auto p = std::make_unique<FramePlayerDef>();
     p->start(std::move(driver), screen_id, std::move(mode), std::move(sys));
     return p;
 }

@@ -16,14 +16,14 @@ namespace pivid {
 
 namespace {
 
-std::shared_ptr<log::logger> const& loader_logger() {
+auto const& loader_logger() {
     static const auto logger = make_logger("loader");
     return logger;
 }
 
-class ThreadFrameLoader : public FrameLoader {
+class FrameLoaderDef : public FrameLoader {
   public:
-    virtual ~ThreadFrameLoader() {
+    virtual ~FrameLoaderDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
             DEBUG(logger, "main> STOP {}", filename);
@@ -104,7 +104,7 @@ class ThreadFrameLoader : public FrameLoader {
         this->filename = filename;
         this->opener = opener;
         DEBUG(logger, "main> START {}", filename);
-        thread = std::thread(&ThreadFrameLoader::loader_thread, this);
+        thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
 
     void loader_thread() {
@@ -327,7 +327,6 @@ class ThreadFrameLoader : public FrameLoader {
 
   private:
     std::shared_ptr<log::logger> logger = loader_logger();
-
     std::shared_ptr<DisplayDriver> display;
     std::string filename;
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
@@ -350,7 +349,7 @@ std::unique_ptr<FrameLoader> start_frame_loader(
     std::string const& filename,
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener
 ) {
-    auto loader = std::make_unique<ThreadFrameLoader>();
+    auto loader = std::make_unique<FrameLoaderDef>();
     loader->start(std::move(display), filename, std::move(opener));
     return loader;
 }

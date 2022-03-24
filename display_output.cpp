@@ -29,7 +29,7 @@ namespace pivid {
 
 namespace {
 
-std::shared_ptr<log::logger> const& display_logger() {
+auto const& display_logger() {
     static const auto logger = make_logger("display");
     return logger;
 }
@@ -241,9 +241,9 @@ class DrmBufferImport {
     DrmBufferImport& operator=(DrmBufferImport const&) = delete;
 };
 
-class DrmLoadedImage : public LoadedImage {
+class LoadedImageDef : public LoadedImage {
   public:
-    DrmLoadedImage(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
+    LoadedImageDef(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
         fdat.width = im.size.x;
         fdat.height = im.size.y;
         fdat.pixel_format = format_to_drm(im.fourcc);
@@ -280,7 +280,7 @@ class DrmLoadedImage : public LoadedImage {
         DEBUG(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
     }
 
-    ~DrmLoadedImage() {
+    ~LoadedImageDef() {
         if (!fdat.fb_id) return;
         auto const logger = display_logger();
         TRACE(logger, "Removing DRM framebuffer...");
@@ -295,17 +295,17 @@ class DrmLoadedImage : public LoadedImage {
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_fb_cmd2 fdat = {};
 
-    DrmLoadedImage(DrmLoadedImage const&) = delete;
-    DrmLoadedImage& operator=(DrmLoadedImage const&) = delete;
+    LoadedImageDef(LoadedImageDef const&) = delete;
+    LoadedImageDef& operator=(LoadedImageDef const&) = delete;
 };
 
 //
 // DisplayDriver implementation
 //
 
-class DrmDriver : public DisplayDriver {
+class DisplayDriverDef : public DisplayDriver {
   public:
-    DrmDriver() {}
+    DisplayDriverDef() {}
 
     virtual std::vector<DisplayScreen> scan_screens() {
         TRACE(logger, "Scanning screens...");
@@ -468,7 +468,7 @@ class DrmDriver : public DisplayDriver {
             chan->memory = std::move(buf);
         }
 
-        return std::make_unique<DrmLoadedImage>(fd, std::move(im));
+        return std::make_unique<LoadedImageDef>(fd, std::move(im));
     }
 
     virtual void update(
@@ -856,7 +856,7 @@ class DrmDriver : public DisplayDriver {
         PropId SRC_H{"SRC_H", &prop_ids};
         PropId type{"type", &prop_ids};
 
-        // Guarded by DrmDriver::mutex
+        // Guarded by DisplayDriverDef::mutex
         Crtc* used_by_crtc = nullptr;
     };
 
@@ -876,7 +876,7 @@ class DrmDriver : public DisplayDriver {
         PropId ACTIVE{"ACTIVE", &prop_ids};
         PropId MODE_ID{"MODE_ID", &prop_ids};
 
-        // Guarded by DrmDriver::mutex
+        // Guarded by DisplayDriverDef::mutex
         Connector* used_by_conn = nullptr;
         State active;
         std::optional<State> pending_flip;
@@ -892,7 +892,7 @@ class DrmDriver : public DisplayDriver {
         PropId WRITEBACK_FB_ID{"WRITEBACK_FB_ID", &opt_ids};
         PropId WRITEBACK_OUT_FENCE_PTR{"WRITEBACK_OUT_FENCE_PTR", &opt_ids};
 
-        // Guarded by DrmDriver::mutex
+        // Guarded by DisplayDriverDef::mutex
         Crtc* using_crtc = nullptr;
         SteadyTime pageflip_time;
     };
@@ -1029,8 +1029,8 @@ class DrmDriver : public DisplayDriver {
         return {new uint32_t(cblob.blob_id), deleter};
     }
 
-    DrmDriver(DrmDriver const&) = delete;
-    DrmDriver& operator=(DrmDriver const&) = delete;
+    DisplayDriverDef(DisplayDriverDef const&) = delete;
+    DisplayDriverDef& operator=(DisplayDriverDef const&) = delete;
 };
 
 }  // anonymous namespace
@@ -1109,7 +1109,7 @@ std::vector<DisplayDriverListing> list_display_drivers(
 std::unique_ptr<DisplayDriver> open_display_driver(
     std::shared_ptr<UnixSystem> sys, std::string const& dev
 ) {
-    auto driver = std::make_unique<DrmDriver>();
+    auto driver = std::make_unique<DisplayDriverDef>();
     driver->open(std::move(sys), dev);
     return driver;
 }

@@ -26,7 +26,7 @@ namespace pivid {
 
 namespace {
 
-std::shared_ptr<log::logger> const& media_logger() {
+auto const& media_logger() {
     static const auto logger = make_logger("media");
     return logger;
 }
@@ -66,9 +66,9 @@ T* check_alloc(T* item) {
 // Memory buffer wrappers to AVFrame
 //
 
-class LibavDrmFrameMemory : public MemoryBuffer {
+class LibavDrmBuffer : public MemoryBuffer {
   public:
-    ~LibavDrmFrameMemory() { if (mem) munmap(mem, av_obj->size); }
+    ~LibavDrmBuffer() { if (mem) munmap(mem, av_obj->size); }
     virtual size_t size() const { return av_obj->size; }
     virtual int dma_fd() const { return av_obj->fd; }
 
@@ -97,7 +97,7 @@ class LibavDrmFrameMemory : public MemoryBuffer {
     void* mem = nullptr;
 };
 
-class LibavPlainFrameMemory : public MemoryBuffer {
+class LibavPlainBuffer : public MemoryBuffer {
   public:
     virtual size_t size() const {
         if (avf->format == AV_PIX_FMT_PAL8 && index == 1) return AVPALETTE_SIZE;
@@ -121,9 +121,9 @@ class LibavPlainFrameMemory : public MemoryBuffer {
 ImageBuffer image_from_av_drm(
     std::shared_ptr<AVDRMFrameDescriptor const> av_drm, XY<int> size
 ) {
-    std::vector<std::shared_ptr<LibavDrmFrameMemory>> buffers;
+    std::vector<std::shared_ptr<LibavDrmBuffer>> buffers;
     for (int oi = 0; oi < av_drm->nb_objects; ++oi) {
-        buffers.push_back(std::make_shared<LibavDrmFrameMemory>());
+        buffers.push_back(std::make_shared<LibavDrmBuffer>());
         buffers.back()->init(av_drm, oi);
     }
 
@@ -164,7 +164,7 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 
     for (int p = 0; p < AV_NUM_DATA_POINTERS; ++p) {
         if (!av_frame->data[p]) break;
-        auto mem = std::make_shared<LibavPlainFrameMemory>();
+        auto mem = std::make_shared<LibavPlainBuffer>();
         mem->init(av_frame, p);
         out.channels.push_back({
             .memory = std::move(mem),
@@ -216,9 +216,9 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
 // MediaDecoder implementation
 //
 
-class LibavMediaDecoder : public MediaDecoder {
+class MediaDecoderDef : public MediaDecoder {
   public:
-    virtual ~LibavMediaDecoder() noexcept {
+    virtual ~MediaDecoderDef() noexcept {
         if (av_frame) av_frame_free(&av_frame);
         if (av_packet) av_packet_free(&av_packet);
         if (codec_context) avcodec_free_context(&codec_context);
@@ -446,7 +446,7 @@ class LibavMediaDecoder : public MediaDecoder {
 }  // anonymous namespace
 
 std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
-    auto decoder = std::make_unique<LibavMediaDecoder>();
+    auto decoder = std::make_unique<MediaDecoderDef>();
     decoder->init(filename);
     return decoder;
 }

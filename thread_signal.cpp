@@ -5,8 +5,10 @@
 
 namespace pivid {
 
+namespace {
+
 // TODO: Replace with std::binary_semaphore once available.
-class CondVarSignal : public ThreadSignal {
+class ThreadSignalDef : public ThreadSignal {
   public:
     virtual void set() {
         std::scoped_lock<std::mutex> lock{mutex};
@@ -46,8 +48,10 @@ class CondVarSignal : public ThreadSignal {
     bool signal_flag = false;
 };
 
+}  // anonymous namespace
+
 std::unique_ptr<ThreadSignal> make_signal() {
-    return std::make_unique<CondVarSignal>();
+    return std::make_unique<ThreadSignalDef>();
 }
 
 }  // namespace pivid

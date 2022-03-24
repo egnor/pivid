@@ -31,10 +31,10 @@ inline ErrnoOr<int> run_sys(std::function<int()> f) {
     return (ret.value >= 0) ? ErrnoOr<int>{0, ret.value} : ret;
 }
 
-class SystemFileDescriptor : public FileDescriptor {
+class FileDescriptorDef : public FileDescriptor {
   public:
-    SystemFileDescriptor(int fd) : fd(fd) {}
-    virtual ~SystemFileDescriptor() { ::close(fd); }
+    FileDescriptorDef(int fd) : fd(fd) {}
+    virtual ~FileDescriptorDef() { ::close(fd); }
     virtual int raw_fd() const { return fd; }
 
     virtual ErrnoOr<int> read(void* buf, size_t len) {
@@ -61,7 +61,7 @@ class SystemFileDescriptor : public FileDescriptor {
     int fd = -1;
 };
 
-class GlobalSystem : public UnixSystem {
+class UnixSystemDef : public UnixSystem {
   public:
     virtual SystemTime system_time() const {
         using std::chrono::time_point_cast;
@@ -113,7 +113,7 @@ class GlobalSystem : public UnixSystem {
     }
 
     virtual std::unique_ptr<FileDescriptor> adopt(int raw_fd) {
-        return std::make_unique<SystemFileDescriptor>(raw_fd);
+        return std::make_unique<FileDescriptorDef>(raw_fd);
     }
 
     virtual ErrnoOr<pid_t> spawn(
@@ -150,7 +150,7 @@ class GlobalSystem : public UnixSystem {
 }  // namespace
 
 std::shared_ptr<UnixSystem> global_system() {
-    static const auto system = std::make_shared<GlobalSystem>();
+    static const auto system = std::make_shared<UnixSystemDef>();
     return system;
 }
 
