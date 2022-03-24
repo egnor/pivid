@@ -7,11 +7,15 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <iostream>
 #include <mutex>
+#include <sstream>
 #include <thread>
 
+#include <date/date.h>
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 
@@ -150,7 +154,27 @@ std::shared_ptr<UnixSystem> global_system() {
     return system;
 }
 
-std::string debug(Seconds s) { return fmt::format("{:#.3f}s", s.count()); }
+SystemTime parse_system_time(std::string const& s) {
+    size_t end;
+    double const d = std::stod(s, &end);
+    if (!s.empty() && end >= s.size())
+        return SystemTime(Seconds(d));
+
+    SystemTime t = {};
+    std::istringstream is{s};
+    is >> date::parse("%FT%TZ", t);
+    if (!is.fail()) return t;
+
+    std::istringstream is2{s};
+    is2 >> date::parse("%FT%T%Ez", t);
+    if (!is2.fail()) return t;
+
+    throw std::runtime_error("Bad date: \"" + s + "\"");
+}
+
+std::string debug(Seconds s) {
+    return fmt::format("{:#.3f}s", s.count());
+}
 
 std::string debug(Interval<Seconds> interval) {
     return fmt::format("{}~{}", debug(interval.begin), debug(interval.end));
@@ -165,8 +189,12 @@ std::string debug(IntervalSet<Seconds> const& interval_set) {
     return out + "}";
 }
 
-std::string debug(SteadyTime s) {
-    return fmt::format("{:.3}t", debug(s.time_since_epoch()));
+std::string debug(SteadyTime t) {
+    return fmt::format("{:.3}t", debug(t.time_since_epoch()));
+}
+
+std::string debug(SystemTime t) {
+    return date::format("{0:%F}T{0:%R%z}", t);
 }
 
 }  // namespace pivid

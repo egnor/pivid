@@ -1,11 +1,14 @@
 #include "script_data.h"
 
+#include <chrono>
 #include <exception>
 #include <limits>
 #include <stdexcept>
 
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
+
+#include "unix_system.h"
 
 using json = nlohmann::json;
 
@@ -18,6 +21,16 @@ void from_json(json const& j, XY<T>& xy) {
     } else {
         j.at(0).get_to(xy.x);
         j.at(1).get_to(xy.y);
+    }
+}
+
+static double parse_json_time(json const& j) {
+    if (j.is_number()) {
+        return j;
+    } else if (j.is_string()) {
+        return parse_system_time(j).time_since_epoch().count();
+    } else {
+        throw std::runtime_error("Bad time: " + j.dump());
     }
 }
 
@@ -34,13 +47,13 @@ void from_json(json const& j, BezierSegment& seg) {
     auto const t_j = j.value("t", json{});
     if (t_j.empty()) {
         seg.begin_t = 0.0;
-        seg.end_t = 1e12;
+        seg.end_t = j.value("len", 1e12);
     } else if (t_j.is_number() || (t_j.is_array() && t_j.size() == 1)) {
-        (t_j.is_array() ? t_j.at(0) : t_j).get_to(seg.begin_t);
-        seg.end_t = seg.begin_t + 1e12;
+        seg.begin_t = parse_json_time(t_j.is_array() ? t_j.at(0) : t_j);
+        seg.end_t = seg.begin_t + j.value("len", 1e12);
     } else if (t_j.is_array() && t_j.size() == 2) {
-        t_j.at(0).get_to(seg.begin_t);
-        t_j.at(1).get_to(seg.end_t);
+        seg.begin_t = parse_json_time(t_j.at(0));
+        seg.end_t = parse_json_time(t_j.at(1));
     } else {
         throw std::runtime_error("Bad segment \"t\": " + j.dump());
     }

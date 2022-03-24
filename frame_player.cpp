@@ -70,27 +70,27 @@ class ThreadFramePlayer : public FramePlayer {
     }
 
     void start(
-        std::shared_ptr<UnixSystem> sys,
-        DisplayDriver* driver,
+        std::shared_ptr<DisplayDriver> driver,
         uint32_t screen_id,
-        DisplayMode mode
+        DisplayMode mode,
+        std::shared_ptr<UnixSystem> sys
     ) {
         logger->info("Launching frame player...");
         thread = std::thread(
             &ThreadFramePlayer::player_thread,
             this,
-            std::move(sys),
-            driver,
+            std::move(driver),
             screen_id,
-            std::move(mode)
+            std::move(mode),
+            std::move(sys)
         );
     }
 
     void player_thread(
-        std::shared_ptr<UnixSystem> sys,
-        DisplayDriver* driver,
+        std::shared_ptr<DisplayDriver> driver,
         uint32_t screen_id,
-        DisplayMode mode
+        DisplayMode mode,
+        std::shared_ptr<UnixSystem> sys
     ) {
         using namespace std::chrono_literals;
         logger->debug("Frame player thread running...");
@@ -192,14 +192,14 @@ class ThreadFramePlayer : public FramePlayer {
 }  // anonymous namespace
 
 std::unique_ptr<FramePlayer> start_frame_player(
-    std::shared_ptr<UnixSystem> sys,
-    DisplayDriver* driver,
+    std::shared_ptr<DisplayDriver> driver,
     uint32_t screen_id,
-    DisplayMode mode
+    DisplayMode mode,
+    std::shared_ptr<UnixSystem> sys
 ) {
-    auto player = std::make_unique<ThreadFramePlayer>();
-    player->start(std::move(sys), driver, screen_id, std::move(mode));
-    return player;
+    auto p = std::make_unique<ThreadFramePlayer>();
+    p->start(std::move(driver), screen_id, std::move(mode), std::move(sys));
+    return p;
 }
 
 }  // namespace pivid

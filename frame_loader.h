@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <exception>
 #include <functional>
 #include <map>
 #include <memory>
@@ -22,6 +23,7 @@ class FrameLoader {
         std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
         IntervalSet<Seconds> have;  // Regions that are fully loaded
         std::optional<Seconds> eof;  // Where EOF is, if known
+        std::exception_ptr error;  // Last major error, if any
     };
 
     // Interrupts and shuts down the frame loader.
@@ -38,8 +40,8 @@ class FrameLoader {
 };
 
 // Creates a frame loader instance for a given media file and GPU device.
-std::unique_ptr<FrameLoader> make_frame_loader(
-    DisplayDriver*,
+std::unique_ptr<FrameLoader> start_frame_loader(
+    std::shared_ptr<DisplayDriver>,
     std::string const& filename,
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> =
         open_media_decoder

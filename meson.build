@@ -12,6 +12,7 @@ add_project_arguments(
 )
 
 util_deps = [
+    dependency('date'),
     dependency('doctest'),
     dependency('CLI11'),
     dependency('fmt'),

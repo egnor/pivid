@@ -51,7 +51,7 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
 }
 
 DisplayScreen find_screen(
-    std::unique_ptr<DisplayDriver> const& driver, std::string const& screen_arg
+    std::shared_ptr<DisplayDriver> const& driver, std::string const& screen_arg
 ) {
     if (!driver) return {};
 
@@ -78,7 +78,7 @@ DisplayScreen find_screen(
 }
 
 DisplayMode find_mode(
-    std::unique_ptr<DisplayDriver> const& driver,
+    std::shared_ptr<DisplayDriver> const& driver,
     DisplayScreen const& screen,
     std::string const& mode_arg
 ) {
@@ -149,7 +149,7 @@ void set_kernel_debug(bool enable) {
 void play_video(
     std::string const& media_file, 
     std::string const& overlay_file,
-    std::unique_ptr<DisplayDriver> const& driver,
+    std::shared_ptr<DisplayDriver> driver,
     DisplayScreen const& screen,
     DisplayMode const& mode,
     double start_arg,
@@ -176,8 +176,8 @@ void play_video(
     }
 
     std::shared_ptr const signal = make_signal();
-    auto const loader = make_frame_loader(driver.get(), media_file);
-    auto const player = start_frame_player(sys, driver.get(), screen.id, mode);
+    auto const loader = start_frame_loader(driver, media_file);
+    auto const player = start_frame_player(driver, screen.id, mode);
 
     logger->info("Start at {:.3f} seconds...", start_arg);
     auto const start_time = sys->steady_time() - Seconds(start_arg);
@@ -195,6 +195,7 @@ void play_video(
         loader->set_request(req_set, signal);
 
         auto const loaded = loader->content();
+        if (loaded.error) break;
         if (loaded.eof && now - start_time >= *loaded.eof) break;
 
         FramePlayer::Timeline timeline;
@@ -263,7 +264,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             throw std::runtime_error("");
         }
 
-        auto const driver = find_driver(dev_arg);
+        std::shared_ptr const driver = find_driver(dev_arg);
         auto const screen = find_screen(driver, screen_arg);
         auto const mode = find_mode(driver, screen, mode_arg);
 

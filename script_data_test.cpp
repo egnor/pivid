@@ -41,8 +41,16 @@ TEST_CASE("from_json") {
       "standby_layers": [
         {
           "media": "standby_layer",
-          "time": {"t": [0, 100], "x": [0, 10, 90, 100]},
-          "opacity": {"t": [0, 100], "x": [0, 100], "rate": [0.2, -0.1]}
+          "time": {
+              "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30Z"],
+              "x": [0, 10, 90, 100]
+          },
+          "opacity": {
+              "t": ["2020-03-01T12:01:00Z"],
+              "len": 100,
+              "x": [0, 100],
+              "rate": [0.2, -0.1]
+          }
         }
       ]
     })**"_json;
@@ -110,8 +118,8 @@ TEST_CASE("from_json") {
     CHECK(standby.media == "standby_layer");
 
     REQUIRE(standby.time.segments.size() == 1);
-    CHECK(standby.time.segments[0].begin_t == 0);
-    CHECK(standby.time.segments[0].end_t == 100);
+    CHECK(standby.time.segments[0].begin_t == 1583064000);
+    CHECK(standby.time.segments[0].end_t == 1583064000 + 90);
     CHECK(standby.time.segments[0].begin_x == 0);
     CHECK(standby.time.segments[0].p1_x == 10);
     CHECK(standby.time.segments[0].p2_x == 90);
@@ -127,8 +135,8 @@ TEST_CASE("from_json") {
     CHECK(standby.to_size.y.segments.empty());
 
     REQUIRE(standby.opacity.segments.size() == 1);
-    CHECK(standby.opacity.segments[0].begin_t == 0);
-    CHECK(standby.opacity.segments[0].end_t == 100);
+    CHECK(standby.opacity.segments[0].begin_t == 1583064000 + 60);
+    CHECK(standby.opacity.segments[0].end_t == 1583064000 + 60 + 100);
     CHECK(standby.opacity.segments[0].begin_x == 0);
     CHECK(standby.opacity.segments[0].p1_x == Approx(20.0 / 3));
     CHECK(standby.opacity.segments[0].p2_x == Approx(100.0 + 10.0 / 3));

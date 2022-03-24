@@ -127,12 +127,15 @@ class UnixSystem {
 // Returns the singleton Unix access interface.
 std::shared_ptr<UnixSystem> global_system();
 
+// Date parser.
+SystemTime parse_system_time(std::string const&);
+std::string format_system_time(SystemTime);
+
 // Debugging descriptions of values.
 std::string debug(Seconds);
 std::string debug(Interval<Seconds>);
 std::string debug(IntervalSet<Seconds> const&);
-
 std::string debug(SteadyTime);
-// TODO add SystemTime
+std::string debug(SystemTime t);
 
 }  // namespace pivid

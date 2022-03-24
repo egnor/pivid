@@ -28,14 +28,15 @@ class FramePlayer {
     // The signal (if any) is set when frames are shown.
     virtual void set_timeline(Timeline, std::shared_ptr<ThreadSignal> = {}) = 0;
 
-    // Returns the *scheduled* time of the most recently played frame.
-    // (TODO: Make the actual time it was displayed also available.)
+    // Returns the *scheduled* time of the most recently shown frame.
+    // (TODO: Make DisplayOutputDone also available.)
     virtual SteadyTime last_shown() const = 0;
 };
 
 // Creates a frame player instance for a given driver and screen.
 std::unique_ptr<FramePlayer> start_frame_player(
-    std::shared_ptr<UnixSystem>, DisplayDriver*, uint32_t id, DisplayMode
+    std::shared_ptr<DisplayDriver>, uint32_t screen_id, DisplayMode,
+    std::shared_ptr<UnixSystem> = global_system()
 );
 
 }  // namespace pivid
