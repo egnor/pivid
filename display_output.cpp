@@ -1121,7 +1121,8 @@ std::unique_ptr<DisplayDriver> open_display_driver(
 
 double DisplayMode::actual_hz() const {
     if (!scan_size.x || !scan_size.y) return 0;
-    return (pixel_khz >> doubling.y) * 1000.0 / scan_size.x / scan_size.y;
+    double const raw_hz = pixel_khz * 1000.0 / scan_size.x / scan_size.y;
+    return raw_hz * (doubling.y < 0 ? 2.0 : doubling.y > 0 ? 0.5 : 1.0);
 }
 
 std::string debug(DisplayDriverListing const& d) {
