@@ -11,15 +11,15 @@ namespace pivid {
 TEST_CASE("bezier_value_at") {
     BezierSpline bz = {};
     bz.segments.push_back({
-        .begin_t = 1.0, .end_t = 4.0,
+        .t = {1.0, 4.0},
         .begin_x = 10.0, .p1_x = 20.0, .p2_x = 30.0, .end_x = 40.0,
     });
     bz.segments.push_back({
-        .begin_t = 5.0, .end_t = 8.0,
+        .t = {5.0, 8.0},
         .begin_x = 10.0, .p1_x = 30.0, .p2_x = 50.0, .end_x = 40.0,
     });
     bz.segments.push_back({
-        .begin_t = 11.0, .end_t = std::numeric_limits<double>::infinity(),
+        .t = {11.0, std::numeric_limits<double>::infinity()},
         .begin_x = 50.0, .p1_x = 60.0, .p2_x = 70.0, .end_x = 80.0,
     });
 
@@ -77,29 +77,29 @@ TEST_CASE("bezier_value_at") {
     }
 }
 
-TEST_CASE("bezier_minmax_over") {
+TEST_CASE("bezier_range_over") {
     BezierSpline bz = {};
     bz.segments.push_back({
-        .begin_t = -2.0, .end_t = 2.0,
+        .t = {-2.0, 2.0},
         .begin_x = 10.0, .p1_x = -10.0, .p2_x = 50.0, .end_x = 40.0,
     });
     bz.segments.push_back({
-        .begin_t = 2.0, .end_t = 6.0,
+        .t = {2.0, 6.0},
         .begin_x = 40.0, .p1_x = 30.0, .p2_x = 20.0, .end_x = 10.0,
     });
 
-    for (double from_t = -2.5; from_t < 6.5; from_t += 0.1999) {
-        for (double to_t = from_t - 0.5; to_t < 7.0; to_t += 0.1999) {
-            CAPTURE(from_t);
-            CAPTURE(to_t);
+    for (double t_begin = -2.5; t_begin < 6.5; t_begin += 0.1999) {
+        for (double t_end = t_begin - 0.5; t_end < 7.0; t_end += 0.1999) {
+            CAPTURE(t_begin);
+            CAPTURE(t_end);
 
-            auto minmax = bezier_minmax_over(bz, from_t, to_t);
-            if (to_t < -2.0 || from_t > 6.0 || to_t < from_t) {
+            auto minmax = bezier_range_over(bz, {t_begin, t_end});
+            if (t_end < -2.0 || t_begin > 6.0 || t_end < t_begin) {
                 CHECK(minmax.empty());
             } else {
-                REQUIRE(minmax.size() == 1);
+                REQUIRE(minmax.count() == 1);
                 double min = 100, max = -100;
-                for (double t = from_t; t <= to_t; t += 0.00999) {
+                for (double t = t_begin; t <= t_end; t += 0.00999) {
                     auto const maybe_x = bezier_value_at(bz, t);
                     if (maybe_x) {
                         min = std::min(min, *maybe_x);
@@ -107,9 +107,9 @@ TEST_CASE("bezier_minmax_over") {
                     }
                 }
 
-                auto const& mm = minmax[0];
-                CHECK(mm.first == doctest::Approx(min).epsilon(0.1));
-                CHECK(mm.second == doctest::Approx(max).epsilon(0.1));
+                auto const& mm = *minmax.begin();
+                CHECK(mm.begin == doctest::Approx(min).epsilon(0.1));
+                CHECK(mm.end == doctest::Approx(max).epsilon(0.1));
             }
         }
     }

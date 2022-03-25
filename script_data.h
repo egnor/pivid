@@ -10,9 +10,14 @@
 
 namespace pivid {
 
+struct ScriptMedia {
+    std::string file;
+    BezierSpline play;
+    double buffer = 0.2;
+};
+
 struct ScriptLayer {
-    std::string media;
-    BezierSpline time;
+    ScriptMedia media;
     XY<BezierSpline> from_xy, from_size;
     XY<BezierSpline> to_xy, to_size;
     BezierSpline opacity;
@@ -25,7 +30,7 @@ struct ScriptScreen {
 
 struct Script {
     std::map<std::string, ScriptScreen> screens;
-    std::vector<ScriptLayer> standby_layers;
+    std::vector<ScriptMedia> standbys;
 };
 
 void from_json(nlohmann::json const&, Script&);

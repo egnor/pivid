@@ -68,7 +68,7 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
             sign(DRM_MODE_FLAG_INTERLACE, DRM_MODE_FLAG_DBLSCAN),
         },
         .pixel_khz = int(drm.clock), 
-        .refresh_hz = int(drm.vrefresh), 
+        .nominal_hz = int(drm.vrefresh), 
     };
 }
 
@@ -85,7 +85,7 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
         .vsync_end = uint16_t(mode.sync_end.y),
         .vtotal = uint16_t(mode.scan_size.y),
         .vscan = uint16_t(mode.doubling.y ? 2 : 1),
-        .vrefresh = uint32_t(mode.refresh_hz),
+        .vrefresh = uint32_t(mode.nominal_hz),
         .flags = uint32_t(
             (mode.sync_polarity.x > 0 ? DRM_MODE_FLAG_PHSYNC : 0) |
             (mode.sync_polarity.x < 0 ? DRM_MODE_FLAG_NHSYNC : 0) |
@@ -484,7 +484,7 @@ class DisplayDriverDef : public DisplayDriver {
         if (crtc && crtc->pending_flip)
             throw std::invalid_argument("Update requested before prev done");
 
-        if (!crtc && !mode.refresh_hz) {
+        if (!crtc && !mode.nominal_hz) {
             TRACE(logger, "> (output remains off, no change)");
             return;
         }
@@ -506,7 +506,7 @@ class DisplayDriverDef : public DisplayDriver {
         Crtc::State next = {};
         int32_t writeback_fence_fd = -1;
 
-        if (!mode.refresh_hz) {
+        if (!mode.nominal_hz) {
             logger->debug("{} :: [turning off]", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
             props[crtc->id][&crtc->ACTIVE] = 0;
@@ -1127,10 +1127,10 @@ std::string debug(DisplayDriverListing const& d) {
 }
 
 std::string debug(DisplayMode const& m) {
-    if (!m.refresh_hz) return "OFF";
+    if (!m.nominal_hz) return "OFF";
     return fmt::format(
         "{:5.1f}MHz{} {:3}[{:3}{}]{:<3} {:>4}x"
-        "{:4}{} {:2}[{:2}{}]{:<2} {:2}Hz \"{}\"",
+        "{:4}{} {:2}[{:2}{}]{:<2} {:6.3f}Hz \"{}\"",
         m.pixel_khz / 1024.0,
         m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "  ",
         m.sync_start.x - m.size.x,
@@ -1144,7 +1144,7 @@ std::string debug(DisplayMode const& m) {
         m.sync_end.y - m.sync_start.y,
         m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : " ",
         m.scan_size.y - m.sync_end.y,
-        m.refresh_hz,
+        m.actual_hz(),
         m.name
     );
 }

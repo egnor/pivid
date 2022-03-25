@@ -28,7 +28,12 @@ struct DisplayMode {
     XY<int> sync_polarity;  // Horiz / vert sync polarity (+1 / -1)
     XY<int> doubling;       // Clock doubling / doublescan / interlace (+1 / -1)
     int pixel_khz = 0;      // Basic pixel clock
-    int refresh_hz = 0;     // Refresh rate (like 30 or 60)
+    int nominal_hz = 0;     // Approx refresh rate (like 30 or 60)
+
+    double actual_hz() const {
+        if (!scan_size.x || !scan_size.y) return 0;
+        return pixel_khz * 1000.0 / scan_size.x / scan_size.y;
+    }
 };
 
 // Current screen state and recommended modes based on monitor data (EDID).

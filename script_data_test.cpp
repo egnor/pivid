@@ -19,10 +19,9 @@ TEST_CASE("from_json") {
         "full_screen": {
           "mode": "1920x1080",
           "layers": [
-            {"media": "empty_layer"},
+            {"media": {"file": "empty_layer"}},
             {
-              "media": "full_layer",
-              "time": {"t": 1, "rate": 2},
+              "media": {"file": "full_layer", "play": {"t": 1, "rate": 2}},
               "from_xy": [100, 200],
               "from_size": [300, 400],
               "to_xy": [500, 600],
@@ -38,18 +37,12 @@ TEST_CASE("from_json") {
           ]
         }
       },
-      "standby_layers": [
+      "standbys": [
         {
-          "media": "standby_layer",
-          "time": {
-              "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30Z"],
-              "x": [0, 10, 90, 100]
-          },
-          "opacity": {
-              "t": ["2020-03-01T12:01:00Z"],
-              "len": 100,
-              "x": [0, 100],
-              "rate": [0.2, -0.1]
+          "file": "standby",
+          "play": {
+            "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30Z"],
+            "x": [0, 10, 90, 100]
           }
         }
       ]
@@ -65,18 +58,18 @@ TEST_CASE("from_json") {
     auto const& screen = script.screens["full_screen"];
     CHECK(screen.mode == "1920x1080");
     REQUIRE(screen.layers.size() == 2);
-    CHECK(screen.layers[0].media == "empty_layer");
-    CHECK(screen.layers[0].time.segments.empty());
+    CHECK(screen.layers[0].media.file == "empty_layer");
+    CHECK(screen.layers[0].media.play.segments.empty());
 
-    CHECK(screen.layers[1].media == "full_layer");
-    REQUIRE(screen.layers[1].time.segments.size() == 1);
-    CHECK(screen.layers[1].time.repeat == 0.0);
-    CHECK(screen.layers[1].time.segments[0].begin_t == 1);
-    CHECK(screen.layers[1].time.segments[0].end_t == 1e12 + 1);
-    CHECK(screen.layers[1].time.segments[0].begin_x == 0);
-    CHECK(screen.layers[1].time.segments[0].p1_x == Approx(2e12 / 3));
-    CHECK(screen.layers[1].time.segments[0].p2_x == Approx(2e12 * 2 / 3));
-    CHECK(screen.layers[1].time.segments[0].end_x == 2e12);
+    CHECK(screen.layers[1].media.file == "full_layer");
+    REQUIRE(screen.layers[1].media.play.segments.size() == 1);
+    CHECK(screen.layers[1].media.play.repeat == 0.0);
+    CHECK(screen.layers[1].media.play.segments[0].t.begin == 1);
+    CHECK(screen.layers[1].media.play.segments[0].t.end == 1e12 + 1);
+    CHECK(screen.layers[1].media.play.segments[0].begin_x == 0);
+    CHECK(screen.layers[1].media.play.segments[0].p1_x == Approx(2e12 / 3));
+    CHECK(screen.layers[1].media.play.segments[0].p2_x == Approx(2e12 * 2 / 3));
+    CHECK(screen.layers[1].media.play.segments[0].end_x == 2e12);
 
     REQUIRE(screen.layers[1].from_xy.x.segments.size() == 1);
     REQUIRE(screen.layers[1].from_xy.y.segments.size() == 1);
@@ -87,8 +80,8 @@ TEST_CASE("from_json") {
     REQUIRE(screen.layers[1].to_size.x.segments.size() == 1);
     REQUIRE(screen.layers[1].to_size.y.segments.size() == 1);
 
-    CHECK(screen.layers[1].from_xy.x.segments[0].begin_t == 0);
-    CHECK(screen.layers[1].from_xy.x.segments[0].end_t == 1e12);
+    CHECK(screen.layers[1].from_xy.x.segments[0].t.begin == 0);
+    CHECK(screen.layers[1].from_xy.x.segments[0].t.end == 1e12);
     CHECK(screen.layers[1].from_xy.x.segments[0].begin_x == 100);
     CHECK(screen.layers[1].from_xy.x.segments[0].p1_x == 100);
     CHECK(screen.layers[1].from_xy.x.segments[0].p2_x == 100);
@@ -100,47 +93,30 @@ TEST_CASE("from_json") {
 
     REQUIRE(screen.layers[1].opacity.segments.size() == 2);
     CHECK(screen.layers[1].opacity.repeat == 10.0);
-    CHECK(screen.layers[1].opacity.segments[0].begin_t == 0);
-    CHECK(screen.layers[1].opacity.segments[0].end_t == 5);
+    CHECK(screen.layers[1].opacity.segments[0].t.begin == 0);
+    CHECK(screen.layers[1].opacity.segments[0].t.end == 5);
     CHECK(screen.layers[1].opacity.segments[0].begin_x == 0);
     CHECK(screen.layers[1].opacity.segments[0].p1_x == Approx(1.0 / 3));
     CHECK(screen.layers[1].opacity.segments[0].p2_x == Approx(2.0 / 3));
     CHECK(screen.layers[1].opacity.segments[0].end_x == 1);
-    CHECK(screen.layers[1].opacity.segments[1].begin_t == 5);
-    CHECK(screen.layers[1].opacity.segments[1].end_t == 10);
+    CHECK(screen.layers[1].opacity.segments[1].t.begin == 5);
+    CHECK(screen.layers[1].opacity.segments[1].t.end == 10);
     CHECK(screen.layers[1].opacity.segments[1].begin_x == 1);
     CHECK(screen.layers[1].opacity.segments[1].p1_x == Approx(2.0 / 3));
     CHECK(screen.layers[1].opacity.segments[1].p2_x == Approx(1.0 / 3));
     CHECK(screen.layers[1].opacity.segments[1].end_x == 0);
 
-    REQUIRE(script.standby_layers.size() == 1);
-    auto const& standby = script.standby_layers[0];
-    CHECK(standby.media == "standby_layer");
+    REQUIRE(script.standbys.size() == 1);
+    auto const& standby = script.standbys[0];
+    CHECK(standby.file == "standby");
 
-    REQUIRE(standby.time.segments.size() == 1);
-    CHECK(standby.time.segments[0].begin_t == 1583064000);
-    CHECK(standby.time.segments[0].end_t == 1583064000 + 90);
-    CHECK(standby.time.segments[0].begin_x == 0);
-    CHECK(standby.time.segments[0].p1_x == 10);
-    CHECK(standby.time.segments[0].p2_x == 90);
-    CHECK(standby.time.segments[0].end_x == 100);
-
-    CHECK(standby.from_xy.x.segments.empty());
-    CHECK(standby.from_xy.y.segments.empty());
-    CHECK(standby.from_size.x.segments.empty());
-    CHECK(standby.from_size.y.segments.empty());
-    CHECK(standby.to_xy.x.segments.empty());
-    CHECK(standby.to_xy.y.segments.empty());
-    CHECK(standby.to_size.x.segments.empty());
-    CHECK(standby.to_size.y.segments.empty());
-
-    REQUIRE(standby.opacity.segments.size() == 1);
-    CHECK(standby.opacity.segments[0].begin_t == 1583064000 + 60);
-    CHECK(standby.opacity.segments[0].end_t == 1583064000 + 60 + 100);
-    CHECK(standby.opacity.segments[0].begin_x == 0);
-    CHECK(standby.opacity.segments[0].p1_x == Approx(20.0 / 3));
-    CHECK(standby.opacity.segments[0].p2_x == Approx(100.0 + 10.0 / 3));
-    CHECK(standby.opacity.segments[0].end_x == 100);
+    REQUIRE(standby.play.segments.size() == 1);
+    CHECK(standby.play.segments[0].t.begin == 1583064000);
+    CHECK(standby.play.segments[0].t.end == 1583064000 + 90);
+    CHECK(standby.play.segments[0].begin_x == 0);
+    CHECK(standby.play.segments[0].p1_x == 10);
+    CHECK(standby.play.segments[0].p2_x == 90);
+    CHECK(standby.play.segments[0].end_x == 100);
 }
 
 }  // namespace pivid

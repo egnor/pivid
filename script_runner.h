@@ -12,7 +12,7 @@ namespace pivid {
 class ScriptRunner {
   public:
     virtual ~ScriptRunner() = default;
-    virtual void update(Script const&) = 0;
+    virtual void update(Script const&, std::shared_ptr<ThreadSignal> = {}) = 0;
 };
 
 std::unique_ptr<ScriptRunner> make_script_runner(

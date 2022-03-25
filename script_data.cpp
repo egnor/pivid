@@ -36,8 +36,7 @@ static double parse_json_time(json const& j) {
 
 void from_json(json const& j, BezierSegment& seg) {
     if (j.is_number()) {
-        seg.begin_t = 0.0;
-        seg.end_t = 1e12;
+        seg.t = {0.0, 1e12};
         seg.begin_x = seg.p1_x = seg.p2_x = seg.end_x = j.get<double>();
         return;
     }
@@ -46,19 +45,17 @@ void from_json(json const& j, BezierSegment& seg) {
 
     auto const t_j = j.value("t", json{});
     if (t_j.empty()) {
-        seg.begin_t = 0.0;
-        seg.end_t = j.value("len", 1e12);
+        seg.t = {0.0, j.value("len", 1e12)};
     } else if (t_j.is_number() || (t_j.is_array() && t_j.size() == 1)) {
-        seg.begin_t = parse_json_time(t_j.is_array() ? t_j.at(0) : t_j);
-        seg.end_t = seg.begin_t + j.value("len", 1e12);
+        seg.t.begin = parse_json_time(t_j.is_array() ? t_j.at(0) : t_j);
+        seg.t.end = seg.t.begin + j.value("len", 1e12);
     } else if (t_j.is_array() && t_j.size() == 2) {
-        seg.begin_t = parse_json_time(t_j.at(0));
-        seg.end_t = parse_json_time(t_j.at(1));
+        seg.t = {parse_json_time(t_j.at(0)), parse_json_time(t_j.at(1))};
     } else {
         throw std::runtime_error("Bad segment \"t\": " + j.dump());
     }
 
-    double const dt = seg.end_t - seg.begin_t;
+    double const dt = seg.t.end - seg.t.begin;
     if (dt < 0.0)
         throw std::runtime_error("Bad segment times: " + j.dump());
 
@@ -111,10 +108,16 @@ void from_json(json const& j, BezierSpline& bezier) {
     }
 }
 
+void from_json(json const& j, ScriptMedia& media) {
+    if (!j.count("file")) throw std::runtime_error("No file: " + j.dump());
+    j.at("file").get_to(media.file);
+    j.value("play", json{}).get_to(media.play);
+}
+
 void from_json(json const& j, ScriptLayer& layer) {
     if (!j.is_object()) throw std::runtime_error("Bad layer: " + j.dump());
+    if (!j.count("media")) throw std::runtime_error("No media: " + j.dump());
     j.at("media").get_to(layer.media);
-    j.value("time", json{}).get_to(layer.time);
     j.value("from_xy", json{}).get_to(layer.from_xy);
     j.value("from_size", json{}).get_to(layer.from_size);
     j.value("to_xy", json{}).get_to(layer.to_xy);
@@ -132,7 +135,7 @@ void from_json(json const& j, Script& script) {
     script = {};
     if (!j.is_object()) throw std::runtime_error("Bad script: " + j.dump());
     j.value("screens", json::object()).get_to(script.screens);
-    j.value("standby_layers", json::array()).get_to(script.standby_layers);
+    j.value("standbys", json::array()).get_to(script.standbys);
 }
 
 }  // namespace pivid

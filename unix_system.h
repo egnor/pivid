@@ -40,7 +40,7 @@ struct [[nodiscard]] ErrnoOr {
     int err = 0;
     T value = {};
 
-    // Throws for nonzero errno (with text), or returns value.
+    // Throws std::system_error (with text) for nonzero errno, or returns value.
     T ex(std::string_view what) const& { check(what); return value; }
     T ex(std::string_view what) && { check(what); return std::move(value); }
     void check(std::string_view what) const {
