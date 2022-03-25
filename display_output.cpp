@@ -92,6 +92,7 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
             (mode.sync_polarity.y > 0 ? DRM_MODE_FLAG_PVSYNC : 0) |
             (mode.sync_polarity.y < 0 ? DRM_MODE_FLAG_NVSYNC : 0) |
             (mode.doubling.y < 0 ? DRM_MODE_FLAG_INTERLACE : 0) |
+            (mode.doubling.y > 0 ? DRM_MODE_FLAG_DBLSCAN : 0) |
             (mode.doubling.x > 0 ? DRM_MODE_FLAG_DBLCLK : 0) |
             (mode.doubling.x < 0 ? DRM_MODE_FLAG_CLKDIV2 : 0)
         ),
@@ -1118,6 +1119,11 @@ std::unique_ptr<DisplayDriver> open_display_driver(
 // Debugging utilities 
 //
 
+double DisplayMode::actual_hz() const {
+    if (!scan_size.x || !scan_size.y) return 0;
+    return (pixel_khz >> doubling.y) * 1000.0 / scan_size.x / scan_size.y;
+}
+
 std::string debug(DisplayDriverListing const& d) {
     return fmt::format(
         "{} ({}): {}{}",
@@ -1131,7 +1137,7 @@ std::string debug(DisplayMode const& m) {
     return fmt::format(
         "{:5.1f}MHz{} {:3}[{:3}{}]{:<3} {:>4}x"
         "{:4}{} {:2}[{:2}{}]{:<2} {:6.3f}Hz \"{}\"",
-        m.pixel_khz / 1024.0,
+        m.pixel_khz / 1000.0,
         m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "  ",
         m.sync_start.x - m.size.x,
         m.sync_end.x - m.sync_start.x,

@@ -32,9 +32,8 @@ class ScriptRunnerDef : public ScriptRunner {
             auto *output = &new_outputs[connector];
 
             auto output_it = outputs.find(connector);
-            if (output_it != outputs.end()) {
+            if (output_it != outputs.end())
                 *output = std::move(output_it->second);
-            }
 
             if (!output->player || screen.mode != output->mode) {
                 if (display_screens.empty())
@@ -67,6 +66,8 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
 
                 output->mode = screen.mode;
+                output->refresh_time = Seconds(1.0) / screen_mode.actual_hz();
+                output->start_time = steady_t;
                 output->player.reset();
                 output->player = player_f(screen_id, screen_mode);
             }
@@ -98,6 +99,8 @@ class ScriptRunnerDef : public ScriptRunner {
   private:
     struct Output {
         std::string mode;
+        Seconds refresh_time = {};
+        SteadyTime start_time = {};
         std::unique_ptr<FramePlayer> player;
     };
 
