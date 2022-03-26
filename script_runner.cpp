@@ -23,13 +23,21 @@ class ScriptRunnerDef : public ScriptRunner {
         Script const& script,
         std::shared_ptr<ThreadSignal> signal
     ) {
+        DEBUG(logger, "UPDATE");
         auto const steady_t = sys->steady_time();
         auto const system_t = sys->system_time();
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, screen] : script.screens) {
             auto *output = &outputs[connector];
-            if (!output->player || screen.mode != output->mode) {
+            if (output->player && screen.mode == output->mode) {
+                TRACE(logger, "> use {} player: {}", connector, screen.mode);
+            } else {
+                DEBUG(
+                    logger, "> {} {} player: {}",
+                    output->player ? "reset" : "start", connector, screen.mode
+                );
+
                 if (display_screens.empty())
                     display_screens = driver->scan_screens();
 
@@ -74,16 +82,28 @@ class ScriptRunnerDef : public ScriptRunner {
             for (size_t li = 0; li < screen.layers.size(); ++li) {
                 auto const& layer = screen.layers[li];
                 auto* input = &inputs[layer.media.file];
+                TRACE(logger, ">> layer \"{}\"", layer.media.file);
+
                 double const raw_sys_t = system_t.time_since_epoch().count();
                 Interval<double> buf{raw_sys_t, raw_sys_t + layer.media.buffer};
-                for (auto const& r : bezier_range_over(layer.media.play, buf))
-                    input->request.insert({Seconds(r.begin), Seconds(r.end)});
+                for (auto const& r : bezier_range_over(layer.media.play, buf)) {
+                    Interval range{Seconds(r.begin), Seconds(r.end)};
+                    TRACE(logger, ">>> want {}", debug(range));
+                    input->request.insert(range);
+                }
 
-                if (!input->loader) continue;
-                if (!input->content) input->content = input->loader->content();
+                if (!input->content) {
+                    if (!input->loader) continue;
+                    input->content = input->loader->content();
+                }
+                TRACE(logger, ">>> have {}", debug(input->content->have));
 
+                int frame_count = 0, unique_count = 0;
+                std::shared_ptr<LoadedImage> last_image = {};
+
+                SteadyTime output_t;
                 for (
-                    auto output_t = output->next_refresh;
+                    output_t = output->next_refresh;
                     output_t < steady_t + Seconds(layer.media.buffer);
                     output_t += output->refresh_period
                 ) {
@@ -114,7 +134,19 @@ class ScriptRunnerDef : public ScriptRunner {
                     display.to_size.y = get(layer.to_xy.y, output->size.y);
                     display.opacity = get(layer.opacity, 1);
                     timeline[output_t].push_back(std::move(display));
+
+                    ++frame_count;
+                    if (display.image != last_image) {
+                        ++unique_count;
+                        last_image = display.image;
+                    }
                 }
+
+                TRACE(
+                    logger, ">>> add {}fr ({}im) {}~{}",
+                    frame_count, unique_count,
+                    debug(output->next_refresh), debug(output_t)
+                );
             }
 
             output->player->set_timeline(timeline, signal);
@@ -122,18 +154,31 @@ class ScriptRunnerDef : public ScriptRunner {
 
         for (const auto& standby : script.standbys) {
             auto* input = &inputs[standby.file];
+            TRACE(logger, ">> standby \"{}\"", standby.file);
+
             double const raw_sys_t = system_t.time_since_epoch().count();
             Interval<double> buf{raw_sys_t, raw_sys_t + standby.buffer};
-            for (auto const& r : bezier_range_over(standby.play, buf))
-                input->request.insert({Seconds(r.begin), Seconds(r.end)});
+            auto const range = bezier_range_over(standby.play, buf);
+            for (auto const& r : bezier_range_over(standby.play, buf)) {
+                Interval range{Seconds(r.begin), Seconds(r.end)};
+                TRACE(logger, ">>> want {}", debug(range));
+                input->request.insert(range);
+            }
         }
 
         auto input_it = inputs.begin();
         while (input_it != inputs.end()) {
             if (input_it->second.request.empty()) {
+                DEBUG(logger, "> drop \"{}\" loader", input_it->first);
                 input_it = inputs.erase(input_it);
             } else {
                 auto *input = &input_it->second;
+                DEBUG(
+                    logger, "> {} \"{}\" loader",
+                    input->loader ? "use" : "start", input_it->first
+                );
+                DEBUG(logger, ">> request {}", debug(input->request));
+
                 if (!input->loader) input->loader = loader_f(input_it->first);
                 input->loader->set_request(input->request, signal);
                 input->request = {};
@@ -145,6 +190,7 @@ class ScriptRunnerDef : public ScriptRunner {
         auto output_it = outputs.begin();
         while (output_it != outputs.end()) {
             if (output_it->second.next_refresh < steady_t) {
+                DEBUG(logger, "> drop {} player", output_it->first);
                 output_it = outputs.erase(output_it);
             } else {
                 ++output_it;
