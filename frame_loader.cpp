@@ -50,25 +50,37 @@ class FrameLoaderDef : public FrameLoader {
             // Remove no-longer-wanted frames & have-regions
             auto to_erase = out.have;
             for (auto const& want : wanted) {
-                auto keep_end = want.end;
+                // Keep up to one frame before/after, so every instant of each
+                // wanted interval has a frame, and so skipahead loads are OK
+                auto keep = want;
 
-                // Keep one loaded frame past the end of each wanted interval
-                // (stop at the second frame) to handle skipahead frames.
-                auto const tail_have = out.have.overlap_begin(want.end);
-                if (tail_have != out.have.overlap_end(want.end)) {
-                    ASSERT(tail_have->end >= want.end);
-                    keep_end = tail_have->end;
-                    auto tail_frame = out.frames.lower_bound(want.end);
-                    if (tail_frame != out.frames.end()) {
-                        ++tail_frame;
-                        if (tail_frame != out.frames.end()) {
-                            ASSERT(tail_frame->first >= want.end);
-                            keep_end = std::min(keep_end, tail_frame->first);
+                auto const begin_have = out.have.overlap_begin(want.begin);
+                if (begin_have != out.have.overlap_end(want.begin)) {
+                    ASSERT(begin_have->begin <= want.begin);
+                    keep.begin = begin_have->begin;
+                    auto begin_frame = out.frames.upper_bound(want.begin);
+                    if (begin_frame != out.frames.begin()) {
+                        --begin_frame;
+                        ASSERT(begin_frame->first <= want.begin);
+                        keep.begin = std::max(keep.begin, begin_frame->first);
+                    }
+                }
+
+                auto const end_have = out.have.overlap_begin(want.end);
+                if (end_have != out.have.overlap_end(want.end)) {
+                    ASSERT(end_have->end >= want.end);
+                    keep.end = end_have->end;
+                    auto end_frame = out.frames.lower_bound(want.end);
+                    if (end_frame != out.frames.end()) {
+                        ++end_frame;
+                        if (end_frame != out.frames.end()) {
+                            ASSERT(end_frame->first >= want.end);
+                            keep.end = std::min(keep.end, end_frame->first);
                         }
                     }
                 }
 
-                to_erase.erase({want.begin, keep_end});
+                to_erase.erase(keep);
             }
 
             if (!to_erase.empty()) {
@@ -230,7 +242,7 @@ class FrameLoaderDef : public FrameLoader {
 
             //
             // Do actual blocking work
-            // (releasing the lock; request state may change!)
+            // (the lock is released; request state may change!)
             //
 
             int changes = 0;
@@ -290,20 +302,14 @@ class FrameLoaderDef : public FrameLoader {
                 } else {
                     begin_pos = std::min(begin_pos, frame->time.begin);
                     end_pos = std::max(end_pos, frame->time.end);
-
                     DEBUG(logger, "{}~{}", debug(begin_pos), debug(*frame));
 
                     auto const wi = wanted.overlap_begin(begin_pos);
                     if (wi == wanted.overlap_end(end_pos)) {
                         TRACE(logger, "> frame old, discarded");
-                    } else if (begin_pos < wi->begin) {
-                        TRACE(logger, "> frame enters {}", debug(*wi));
-                        out.have.insert({wi->begin, end_pos});
-                        ++changes;
                     } else {
-                        TRACE(logger, "> frame inside {}", debug(*wi));
-                        auto const have_begin = std::max(wi->begin, begin_pos);
-                        out.have.insert({have_begin, end_pos});
+                        TRACE(logger, "> frame overlaps {}", debug(*wi));
+                        out.have.insert({begin_pos, end_pos});
                         out.frames[frame->time.begin] = std::move(image);
                         ++changes;
                     }

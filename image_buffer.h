@@ -53,7 +53,7 @@ class LoadedImage {
   public:
     virtual ~LoadedImage() = default;
     virtual uint32_t drm_id() const = 0;  // DRM framebuffer ID
-    virtual XY<int> size() const = 0;     // Dimensions
+    virtual XY<int> size() const = 0;     // Pixel dimensions
 };
 
 // Assembles a fourcc uint32_t from text (like "RGBA").

@@ -40,6 +40,7 @@ TEST_CASE("from_json") {
       "standbys": [
         {
           "file": "standby",
+          "buffer": 0.5,
           "play": {
             "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30Z"],
             "x": [0, 10, 90, 100]
@@ -60,6 +61,7 @@ TEST_CASE("from_json") {
     REQUIRE(screen.layers.size() == 2);
     CHECK(screen.layers[0].media.file == "empty_layer");
     CHECK(screen.layers[0].media.play.segments.empty());
+    CHECK(screen.layers[0].media.buffer == 0.2);
 
     CHECK(screen.layers[1].media.file == "full_layer");
     REQUIRE(screen.layers[1].media.play.segments.size() == 1);
@@ -109,6 +111,7 @@ TEST_CASE("from_json") {
     REQUIRE(script.standbys.size() == 1);
     auto const& standby = script.standbys[0];
     CHECK(standby.file == "standby");
+    CHECK(standby.buffer == 0.5);
 
     REQUIRE(standby.play.segments.size() == 1);
     CHECK(standby.play.segments[0].t.begin == 1583064000);

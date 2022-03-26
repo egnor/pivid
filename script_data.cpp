@@ -112,6 +112,7 @@ void from_json(json const& j, ScriptMedia& media) {
     if (!j.count("file")) throw std::runtime_error("No file: " + j.dump());
     j.at("file").get_to(media.file);
     j.value("play", json{}).get_to(media.play);
+    media.buffer = j.value("buffer", media.buffer);
 }
 
 void from_json(json const& j, ScriptLayer& layer) {
