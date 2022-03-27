@@ -19,17 +19,14 @@ bool lt_begin(double const t, BezierSegment const& seg) {
 
 double segment_value_at(BezierSegment const& seg, double t) {
     double const t_len = seg.t.end - seg.t.begin;
-    if (t_len < 0) {
-        throw std::invalid_argument(
-            fmt::format("Bad Bezier: bt={} > et={}", seg.t.begin, seg.t.end)
-        );
-    }
-
-    if (t < seg.t.begin || t > seg.t.end) {
-        throw std::invalid_argument(
-            fmt::format("Bad eval: bt={} t={} et={}", seg.t.begin, t, seg.t.end)
-        );
-    }
+    CHECK_ARG(
+        t_len >= 0,
+        "Bad Bezier: bt={} > et={}", seg.t.begin, seg.t.end
+    );
+    CHECK_ARG(
+        seg.t.begin <= t && t <= seg.t.end,
+        "Bad eval: bt={} t={} et={}", seg.t.begin, t, seg.t.end
+    );
 
     if (t_len <= 0) return 0.5 * (seg.begin_x + seg.end_x);
     double const f = (t - seg.t.begin) / t_len;
@@ -104,9 +101,8 @@ std::optional<double> bezier_value_at(BezierSpline const& bez, double t) {
     auto const after = std::upper_bound(segs.begin(), segs.end(), t, lt_begin);
     if (after == bez.segments.begin()) return {};
     BezierSegment const& seg = *std::prev(after);
+    ASSERT(t >= seg.t.begin);
     if (t > seg.t.end) return {};
-    if (t < seg.t.begin)
-        throw std::logic_error(fmt::format("{} < {}", t, seg.t.begin));
     return segment_value_at(seg, t);
 }
 

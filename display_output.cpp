@@ -251,8 +251,10 @@ class LoadedImageDef : public LoadedImage {
         fdat.flags = DRM_MODE_FB_MODIFIERS;
 
         size_t const max_channels = std::extent_v<decltype(fdat.handles)>;
-        if (im.channels.size() > max_channels)
-            throw std::length_error("Too many image channels for DRM");
+        CHECK_ARG(
+            im.channels.size() <= max_channels,
+            "Too many image channels ({}) for DRM", im.channels.size()
+        );
 
         std::vector<std::unique_ptr<DrmBufferImport>> imports;
         for (size_t ci = 0; ci < im.channels.size(); ++ci) {
@@ -359,24 +361,22 @@ class DisplayDriverDef : public DisplayDriver {
             case fourcc("BGRA"):
             case fourcc("RGBA"): {
                 TRACE(logger, "> (premultiplying alpha...)");
-                if (im.channels.size() != 1) {
-                    throw std::invalid_argument(fmt::format(
-                        "Bad channel count ({}) for {}",
-                        im.channels.size(), debug_fourcc(im.fourcc)
-                    ));
-                }
+                CHECK_ARG(
+                    im.channels.size() == 1,
+                    "Bad channel count ({}) for {} image",
+                    im.channels.size(), debug_fourcc(im.fourcc)
+                );
 
                 auto const& chan = im.channels[0];
                 int const w = im.size.x, h = im.size.y;
                 size_t const min_size = chan.offset + chan.stride * h;
-                if (chan.memory->size() < min_size || chan.stride < 4 * w) {
-                    throw std::invalid_argument(fmt::format(
-                        "Bad buffer size ({}/{}) for {}x{} {} @{}",
-                        debug_size(chan.memory->size()),
-                        debug_size(chan.stride), w, h, debug_fourcc(im.fourcc),
-                        debug_size(chan.offset)
-                    ));
-                }
+                CHECK_ARG(
+                    chan.memory->size() >= min_size && chan.stride >= 4 * w,
+                    "Bad buffer size ({}/{}) for {}x{} {} @{}",
+                    debug_size(chan.memory->size()),
+                    debug_size(chan.stride), w, h, debug_fourcc(im.fourcc),
+                    debug_size(chan.offset)
+                );
 
                 auto buf = std::make_shared<DrmDumbBuffer>(fd, im.size, 32);
                 for (int y = 0; y < h; ++y) {
@@ -395,31 +395,28 @@ class DisplayDriverDef : public DisplayDriver {
 
             case fourcc("PAL\x08"): {
                 TRACE(logger, "> (expanding PAL8 to premultiplied rgbA...)");
-                if (im.channels.size() != 2) {
-                    throw std::invalid_argument(fmt::format(
-                        "Bad channel count ({}) for PAL8", im.channels.size()
-                    ));
-                }
+                CHECK_ARG(
+                    im.channels.size() == 2,
+                    "Bad channel count ({}) for PAL8 image", im.channels.size()
+                );
 
                 auto const& chan = im.channels[0];
                 int const w = im.size.x, h = im.size.y;
                 size_t const min_size = chan.offset + chan.stride * h;
-                if (chan.memory->size() < min_size || chan.stride < w) {
-                    throw std::invalid_argument(fmt::format(
-                        "Bad buffer size ({}/{}) for {}x{} PAL8 @{}",
-                        debug_size(chan.memory->size()),
-                        debug_size(chan.stride), w, h, debug_size(chan.offset)
-                    ));
-                }
+                CHECK_ARG(
+                    chan.memory->size() >= min_size && chan.stride >= w,
+                    "Bad buffer size ({}/{}) for {}x{} PAL8 @{}",
+                    debug_size(chan.memory->size()),
+                    debug_size(chan.stride), w, h, debug_size(chan.offset)
+                );
 
                 auto const& pch = im.channels[1];
                 size_t const min_pch_size = pch.offset + 256 * 4;
-                if (pch.memory->size() < min_pch_size) {
-                    throw std::invalid_argument(fmt::format(
-                        "Bad palette size ({}) for PAL8 @{}",
-                        debug_size(pch.memory->size()), debug_size(pch.offset)
-                    ));
-                }
+                CHECK_ARG(
+                    pch.memory->size() >= min_pch_size,
+                    "Bad palette size ({}) for PAL8 image @{}",
+                    debug_size(pch.memory->size()), debug_size(pch.offset)
+                );
 
                 // TODO: On big-endian, this would be ARGB.
                 // https://ffmpeg.org/doxygen/3.3/pixfmt_8h.html
@@ -482,8 +479,10 @@ class DisplayDriverDef : public DisplayDriver {
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
-        if (crtc && crtc->pending_flip)
-            throw std::invalid_argument("Update requested before prev done");
+        CHECK_ARG(
+            !crtc || !crtc->pending_flip,
+            "Update requested before prev done"
+        );
 
         if (!crtc && !mode.nominal_hz) {
             TRACE(logger, "> (output remains off, no change)");
@@ -493,12 +492,11 @@ class DisplayDriverDef : public DisplayDriver {
         if (!crtc) {
             for (auto* const c : conn->usable_crtcs) {
                 if (c->used_by_conn) continue;
-                if (c->pending_flip)
-                    throw std::logic_error("CRTC flip pending without conn");
+                ASSERT(!c->pending_flip);
                 crtc = c;
                 break;
             }
-            if (!crtc) throw std::runtime_error("No DRM CRTC: " + conn->name);
+            CHECK_RUNTIME(crtc, "No DRM CRTC: {}", conn->name);
         }
 
         // Build the atomic update and the state that will result.
@@ -557,8 +555,10 @@ class DisplayDriverDef : public DisplayDriver {
                 auto const& layer = layers[li];
                 uint64_t const wanted_type = li ? 0 : 1;
                 for (;; ++plane_iter) {
-                    if (plane_iter == crtc->usable_planes.end())
-                        throw std::runtime_error("No DRM plane: " + conn->name);
+                    CHECK_RUNTIME(
+                        plane_iter != crtc->usable_planes.end(),
+                        "No DRM plane: {}", conn->name
+                    );
 
                     if ((*plane_iter)->type.init_value != wanted_type) continue;
                     if ((*plane_iter)->used_by_crtc == crtc) break;
@@ -587,8 +587,8 @@ class DisplayDriverDef : public DisplayDriver {
 
                 if (plane->alpha.prop_id) {
                     (*plane_props)[&plane->alpha] = layer.opacity * 65535.0;
-                } else if (layer.opacity < 1.0) {
-                    throw std::runtime_error("Alpha property not supported");
+                } else {
+                    CHECK_RUNTIME(layer.opacity >= 1.0, "Alpha unsupported");
                 }
             }
         }
@@ -642,8 +642,7 @@ class DisplayDriverDef : public DisplayDriver {
         logger->debug("{} update committed", conn->name);
         crtc->pending_flip.emplace(std::move(next));
         for (auto* plane : crtc->pending_flip->using_planes) {
-            if (plane->used_by_crtc != crtc && plane->used_by_crtc != nullptr)
-                throw std::logic_error("Inconsistent CRTC/plane usage");
+            ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
             plane->used_by_crtc = crtc;
         }
 
@@ -919,22 +918,21 @@ class DisplayDriverDef : public DisplayDriver {
                 break;
             }
 
-            if (ret.ex("Read DRM event") != sizeof(ev))
-                throw std::runtime_error("Bad DRM event size");
+            auto const ev_len = ret.ex("Read DRM event");
+            CHECK_RUNTIME(ev_len == sizeof(ev), "Bad DRM event size");
             if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) {
                 TRACE(logger, "> (ignoring non-pageflip DRM event)");
                 continue;
             }
 
             auto* const crtc = &crtcs.at(ev.crtc_id);
-            if (!crtc->pending_flip || !crtc->used_by_conn) {
-                throw std::runtime_error(
-                    fmt::format("Unexpected DRM CRTC pageflip ({})", crtc->id)
-                );
-            }
+            CHECK_RUNTIME(
+                crtc->pending_flip && crtc->used_by_conn,
+                "Unexpected DRM CRTC pageflip ({})", crtc->id
+            );
 
             auto* conn = crtc->used_by_conn;
-            if (!conn) throw std::logic_error("Pending CRTC flip without conn");
+            ASSERT(conn);
 
             // TODO: Check for writeback fence, once it works
             // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
@@ -948,20 +946,17 @@ class DisplayDriverDef : public DisplayDriver {
             );
 
             if (!crtc->pending_flip->mode.vrefresh) {
-                if (conn->using_crtc != crtc)
-                    throw std::logic_error("Inconsistent conn/CRTC usage");
+                ASSERT(conn->using_crtc == crtc);
                 conn->using_crtc = nullptr;
                 crtc->used_by_conn = nullptr;
             }
 
             for (auto* plane : crtc->pending_flip->using_planes) {
-                if (plane->used_by_crtc != crtc)
-                    throw std::logic_error("Inconsistent CRTC/plane usage");
+                ASSERT(plane->used_by_crtc == crtc);
             }
 
             for (auto* plane : crtc->active.using_planes) {
-                if (plane->used_by_crtc != crtc)
-                    throw std::logic_error("Inconsistent CRTC/plane usage");
+                ASSERT(plane->used_by_crtc == crtc);
                 plane->used_by_crtc = nullptr;
             }
 
@@ -973,12 +968,11 @@ class DisplayDriverDef : public DisplayDriver {
     void lookup_required_prop_ids(uint32_t obj_id, PropId::Map* map) {
         lookup_prop_ids(obj_id, map);
         for (auto const name_propid : *map) {
-            if (!name_propid.second->prop_id) {
-                throw std::runtime_error(fmt::format(
-                    "DRM object #{} missing property \"{}\"",
-                    obj_id, name_propid.first
-                ));
-            }
+            CHECK_RUNTIME(
+                name_propid.second->prop_id,
+                "DRM object #{} missing property \"{}\"",
+                obj_id, name_propid.first
+            );
         }
     }
 
@@ -994,8 +988,10 @@ class DisplayDriverDef : public DisplayDriver {
             size_vec(&odat.prop_values_ptr, &odat.count_props, &values)
         );
 
-        if (prop_ids.size() != values.size())
-            throw std::runtime_error("Property list length mismatch");
+        CHECK_RUNTIME(
+            prop_ids.size() == values.size(),
+            "Property list length mismatch"
+        );
 
         for (size_t i = 0; i < prop_ids.size(); ++i) {
             auto const prop_id = prop_ids[i];
@@ -1052,12 +1048,10 @@ std::vector<DisplayDriverListing> list_display_drivers(
         listing.dev_file = fmt::format("{}/{}", dri_dir, fname);
 
         struct stat fstat = sys->stat(listing.dev_file).ex(listing.dev_file);
-        if ((fstat.st_mode & S_IFMT) != S_IFCHR) {
-            throw std::system_error(
-                std::make_error_code(std::errc::no_such_device),
-                listing.dev_file
-            );
-        }
+        CHECK_RUNTIME(
+            (fstat.st_mode & S_IFMT) == S_IFCHR,
+            "Not a character device node: {}", listing.dev_file
+        );
 
         std::unique_ptr<FileDescriptor> fd;
         try {
