@@ -162,11 +162,11 @@ SystemTime parse_system_time(std::string const& s) {
 
     SystemTime t = {};
     std::istringstream is{s};
-    is >> date::parse("%FT%TZ", t);
+    date::from_stream(is, "%FT%H:%M:%20SZ", t);
     if (!is.fail()) return t;
 
     std::istringstream is2{s};
-    is2 >> date::parse("%FT%T%Ez", t);
+    date::from_stream(is2, "%FT%H:%M:%20S%Ez", t);
     if (!is2.fail()) return t;
 
     throw std::runtime_error("Bad date: \"" + s + "\"");

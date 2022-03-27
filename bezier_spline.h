@@ -20,13 +20,10 @@ struct BezierSegment {
 // Piecewise-cubic Bezier function in x parameterized on t.
 struct BezierSpline {
     std::vector<BezierSegment> segments;  // Distinct & increasing in t.
-    double repeat = 0.0;                  // Repeat period if nonzero.
+    bool repeat = false;                  // Repeat after last segment?
+
+    std::optional<double> value(double t) const;
+    IntervalSet<double> range(Interval<double> t) const;
 };
-
-// These return f(t) from a Bezier segment or function, if t is in a segment.
-std::optional<double> bezier_value_at(BezierSpline const&, double t);
-
-// Returns range of f(t) for a Bezier function over an interval in t.
-IntervalSet<double> bezier_range_over(BezierSpline const&, Interval<double> t);
 
 }  // namespace pivid

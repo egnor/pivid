@@ -23,6 +23,7 @@ extern "C" {
 #include "logging_policy.h"
 #include "media_decoder.h"
 #include "script_data.h"
+#include "script_runner.h"
 
 namespace pivid {
 
@@ -117,12 +118,14 @@ Script load_script(std::string const& filename) {
         (std::istreambuf_iterator<char>())
     );
 
+    nlohmann::json json;
     try {
-        auto const json = nlohmann::json::parse(text);
-        return json.get<Script>();
+        json = nlohmann::json::parse(text);
     } catch (nlohmann::json::parse_error const& je) {
-        throw_with_nested(std::runtime_error(je.what()));
+        throw_with_nested(std::invalid_argument(je.what()));
     }
+
+    return json.get<Script>();
 }
 
 void set_kernel_debug(bool enable) {
@@ -277,12 +280,17 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
         if (!script_arg.empty()) {
             auto script = load_script(script_arg);
+            auto runner = make_script_runner(driver);
+            auto signal = std::shared_ptr{make_signal()};
+            for (;;) {
+                runner->update(script, signal);
+                signal->wait();
+            }
         }
 
         if (sleep_arg > 0) {
             fmt::print("Sleeping {:.1f} seconds...", sleep_arg);
-            std::chrono::duration<double> sleep_time{sleep_arg};
-            std::this_thread::sleep_for(sleep_time);
+            std::this_thread::sleep_for(Seconds(sleep_arg));
         }
     } catch (std::exception const& e) {
         main_logger()->critical("{}", e.what());

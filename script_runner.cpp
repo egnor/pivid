@@ -86,7 +86,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
                 double const raw_sys_t = system_t.time_since_epoch().count();
                 Interval<double> buf{raw_sys_t, raw_sys_t + layer.media.buffer};
-                for (auto const& r : bezier_range_over(layer.media.play, buf)) {
+                for (auto const& r : layer.media.play.range(buf)) {
                     Interval range{Seconds(r.begin), Seconds(r.end)};
                     TRACE(logger, ">>> want {}", debug(range));
                     input->request.insert(range);
@@ -110,7 +110,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     auto const out_sys_t = system_t + (output_t - steady_t);
                     auto const out_raw_t = out_sys_t.time_since_epoch().count();
                     auto const get = [&](BezierSpline const& bez, double def) {
-                        return bezier_value_at(bez, out_raw_t).value_or(def);
+                        return bez.value(out_raw_t).value_or(def);
                     };
 
                     auto const media_raw_t = get(layer.media.play, -1);
@@ -158,8 +158,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
             double const raw_sys_t = system_t.time_since_epoch().count();
             Interval<double> buf{raw_sys_t, raw_sys_t + standby.buffer};
-            auto const range = bezier_range_over(standby.play, buf);
-            for (auto const& r : bezier_range_over(standby.play, buf)) {
+            for (auto const& r : standby.play.range(buf)) {
                 Interval range{Seconds(r.begin), Seconds(r.end)};
                 TRACE(logger, ">>> want {}", debug(range));
                 input->request.insert(range);

@@ -8,7 +8,7 @@
 
 namespace pivid {
 
-TEST_CASE("bezier_value_at") {
+TEST_CASE("BezierSpline::value") {
     BezierSpline bz = {};
     bz.segments.push_back({
         .t = {1.0, 4.0},
@@ -24,60 +24,61 @@ TEST_CASE("bezier_value_at") {
     });
 
     SUBCASE("non-repeating") {
-        CHECK_FALSE(bezier_value_at(bz, 0.9));
-        CHECK(*bezier_value_at(bz, 1.0) == doctest::Approx(10.0));
-        CHECK(*bezier_value_at(bz, 1.1) == doctest::Approx(11.0));
-        CHECK(*bezier_value_at(bz, 2.5) == doctest::Approx(25.0));
-        CHECK(*bezier_value_at(bz, 3.9) == doctest::Approx(39.0));
-        CHECK(*bezier_value_at(bz, 4.0) == doctest::Approx(40.0));
-        CHECK_FALSE(bezier_value_at(bz, 4.1));
+        CHECK_FALSE(bz.value(0.9));
+        CHECK(*bz.value(1.0) == doctest::Approx(10.0));
+        CHECK(*bz.value(1.1) == doctest::Approx(11.0));
+        CHECK(*bz.value(2.5) == doctest::Approx(25.0));
+        CHECK(*bz.value(3.9) == doctest::Approx(39.0));
+        CHECK(*bz.value(4.0) == doctest::Approx(40.0));
+        CHECK_FALSE(bz.value(4.1));
 
-        CHECK_FALSE(bezier_value_at(bz, 4.9));
-        CHECK(*bezier_value_at(bz, 5.0) == doctest::Approx(10.0));
-        CHECK(*bezier_value_at(bz, 5.1) == doctest::Approx(12.0).epsilon(0.01));
-        CHECK(*bezier_value_at(bz, 6.5) == doctest::Approx(36.25));
-        CHECK(*bezier_value_at(bz, 7.9) == doctest::Approx(40.9).epsilon(0.01));
-        CHECK(*bezier_value_at(bz, 8.0) == doctest::Approx(40.0));
-        CHECK_FALSE(bezier_value_at(bz, 8.1));
+        CHECK_FALSE(bz.value(4.9));
+        CHECK(*bz.value(5.0) == doctest::Approx(10.0));
+        CHECK(*bz.value(5.1) == doctest::Approx(12.0).epsilon(0.01));
+        CHECK(*bz.value(6.5) == doctest::Approx(36.25));
+        CHECK(*bz.value(7.9) == doctest::Approx(40.9).epsilon(0.01));
+        CHECK(*bz.value(8.0) == doctest::Approx(40.0));
+        CHECK_FALSE(bz.value(8.1));
 
-        CHECK_FALSE(bezier_value_at(bz, 10.9));
-        CHECK(*bezier_value_at(bz, 11.0) == doctest::Approx(50.0));
-        CHECK(*bezier_value_at(bz, 11000000.0) == doctest::Approx(50.0));
+        CHECK_FALSE(bz.value(10.9));
+        CHECK(*bz.value(11.0) == doctest::Approx(50.0));
+        CHECK(*bz.value(11000000.0) == doctest::Approx(50.0));
     }
 
     SUBCASE("repeating") {
-        bz.repeat = 5.0;
+        bz.segments.resize(2);  // Drop infinite segment to allow repeat
+        bz.repeat = true;
 
-        CHECK(*bezier_value_at(bz, 1.0) == doctest::Approx(10.0));
-        CHECK(*bezier_value_at(bz, 2.5) == doctest::Approx(25.0));
-        CHECK(*bezier_value_at(bz, 4.0) == doctest::Approx(40.0));
-        CHECK_FALSE(bezier_value_at(bz, 4.1));
+        CHECK(*bz.value(1.0) == doctest::Approx(10.0));
+        CHECK(*bz.value(2.5) == doctest::Approx(25.0));
+        CHECK(*bz.value(4.0) == doctest::Approx(40.0));
+        CHECK_FALSE(bz.value(4.1));
 
-        CHECK_FALSE(bezier_value_at(bz, 4.9));
-        CHECK(*bezier_value_at(bz, 5.0) == doctest::Approx(10.0));
-        CHECK(*bezier_value_at(bz, 5.9) == doctest::Approx(27.19));
-        // Curve is interrupted by first repeat
+        CHECK_FALSE(bz.value(4.9));
+        CHECK(*bz.value(5.0) == doctest::Approx(10.0));
+        CHECK(*bz.value(7.9) == doctest::Approx(40.9).epsilon(0.01));
+        CHECK(*bz.value(8.0) == doctest::Approx(10.0));
 
         for (double t = 1.0; t < 6.0; t += 0.0999) {  // Avoid hairsplitting
             CAPTURE(t);
             if (t > 4.0 && t < 5.0) {
-                CHECK_FALSE(bezier_value_at(bz, t - 10.0));
-                CHECK_FALSE(bezier_value_at(bz, t - 5.0));
-                CHECK_FALSE(bezier_value_at(bz, t));
-                CHECK_FALSE(bezier_value_at(bz, t + 5.0));
-                CHECK_FALSE(bezier_value_at(bz, t + 10.0));
+                CHECK_FALSE(bz.value(t - 7.0));
+                CHECK_FALSE(bz.value(t - 14.0));
+                CHECK_FALSE(bz.value(t));
+                CHECK_FALSE(bz.value(t + 7.0));
+                CHECK_FALSE(bz.value(t + 14.0));
             } else {
-                double x = *bezier_value_at(bz, t);
-                CHECK_FALSE(bezier_value_at(bz, t - 10.0));
-                CHECK_FALSE(bezier_value_at(bz, t - 5.0));
-                CHECK(bezier_value_at(bz, t + 5.0) == doctest::Approx(x));
-                CHECK(bezier_value_at(bz, t + 10.0) == doctest::Approx(x));
+                double x = *bz.value(t);
+                CHECK_FALSE(bz.value(t - 10.0));
+                CHECK_FALSE(bz.value(t - 5.0));
+                CHECK(bz.value(t + 7.0) == doctest::Approx(x));
+                CHECK(bz.value(t + 14.0) == doctest::Approx(x));
             }
         }
     }
 }
 
-TEST_CASE("bezier_range_over") {
+TEST_CASE("BezierSpline::range") {
     BezierSpline bz = {};
     bz.segments.push_back({
         .t = {-2.0, 2.0},
@@ -88,34 +89,35 @@ TEST_CASE("bezier_range_over") {
         .begin_x = 40.0, .p1_x = 30.0, .p2_x = 20.0, .end_x = 10.0,
     });
 
-    for (double t_begin = -2.5; t_begin < 6.5; t_begin += 0.1999) {
-        for (double t_end = t_begin - 0.5; t_end < 7.0; t_end += 0.1999) {
-            CAPTURE(t_begin);
-            CAPTURE(t_end);
+    Interval<double> t;
+    for (t.begin = -2.5; t.begin < 6.5; t.begin += 0.1999) {
+        for (t.end = t.begin - 0.5; t.end < 7.0; t.end += 0.1999) {
+            CAPTURE(t.begin);
+            CAPTURE(t.end);
 
-            auto minmax = bezier_range_over(bz, {t_begin, t_end});
-            if (t_end < -2.0 || t_begin > 6.0 || t_end < t_begin) {
-                CHECK(minmax.empty());
+            auto range = bz.range(t);
+            if (t.end < -2.0 || t.begin > 6.0 || t.empty()) {
+                CHECK(range.empty());
             } else {
-                REQUIRE(minmax.count() == 1);
+                REQUIRE(range.count() == 1);
                 double min = 100, max = -100;
-                for (double t = t_begin; t <= t_end; t += 0.00999) {
-                    auto const maybe_x = bezier_value_at(bz, t);
+                for (double tt = t.begin; tt <= t.end; tt += 0.00999) {
+                    auto const maybe_x = bz.value(tt);
                     if (maybe_x) {
                         min = std::min(min, *maybe_x);
                         max = std::max(max, *maybe_x);
                     }
                 }
 
-                auto const& mm = *minmax.begin();
+                auto const& mm = *range.begin();
                 CHECK(mm.begin == doctest::Approx(min).epsilon(0.1));
                 CHECK(mm.end == doctest::Approx(max).epsilon(0.1));
             }
         }
     }
 
-    // TODO: Test minmax over infinite segments
-    // TODO: Test minmax over repeating curves
+    // TODO: Test range over infinite segments
+    // TODO: Test range over repeating curves
 }
 
 }  // namespace pivid

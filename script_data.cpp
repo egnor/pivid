@@ -8,6 +8,7 @@
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
 
+#include "logging_policy.h"
 #include "unix_system.h"
 
 using json = nlohmann::json;
@@ -25,13 +26,9 @@ void from_json(json const& j, XY<T>& xy) {
 }
 
 static double parse_json_time(json const& j) {
-    if (j.is_number()) {
-        return j;
-    } else if (j.is_string()) {
-        return parse_system_time(j).time_since_epoch().count();
-    } else {
-        throw std::runtime_error("Bad time: " + j.dump());
-    }
+    if (j.is_number()) return j;
+    CHECK_ARG(j.is_string(), "Bad JSON time: {}", j.dump());
+    return parse_system_time(j).time_since_epoch().count();
 }
 
 void from_json(json const& j, BezierSegment& seg) {
@@ -41,23 +38,21 @@ void from_json(json const& j, BezierSegment& seg) {
         return;
     }
 
-    if (!j.is_object()) throw std::runtime_error("Bad segment: " + j.dump());
-
+    CHECK_ARG(j.is_object(), "Bad Bezier segment: {}", j.dump());
     auto const t_j = j.value("t", json{});
     if (t_j.empty()) {
         seg.t = {0.0, j.value("len", 1e12)};
     } else if (t_j.is_number() || (t_j.is_array() && t_j.size() == 1)) {
         seg.t.begin = parse_json_time(t_j.is_array() ? t_j.at(0) : t_j);
         seg.t.end = seg.t.begin + j.value("len", 1e12);
-    } else if (t_j.is_array() && t_j.size() == 2) {
-        seg.t = {parse_json_time(t_j.at(0)), parse_json_time(t_j.at(1))};
     } else {
-        throw std::runtime_error("Bad segment \"t\": " + j.dump());
+        CHECK_ARG(t_j.is_array(), "Bad Bezier \"t\": {}", j.dump());
+        CHECK_ARG(t_j.size() == 2, "Bad Bezier \"t\" length: {}", j.dump());
+        seg.t = {parse_json_time(t_j.at(0)), parse_json_time(t_j.at(1))};
     }
 
     double const dt = seg.t.end - seg.t.begin;
-    if (dt < 0.0)
-        throw std::runtime_error("Bad segment times: " + j.dump());
+    CHECK_ARG(dt >= 0.0, "Bad Bezier segment times: {}", j.dump());
 
     auto const x_j = j.value("x", json{});
     if (x_j.empty()) {
@@ -78,30 +73,34 @@ void from_json(json const& j, BezierSegment& seg) {
         if (rate_j.empty()) {
             seg.p1_x = seg.begin_x + (seg.end_x - seg.begin_x) / 3.0;
             seg.p2_x = seg.end_x - (seg.end_x - seg.begin_x) / 3.0;
-        } else if (rate_j.size() == 2) {
+        } else {
+            CHECK_ARG(rate_j.size() == 2, "Bad Bezier \"rate\": {}", j.dump());
             seg.p1_x = seg.begin_x + rate_j.at(0).get<double>() * dt / 3.0;
             seg.p2_x = seg.end_x - rate_j.at(1).get<double>() * dt / 3.0;
-        } else {
-            throw std::runtime_error("Bad segment \"rate\": " + j.dump());
         }
     } else if (x_j.is_array() && x_j.size() == 4) {
+        CHECK_ARG(x_j.is_array(), "Bad Bezier \"x\": {}", j.dump());
+        CHECK_ARG(x_j.size() == 4, "Bad Bezier \"x\" length: {}", j.dump());
         x_j.at(0).get_to(seg.begin_x);
         x_j.at(1).get_to(seg.p1_x);
         x_j.at(2).get_to(seg.p2_x);
         x_j.at(3).get_to(seg.end_x);
-        if (j.count("rate"))
-            throw std::runtime_error("Redundant \"rate\": " + j.dump());
-    } else {
-        throw std::runtime_error("Bad segment \"x\": " + j.dump());
+        CHECK_ARG(!j.count("rate"), "Redundant Bezier \"rate\": {}", j.dump());
     }
 }
 
 void from_json(json const& j, BezierSpline& bezier) {
     if (j.is_object() && j.count("segments")) {
         j.at("segments").get_to(bezier.segments);
-        bezier.repeat = j.value("repeat", 0.0);
+        bezier.repeat = j.value("repeat", false);
     } else if (j.is_array() && !j.at(0).is_number()) {
         j.get_to(bezier.segments);
+        for (size_t si = 0; si < bezier.segments.size() - 1; ++si) {
+            CHECK_ARG(
+                 bezier.segments[si].t.end <= bezier.segments[si + 1].t.begin,
+                 "Bad Bezier time sequence: {}", j.dump()
+            );
+        }
     } else if (!j.empty()) {
         bezier.segments.resize(1);
         j.get_to(bezier.segments[0]);
@@ -109,15 +108,15 @@ void from_json(json const& j, BezierSpline& bezier) {
 }
 
 void from_json(json const& j, ScriptMedia& media) {
-    if (!j.count("file")) throw std::runtime_error("No file: " + j.dump());
+    CHECK_ARG(j.count("file"), "No JSON media file: {}", j.dump());
     j.at("file").get_to(media.file);
     j.value("play", json{}).get_to(media.play);
     media.buffer = j.value("buffer", media.buffer);
 }
 
 void from_json(json const& j, ScriptLayer& layer) {
-    if (!j.is_object()) throw std::runtime_error("Bad layer: " + j.dump());
-    if (!j.count("media")) throw std::runtime_error("No media: " + j.dump());
+    CHECK_ARG(j.is_object(), "Bad JSON layer: {}", j.dump());
+    CHECK_ARG(j.count("media"), "No JSON layer media: {}", j.dump());
     j.at("media").get_to(layer.media);
     j.value("from_xy", json{}).get_to(layer.from_xy);
     j.value("from_size", json{}).get_to(layer.from_size);
@@ -127,14 +126,14 @@ void from_json(json const& j, ScriptLayer& layer) {
 }
 
 void from_json(json const& j, ScriptScreen& screen) {
-    if (!j.is_object()) throw std::runtime_error("Bad screen: " + j.dump());
+    CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
     screen.mode = j.value("mode", "");
     j.value("layers", json::array()).get_to(screen.layers);
 }
 
 void from_json(json const& j, Script& script) {
     script = {};
-    if (!j.is_object()) throw std::runtime_error("Bad script: " + j.dump());
+    CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
     j.value("screens", json::object()).get_to(script.screens);
     j.value("standbys", json::array()).get_to(script.standbys);
 }
