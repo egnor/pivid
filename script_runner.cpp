@@ -24,8 +24,8 @@ class ScriptRunnerDef : public ScriptRunner {
         std::shared_ptr<ThreadSignal> signal
     ) {
         DEBUG(logger, "UPDATE");
-        auto const steady_t = sys->steady_time();
-        auto const system_t = sys->system_time();
+        auto const steady_t = context.sys->steady_time();
+        auto const system_t = context.sys->system_time();
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, screen] : script.screens) {
@@ -39,7 +39,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 );
 
                 if (display_screens.empty())
-                    display_screens = driver->scan_screens();
+                    display_screens = context.driver->scan_screens();
 
                 uint32_t screen_id = 0;
                 DisplayMode screen_mode = {};
@@ -72,7 +72,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 output->refresh_period = Seconds(1.0) / screen_mode.actual_hz();
                 output->next_refresh = steady_t;
                 output->player.reset();
-                output->player = player_f(screen_id, screen_mode);
+                output->player = context.player_f(screen_id, screen_mode);
             }
 
             while (output->next_refresh <= steady_t)
@@ -178,7 +178,8 @@ class ScriptRunnerDef : public ScriptRunner {
                 );
                 DEBUG(logger, ">> request {}", debug(input->request));
 
-                if (!input->loader) input->loader = loader_f(input_it->first);
+                if (!input->loader)
+                    input->loader = context.loader_f(input_it->first);
                 input->loader->set_request(input->request, signal);
                 input->request = {};
                 input->content = {};
@@ -197,16 +198,24 @@ class ScriptRunnerDef : public ScriptRunner {
         }
     }
 
-    void init(
-        std::shared_ptr<DisplayDriver> driver,
-        std::shared_ptr<UnixSystem> sys,
-        std::function<std::unique_ptr<FrameLoader>(std::string const&)> lf,
-        std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> pf
-    ) {
-        this->driver = driver;
-        this->sys = sys;
-        this->loader_f = std::move(lf);
-        this->player_f = std::move(pf);
+    void init(ScriptContext cx) {
+        CHECK_ARG(cx.driver, "No driver for ScriptRunner");
+        context = std::move(cx);
+
+        if (!context.sys)
+            context.sys = global_system();
+
+        if (!context.loader_f) {
+            context.loader_f = [this](std::string const& file) {
+                return start_frame_loader(context.driver, file);
+            };
+        }
+
+        if (!context.player_f) {
+            context.player_f = [this](uint32_t id, DisplayMode const& m) {
+                return start_frame_player(context.driver, id, m, context.sys);
+            };
+        }
     }
 
   private:
@@ -225,10 +234,7 @@ class ScriptRunnerDef : public ScriptRunner {
     };
 
     std::shared_ptr<log::logger> const logger = runner_logger();
-    std::shared_ptr<DisplayDriver> driver;
-    std::shared_ptr<UnixSystem> sys;
-    std::function<std::unique_ptr<FrameLoader>(std::string const&)> loader_f;
-    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;
+    ScriptContext context = {};
 
     std::map<std::string, Input> inputs;
     std::map<std::string, Output> outputs;
@@ -236,17 +242,9 @@ class ScriptRunnerDef : public ScriptRunner {
 
 }  // anonymous namespace
 
-std::unique_ptr<ScriptRunner> make_script_runner(
-    std::shared_ptr<DisplayDriver> driver,
-    std::shared_ptr<UnixSystem> sys,
-    std::function<std::unique_ptr<FrameLoader>(std::string const&)> loader_f,
-    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f
-) {
+std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext context) {
     auto runner = std::make_unique<ScriptRunnerDef>();
-    runner->init(
-        std::move(driver), std::move(sys),
-        std::move(loader_f), std::move(player_f)
-    );
+    runner->init(std::move(context));
     return runner;
 }
 

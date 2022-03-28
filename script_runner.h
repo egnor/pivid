@@ -15,11 +15,13 @@ class ScriptRunner {
     virtual void update(Script const&, std::shared_ptr<ThreadSignal> = {}) = 0;
 };
 
-std::unique_ptr<ScriptRunner> make_script_runner(
-    std::shared_ptr<DisplayDriver>,
-    std::shared_ptr<UnixSystem> = global_system(),
-    std::function<std::unique_ptr<FrameLoader>(std::string const&)> = {},
-    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> = {}
-);
+struct ScriptContext {
+    std::shared_ptr<DisplayDriver> driver;
+    std::shared_ptr<UnixSystem> sys;
+    std::function<std::unique_ptr<FrameLoader>(std::string const&)> loader_f;
+    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;
+};
+
+std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext);
 
 }  // namespace pivid

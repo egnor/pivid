@@ -279,8 +279,10 @@ extern "C" int main(int const argc, char const* const* const argv) {
         }
 
         if (!script_arg.empty()) {
+            ScriptContext context = {};
+            context.driver = driver;
+            auto runner = make_script_runner(context);
             auto script = load_script(script_arg);
-            auto runner = make_script_runner(driver);
             auto signal = std::shared_ptr{make_signal()};
             for (;;) {
                 runner->update(script, signal);
