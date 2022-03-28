@@ -172,14 +172,14 @@ class ScriptRunnerDef : public ScriptRunner {
                 input_it = inputs.erase(input_it);
             } else {
                 auto *input = &input_it->second;
-                DEBUG(
-                    logger, "> {} \"{}\" loader",
-                    input->loader ? "use" : "start", input_it->first
-                );
-                DEBUG(logger, ">> request {}", debug(input->request));
-
-                if (!input->loader)
+                if (input->loader) {
+                    DEBUG(logger, "> use \"{}\" loader", input_it->first);
+                } else {
+                    DEBUG(logger, "> start \"{}\" loader", input_it->first);
                     input->loader = context.loader_f(input_it->first);
+                }
+
+                DEBUG(logger, ">> request {}", debug(input->request));
                 input->loader->set_request(input->request, signal);
                 input->request = {};
                 input->content = {};
