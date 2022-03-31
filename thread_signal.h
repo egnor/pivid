@@ -23,7 +23,7 @@ class ThreadSignal {
 
     // Waits until the signal flag is set (as above) OR the time given.
     // Returns true if a signal was found (and cleared).
-    virtual bool wait_until(SteadyTime) = 0;
+    virtual bool wait_until(double t) = 0;
 };
 
 std::unique_ptr<ThreadSignal> make_signal();

@@ -7,7 +7,6 @@
 #include <system_error>
 
 #include <fmt/core.h>
-#include <fmt/chrono.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -69,10 +68,10 @@ T* check_alloc(T* item) {
 class LibavDrmBuffer : public MemoryBuffer {
   public:
     ~LibavDrmBuffer() { if (mem) munmap(mem, av_obj->size); }
-    virtual size_t size() const { return av_obj->size; }
-    virtual int dma_fd() const { return av_obj->fd; }
+    virtual size_t size() const final { return av_obj->size; }
+    virtual int dma_fd() const final { return av_obj->fd; }
 
-    virtual uint8_t const* read() {
+    virtual uint8_t const* read() final {
         std::scoped_lock const lock{mem_mutex};
         if (!mem) {
             int const prot = PROT_READ, flags = MAP_SHARED;
@@ -99,12 +98,12 @@ class LibavDrmBuffer : public MemoryBuffer {
 
 class LibavPlainBuffer : public MemoryBuffer {
   public:
-    virtual size_t size() const {
+    virtual size_t size() const final {
         if (avf->format == AV_PIX_FMT_PAL8 && index == 1) return AVPALETTE_SIZE;
         return avf->linesize[index] * avf->height;
     }
 
-    virtual uint8_t const* read() { return avf->data[index]; }
+    virtual uint8_t const* read() final { return avf->data[index]; }
 
     void init(std::shared_ptr<AVFrame> avf, int index) {
         ASSERT(index >= 0 && index < AV_NUM_DATA_POINTERS);
@@ -179,10 +178,10 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
     MediaFrame out = {};
     auto const ts = av->best_effort_timestamp;
-    out.time.begin = Seconds(1.0 * ts * time_base.num / time_base.den);
+    out.time.begin = 1.0 * ts * time_base.num / time_base.den;
 
     auto const next_ts = ts + av->pkt_duration;
-    out.time.end = Seconds(1.0 * next_ts * time_base.num / time_base.den);
+    out.time.end = 1.0 * next_ts * time_base.num / time_base.den;
 
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
@@ -218,16 +217,16 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
 
 class MediaDecoderDef : public MediaDecoder {
   public:
-    virtual ~MediaDecoderDef() noexcept {
+    virtual ~MediaDecoderDef() noexcept final {
         if (av_frame) av_frame_free(&av_frame);
         if (av_packet) av_packet_free(&av_packet);
         if (codec_context) avcodec_free_context(&codec_context);
         if (format_context) avformat_close_input(&format_context);
     }
 
-    virtual MediaFileInfo const& file_info() const { return media_info; }
+    virtual MediaFileInfo const& file_info() const final { return media_info; }
 
-    virtual void seek_before(Seconds when) {
+    virtual void seek_before(double when) final {
         ASSERT(format_context && codec_context);
         if (av_packet) av_packet_unref(av_packet);
         if (av_frame) av_frame_unref(av_frame);
@@ -237,7 +236,7 @@ class MediaDecoderDef : public MediaDecoder {
         eof_seen_from_codec = false;
 
         auto const tb = format_context->streams[stream_index]->time_base;
-        int64_t const t = when.count() * tb.den / tb.num;
+        int64_t const t = when * tb.den / tb.num;
         check_av(
             avformat_seek_file(format_context, stream_index, 0, t, t, 0),
             "Seek file", media_info.filename
@@ -245,7 +244,7 @@ class MediaDecoderDef : public MediaDecoder {
         eof_seen_from_file = false;
     }
 
-    virtual std::optional<MediaFrame> next_frame() {
+    virtual std::optional<MediaFrame> next_frame() final {
         ASSERT(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
@@ -394,10 +393,10 @@ class MediaDecoderDef : public MediaDecoder {
 
         if (stream->duration > 0) {
             auto const tb = stream->time_base;
-            media_info.duration = Seconds(av_q2d(tb) * stream->duration);
+            media_info.duration = av_q2d(tb) * stream->duration;
         } else if (format_context->duration > 0) {
             double constexpr tb = 1.0 / AV_TIME_BASE;
-            media_info.duration = Seconds(tb * format_context->duration);
+            media_info.duration = tb * format_context->duration;
         }
 
         if (stream->avg_frame_rate.num > 0)

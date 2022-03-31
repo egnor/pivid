@@ -9,7 +9,7 @@
 
 #include "media_decoder.h"
 #include "display_output.h"
-#include "interval_set.h"
+#include "interval.h"
 #include "thread_signal.h"
 #include "unix_system.h"
 
@@ -20,9 +20,9 @@ class FrameLoader {
   public:
     // Currently loaded frames.
     struct Content {
-        std::map<Seconds, std::shared_ptr<LoadedImage>> frames;
-        IntervalSet<Seconds> have;  // Regions that are fully loaded
-        std::optional<Seconds> eof;  // Where EOF is, if known
+        std::map<double, std::shared_ptr<LoadedImage>> frames;
+        IntervalSet have;  // Regions that are fully loaded
+        std::optional<double> eof;  // Where EOF is, if known
         std::exception_ptr error;  // Last major error, if any
     };
 
@@ -31,7 +31,7 @@ class FrameLoader {
 
     // Sets the regions of interest to load, discarding frames outside them.
     virtual void set_request(
-        IntervalSet<Seconds> const&,
+        IntervalSet const&,
         std::shared_ptr<ThreadSignal> = {}
     ) = 0;
 

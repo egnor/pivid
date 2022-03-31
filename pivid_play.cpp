@@ -1,6 +1,5 @@
 // Simple command line tool to exercise video decoding and playback.
 
-#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <numeric>
@@ -9,7 +8,6 @@
 #include <CLI/App.hpp>
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
-#include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
 
@@ -159,7 +157,6 @@ void play_video(
     double buffer_arg,
     double overlay_opacity_arg
 ) {
-    using namespace std::chrono_literals;
     auto const logger = main_logger();
     auto const sys = global_system();
 
@@ -183,17 +180,17 @@ void play_video(
     auto const player = start_frame_player(driver, screen.id, mode);
 
     logger->info("Start at {:.3f} seconds...", start_arg);
-    auto const start_time = sys->steady_time() - Seconds(start_arg);
+    auto const start_time = sys->system_time() - start_arg;
 
     for (;;) {
-        auto now = sys->steady_time();
-        TRACE(logger, "UPDATE at {:.3}", now.time_since_epoch());
+        auto now = sys->system_time();
+        TRACE(logger, "UPDATE at {}", format_time(now));
 
-        Interval<Seconds> req;
-        req.begin = std::max(player->last_shown() + 0.001s - start_time, 0.0s);
-        req.end = std::max(req.begin, now - start_time) + Seconds(buffer_arg);
+        Interval req;
+        req.begin = std::max(player->last_shown() + 0.001 - start_time, 0.0);
+        req.end = std::max(req.begin, now - start_time) + buffer_arg;
 
-        IntervalSet<Seconds> req_set;
+        IntervalSet req_set;
         req_set.insert(req);
         loader->set_request(req_set, signal);
 
@@ -214,8 +211,7 @@ void play_video(
             timeline[start_time + frame_time] = std::move(layers);
         }
         player->set_timeline(timeline, signal);
-
-        signal->wait_until(now + Seconds(std::max(0.020, buffer_arg / 5)));
+        signal->wait_until(now + std::max(0.020, buffer_arg / 5));
     }
 
     logger->info("End of playback");
@@ -237,7 +233,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
     double start_arg = -0.2;
     bool debug_libav = false;
     bool debug_kernel = false;
-    double sleep_arg = 0.0;
 
     CLI::App app("Decode and show a media file");
     app.add_option("--buffer", buffer_arg, "Seconds of readahead");
@@ -248,7 +243,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
     app.add_option("--overlay_opacity", overlay_opacity_arg, "Overlay alpha");
     app.add_option("--start", start_arg, "Seconds into media to start");
-    app.add_option("--sleep", sleep_arg, "Seconds to wait before exiting");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
 
@@ -288,11 +282,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
                 runner->update(script, signal);
                 signal->wait();
             }
-        }
-
-        if (sleep_arg > 0) {
-            fmt::print("Sleeping {:.1f} seconds...", sleep_arg);
-            std::this_thread::sleep_for(Seconds(sleep_arg));
         }
     } catch (std::exception const& e) {
         main_logger()->critical("{}", e.what());

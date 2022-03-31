@@ -10,7 +10,7 @@ namespace {
 // TODO: Replace with std::binary_semaphore once available.
 class ThreadSignalDef : public ThreadSignal {
   public:
-    virtual void set() {
+    virtual void set() final {
         std::scoped_lock<std::mutex> lock{mutex};
         if (!signal_flag) {
             signal_flag = true;
@@ -18,24 +18,26 @@ class ThreadSignalDef : public ThreadSignal {
         }
     }
 
-    virtual bool test() const {
+    virtual bool test() const final {
         std::scoped_lock<std::mutex> lock{mutex};
         return signal_flag;
     }
 
-    virtual void wait() {
+    virtual void wait() final {
         std::unique_lock<std::mutex> lock{mutex};
         while (!signal_flag)
             condvar.wait(lock);
         signal_flag = false;
     }
 
-    virtual bool wait_until(SteadyTime t) {
-        using std::chrono::time_point_cast;
-        auto u = time_point_cast<std::chrono::steady_clock::duration>(t);
+    virtual bool wait_until(double t) final {
+        using namespace std::chrono;
+        duration<double> const double_d{t};
+        auto const system_d = duration_cast<system_clock::duration>(double_d);
+        system_clock::time_point system_t(system_d);
         std::unique_lock<std::mutex> lock{mutex};
         while (!signal_flag) {
-            if (condvar.wait_until(lock, u) == std::cv_status::timeout)
+            if (condvar.wait_until(lock, system_t) == std::cv_status::timeout)
                 return false;
         }
         signal_flag = false;

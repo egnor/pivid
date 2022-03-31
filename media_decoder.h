@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "image_buffer.h"
-#include "interval_set.h"
+#include "interval.h"
 #include "unix_system.h"
 #include "xy.h"
 
@@ -25,14 +25,14 @@ struct MediaFileInfo {
     std::optional<XY<int>> size;       // Frame image size, if known
     std::optional<double> frame_rate;  // Video frames/second, if known
     std::optional<int64_t> bit_rate;   // Compressed video bits/sec, if known
-    std::optional<Seconds> duration;   // Length, if known
+    std::optional<double> duration;    // Length in seconds, if known
 };
 
 // Uncompressed frame from a video. (Still images appear as one-frame videos.)
 // Returned by MediaDecoder::next_frame().
 struct MediaFrame {
     ImageBuffer image;
-    Interval<Seconds> time;       // Display interval since video start
+    Interval time;        // Display seconds since video start
     std::string_view frame_type;  // "B", "I", "P" etc for debugging
     bool is_key_frame = false;    // True if the frame can be seeked to
     bool is_corrupt = false;      // True if the codec had an error
@@ -49,7 +49,7 @@ class MediaDecoder {
     virtual MediaFileInfo const& file_info() const = 0;
 
     // Reset to the key frame preceding the timestamp.
-    virtual void seek_before(Seconds) = 0;
+    virtual void seek_before(double) = 0;
 
     // Returns the next uncompressed frame from the media, or {} at EOF.
     virtual std::optional<MediaFrame> next_frame() = 0;

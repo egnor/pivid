@@ -3,7 +3,6 @@
 #include <mutex>
 #include <thread>
 
-#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 #include "logging_policy.h"
@@ -34,7 +33,7 @@ class FramePlayerDef : public FramePlayer {
     virtual void set_timeline(
         Timeline timeline,
         std::shared_ptr<ThreadSignal> notify
-    ) {
+    ) final {
         std::unique_lock lock{mutex};
 
         // Avoid thread wakeup if the wakeup schedule doesn't change.
@@ -48,10 +47,10 @@ class FramePlayerDef : public FramePlayer {
             TRACE(logger, "Set timeline empty");
         } else {
             TRACE(logger, 
-                "Set timeline {}f {}~{} {}",
+                "Set timeline {}f {:.3f}~{:.3f}s {}",
                 timeline.size(),
-                debug(timeline.begin()->first.time_since_epoch()),
-                debug(timeline.rbegin()->first.time_since_epoch()),
+                timeline.begin()->first,
+                timeline.rbegin()->first,
                 same_keys ? "[same]" : "[diff]"
             );
         }
@@ -64,7 +63,7 @@ class FramePlayerDef : public FramePlayer {
         }
     }
 
-    virtual SteadyTime last_shown() const {
+    virtual double last_shown() const final {
         std::scoped_lock const lock{mutex};
         return shown;
     }
@@ -92,7 +91,6 @@ class FramePlayerDef : public FramePlayer {
         DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
-        using namespace std::chrono_literals;
         logger->debug("Frame player thread running...");
 
         std::unique_lock lock{mutex};
@@ -106,13 +104,13 @@ class FramePlayerDef : public FramePlayer {
             }
 
             TRACE(logger, 
-                "PLAY timeline {}f {}~{}",
+                "PLAY timeline {}f {:.3f}~{:.3f}s",
                 timeline.size(),
-                debug(timeline.begin()->first.time_since_epoch()),
-                debug(timeline.rbegin()->first.time_since_epoch())
+                timeline.begin()->first,
+                timeline.rbegin()->first
             );
 
-            auto const now = sys->steady_time();
+            auto const now = sys->system_time();
             auto show = timeline.upper_bound(now);
             if (show != timeline.begin()) {
                 auto before = show;
@@ -122,8 +120,8 @@ class FramePlayerDef : public FramePlayer {
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 logger->warn(
-                    "Skip frame sched={} ({} old)",
-                    debug(s->first.time_since_epoch()), debug(now - s->first)
+                    "Skip frame sched={:.3f}s ({:.3f}s old)",
+                    s->first, now - s->first
                 );
                 shown = s->first;
             }
@@ -138,17 +136,17 @@ class FramePlayerDef : public FramePlayer {
 
             if (show->first > now) {
                 auto const delay = show->first - now;
-                TRACE(logger, "> (waiting {} for frame)", debug(delay));
+                TRACE(logger, "> (waiting {:.3f}s for frame)", delay);
                 lock.unlock();
                 wakeup->wait_until(show->first);
                 lock.lock();
                 continue;
             }
 
-            auto const done = driver->update_done_yet(screen_id);
+            auto const done = driver->is_update_done(screen_id);
             if (!done) {
                 TRACE(logger, "> (update pending, waiting 5ms)");
-                auto const try_again = now + 5ms;
+                auto const try_again = now + 0.005;
                 lock.unlock();
                 wakeup->wait_until(try_again);
                 lock.lock();
@@ -166,10 +164,7 @@ class FramePlayerDef : public FramePlayer {
             if (notify) notify->set();
 
             auto const lag = now - shown;
-            logger->debug(
-                "Show frame sched={} ({} old)",
-                debug(shown.time_since_epoch()), debug(lag)
-            );
+            logger->debug("Show frame sched={:.3f}s ({:.3f}s old)", shown, lag);
         }
 
         logger->debug("Frame player thread ending...");
@@ -186,7 +181,7 @@ class FramePlayerDef : public FramePlayer {
     bool shutdown = false;
     std::shared_ptr<ThreadSignal> notify;
     Timeline timeline;
-    SteadyTime shown = {};
+    double shown = {};
 };
 
 }  // anonymous namespace

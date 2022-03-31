@@ -28,7 +28,7 @@ void from_json(json const& j, XY<T>& xy) {
 static double parse_json_time(json const& j) {
     if (j.is_number()) return j;
     CHECK_ARG(j.is_string(), "Bad JSON time: {}", j.dump());
-    return parse_system_time(j).time_since_epoch().count();
+    return parse_time(j);
 }
 
 void from_json(json const& j, BezierSegment& seg) {

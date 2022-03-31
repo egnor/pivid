@@ -38,9 +38,7 @@ double segment_value_at(BezierSegment const& seg, double t) {
     );
 }
 
-Interval<double> segment_range(
-    BezierSegment const& seg, Interval<double> t
-) {
+Interval segment_range(BezierSegment const& seg, Interval t) {
     t.begin = std::max(seg.t.begin, t.begin);
     t.end = std::min(seg.t.end, t.end);
     if (t.empty()) return {};
@@ -78,9 +76,7 @@ Interval<double> segment_range(
     return {min_x, max_x};
 }
 
-void add_range_nowrap(
-    BezierSpline const& bez, Interval<double> t, IntervalSet<double>* out
-) {
+void add_range_nowrap(BezierSpline const& bez, Interval t, IntervalSet* out) {
     auto const& segs = bez.segments;
     auto iter = std::upper_bound(segs.begin(), segs.end(), t.begin, lt_begin);
     if (iter != segs.begin()) --iter;
@@ -108,10 +104,10 @@ std::optional<double> BezierSpline::value(double t) const {
     return t <= seg.t.end ? segment_value_at(seg, t) : std::optional<double>{};
 }
 
-IntervalSet<double> BezierSpline::range(Interval<double> t) const {
+IntervalSet BezierSpline::range(Interval t) const {
     if (segments.empty() || t.empty()) return {};
 
-    IntervalSet<double> out;
+    IntervalSet out;
     if (!repeat) {
         add_range_nowrap(*this, t, &out);
         return out;
@@ -124,7 +120,7 @@ IntervalSet<double> BezierSpline::range(Interval<double> t) const {
         return out;
     }
 
-    Interval<double> wrap;
+    Interval wrap;
     wrap.begin = std::fmod(t.begin - bz.begin, bz.end - bz.begin) + bz.begin;
     wrap.end = (t.end - t.begin) + wrap.end;
     if (wrap.end <= bz.end) {

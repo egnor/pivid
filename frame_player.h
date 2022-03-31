@@ -16,9 +16,9 @@ namespace pivid {
 // *Internally synchronized* for multithreaded access.
 class FramePlayer {
   public:
-    // Sequence of frames with "monotonic clock" display time.
+    // Sequence of frames with system clock display time.
     // Each frame is a stack of layers to pass to DisplayDriver::update().
-    using Timeline = std::map<SteadyTime, std::vector<DisplayLayer>>;
+    using Timeline = std::map<double, std::vector<DisplayLayer>>;
 
     // Interrupts and shuts down the frame player.
     virtual ~FramePlayer() = default;
@@ -30,7 +30,7 @@ class FramePlayer {
 
     // Returns the *scheduled* time of the most recently shown frame.
     // (TODO: Make DisplayOutputDone also available.)
-    virtual SteadyTime last_shown() const = 0;
+    virtual double last_shown() const = 0;
 };
 
 // Creates a frame player instance for a given driver and screen.

@@ -5,7 +5,6 @@
 #include <set>
 #include <thread>
 
-#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 #include "logging_policy.h"
@@ -35,9 +34,9 @@ class FrameLoaderDef : public FrameLoader {
     }
 
     virtual void set_request(
-        IntervalSet<Seconds> const& wanted,
+        IntervalSet const& wanted,
         std::shared_ptr<ThreadSignal> notify
-    ) {
+    ) final {
         std::unique_lock lock{mutex};
         this->notify = std::move(notify);
 
@@ -102,7 +101,7 @@ class FrameLoaderDef : public FrameLoader {
         }
     }
 
-    virtual Content content() const {
+    virtual Content content() const final {
         std::scoped_lock lock{mutex};
         return out;
     }
@@ -123,13 +122,13 @@ class FrameLoaderDef : public FrameLoader {
         std::unique_lock lock{mutex};
         DEBUG(logger, "START {}", filename);
 
-        std::map<Seconds, std::unique_ptr<MediaDecoder>> decoders;
+        std::map<double, std::unique_ptr<MediaDecoder>> decoders;
         while (!shutdown) {
             TRACE(logger, "LOAD {}", filename);
 
             auto to_load = wanted;
             to_load.erase(out.have);
-            if (out.eof) to_load.erase({*out.eof, forever});
+            if (out.eof) to_load.erase({*out.eof, to_load.bounds().end});
 
             TRACE(logger, "> have {}", debug(out.have));
             TRACE(logger, "> want {}", debug(wanted));
@@ -140,7 +139,7 @@ class FrameLoaderDef : public FrameLoader {
             //
 
             using Assignment = std::tuple<
-                Interval<Seconds>, Seconds, std::unique_ptr<MediaDecoder>
+                Interval, double, std::unique_ptr<MediaDecoder>
             >;
             std::vector<Assignment> to_use;
 
@@ -156,8 +155,8 @@ class FrameLoaderDef : public FrameLoader {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "> {} ({}) use {}",
-                    debug(*wi), debug(*li), debug(di->first)
+                    logger, "> {} ({}) use {:.3f}s",
+                    debug(*wi), debug(*li), di->first
                 );
 
                 to_use.emplace_back(*li, di->first, std::move(di->second));
@@ -176,8 +175,8 @@ class FrameLoaderDef : public FrameLoader {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "> {} ({}) get {}",
-                    debug(*wi), debug(*li), debug(di->first)
+                    logger, "> {} ({}) get {:.3f}s",
+                    debug(*wi), debug(*li), di->first
                 );
 
                 to_use.emplace_back(*li, di->first, std::move(di->second));
@@ -190,12 +189,9 @@ class FrameLoaderDef : public FrameLoader {
             while (li != to_load.end()) {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
-                TRACE(
-                    logger, "> {} ({}) new decoder",
-                    debug(*wi), debug(*li)
-                );
+                TRACE(logger, "> {} ({}) new decoder", debug(*wi), debug(*li));
 
-                to_use.emplace_back(*li, Seconds{}, nullptr);
+                to_use.emplace_back(*li, 0.0, nullptr);
                 li = to_load.erase(*wi);
             }
 
@@ -204,14 +200,14 @@ class FrameLoaderDef : public FrameLoader {
             while (di != decoders.end()) {
                 if (out.eof && di->first >= *out.eof) {
                     TRACE(
-                        logger, "> drop: {} (>= eof {})",
-                        debug(di->first), debug(*out.eof)
+                        logger, "> drop: {:.3f}s (>= eof {:.3f}s)",
+                        di->first, *out.eof
                     );
                     di = decoders.erase(di);
                     continue;
                 }
 
-                if (out.have.empty() && di->first == Seconds(0)) {
+                if (out.have.empty() && di->first == 0.0) {
                     TRACE(logger, "> keep: starting decoder");
                     ++di;
                     continue;
@@ -227,7 +223,7 @@ class FrameLoaderDef : public FrameLoader {
                     }
                 }
 
-                TRACE(logger, "> drop: {}", debug(di->first));
+                TRACE(logger, "> drop: {:.3f}s", di->first);
                 di = decoders.erase(di);
             }
 
@@ -252,7 +248,7 @@ class FrameLoaderDef : public FrameLoader {
                     continue;
                 }
 
-                Seconds begin_pos = orig_pos;
+                double begin_pos = orig_pos;
                 std::optional<MediaFrame> frame;
                 std::unique_ptr<LoadedImage> image;
                 std::exception_ptr error;
@@ -266,8 +262,8 @@ class FrameLoaderDef : public FrameLoader {
 
                     if (begin_pos < load.begin || begin_pos >= load.end) {
                         TRACE(
-                            logger, "> seek: {}: {}",
-                            debug(begin_pos), debug(load.begin)
+                            logger, "> seek: {:.3f}s: {:.3f}s",
+                            begin_pos, load.begin
                         );
                         decoder->seek_before(load.begin);
                         begin_pos = load.begin;
@@ -287,22 +283,22 @@ class FrameLoaderDef : public FrameLoader {
                     ++changes;
                 }
 
-                Seconds end_pos = begin_pos;
+                double end_pos = begin_pos;
                 if (!frame) {
                     if (!out.eof || begin_pos < *out.eof) {
-                        TRACE(logger, "> EOF:  {} (new)", debug(begin_pos));
+                        TRACE(logger, "> EOF:  {:.3f}s (new)", begin_pos);
                         out.eof = begin_pos;
                         ++changes;
                     } else if (begin_pos >= *out.eof) {
                         TRACE(
-                            logger, "> EOF:  {} (>= old {})",
-                            debug(begin_pos), *out.eof
+                            logger, "> EOF:  {:.3f}s (>= old {})",
+                            begin_pos, *out.eof
                         );
                     }
                 } else {
                     begin_pos = std::min(begin_pos, frame->time.begin);
                     end_pos = std::max(end_pos, frame->time.end);
-                    DEBUG(logger, "{}~{}", debug(begin_pos), debug(*frame));
+                    DEBUG(logger, "{:.3f}~{}", begin_pos, debug(*frame));
 
                     auto const wi = wanted.overlap_begin(begin_pos);
                     if (wi == wanted.overlap_end(end_pos)) {
@@ -341,7 +337,7 @@ class FrameLoaderDef : public FrameLoader {
     std::thread thread;
     std::shared_ptr<ThreadSignal> wakeup = make_signal();
 
-    IntervalSet<Seconds> wanted;
+    IntervalSet wanted;
     std::shared_ptr<ThreadSignal> notify;
 
     bool shutdown = false;

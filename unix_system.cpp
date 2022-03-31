@@ -34,24 +34,24 @@ inline ErrnoOr<int> run_sys(std::function<int()> f) {
 class FileDescriptorDef : public FileDescriptor {
   public:
     FileDescriptorDef(int fd) : fd(fd) {}
-    virtual ~FileDescriptorDef() { ::close(fd); }
-    virtual int raw_fd() const { return fd; }
+    virtual ~FileDescriptorDef() final { ::close(fd); }
+    virtual int raw_fd() const final { return fd; }
 
-    virtual ErrnoOr<int> read(void* buf, size_t len) {
+    virtual ErrnoOr<int> read(void* buf, size_t len) final {
         return run_sys([&] {return ::read(fd, buf, len);});
     }
 
-    virtual ErrnoOr<int> write(void const* buf, size_t len) {
+    virtual ErrnoOr<int> write(void const* buf, size_t len) final {
         return run_sys([&] {return ::write(fd, buf, len);});
     }
 
-    virtual ErrnoOr<int> ioctl(uint32_t nr, void* buf) {
+    virtual ErrnoOr<int> ioctl(uint32_t nr, void* buf) final {
         return run_sys([&] {return ::ioctl(fd, nr, buf);});
     }
 
     virtual ErrnoOr<std::shared_ptr<void>> mmap(
         size_t len, int prot, int flags, off_t off
-    ) {
+    ) final {
         void* const mem = ::mmap(nullptr, len, prot, flags, fd, off);
         if (mem == MAP_FAILED) return {errno, {}};
         return {0, {mem, [len](void* m) {::munmap(m, len);}}};
@@ -63,25 +63,14 @@ class FileDescriptorDef : public FileDescriptor {
 
 class UnixSystemDef : public UnixSystem {
   public:
-    virtual SystemTime system_time() const {
-        using std::chrono::time_point_cast;
-        return time_point_cast<Seconds>(std::chrono::system_clock::now());
-    }
-
-    virtual SteadyTime steady_time() const {
-        using std::chrono::time_point_cast;
-        return time_point_cast<Seconds>(std::chrono::steady_clock::now());
-    }
-
-    virtual void sleep_until(SteadyTime t) const {
-        using std::chrono::time_point_cast;
-        auto u = time_point_cast<std::chrono::steady_clock::duration>(t);
-        std::this_thread::sleep_until(u);
+    virtual double system_time() const final {
+        auto const now = std::chrono::system_clock::now();
+        return std::chrono::duration<double>{now.time_since_epoch()}.count();
     }
 
     virtual ErrnoOr<std::vector<std::string>> list(
         std::string const& dir
-    ) const {
+    ) const final {
         std::unique_ptr<DIR, int (*)(DIR*)> dp(opendir(dir.c_str()), closedir);
         if (!dp) return {errno, {}};
 
@@ -92,13 +81,13 @@ class UnixSystemDef : public UnixSystem {
         return ret;
     }
 
-    virtual ErrnoOr<struct stat> stat(std::string const& path) const {
+    virtual ErrnoOr<struct stat> stat(std::string const& path) const final {
         ErrnoOr<struct stat> ret;
         ret.err = run_sys([&] {return ::stat(path.c_str(), &ret.value);}).err;
         return ret;
     }
 
-    virtual ErrnoOr<std::string> realpath(std::string const& path) const {
+    virtual ErrnoOr<std::string> realpath(std::string const& path) const final {
         char buf[PATH_MAX];
         if (!::realpath(path.c_str(), buf)) return {errno, {}};
         return {0, buf};
@@ -106,13 +95,13 @@ class UnixSystemDef : public UnixSystem {
 
     virtual ErrnoOr<std::unique_ptr<FileDescriptor>> open(
         std::string const& path, int flags, mode_t mode
-    ) {
+    ) final {
         auto const r = run_sys([&] {return ::open(path.c_str(), flags, mode);});
         if (r.value < 0) return {r.err ? r.err : EBADF, {}};
         return {0, adopt(r.value)};
     }
 
-    virtual std::unique_ptr<FileDescriptor> adopt(int raw_fd) {
+    virtual std::unique_ptr<FileDescriptor> adopt(int raw_fd) final {
         return std::make_unique<FileDescriptorDef>(raw_fd);
     }
 
@@ -122,7 +111,7 @@ class UnixSystemDef : public UnixSystem {
         posix_spawn_file_actions_t const* actions,
         posix_spawnattr_t const* attr,
         std::optional<std::vector<std::string>> const& envp
-    ) {
+    ) final {
         auto const c_vector = [](std::vector<std::string> const& vec) {
             std::vector<char*> ret;
             for (auto& s : vec) ret.push_back(const_cast<char*>(s.c_str()));
@@ -140,7 +129,7 @@ class UnixSystemDef : public UnixSystem {
         return {r.err, pid};
     }
 
-    virtual ErrnoOr<siginfo_t> wait(idtype_t idtype, id_t id, int flags) {
+    virtual ErrnoOr<siginfo_t> wait(idtype_t idtype, id_t id, int flags) final {
         siginfo_t s = {};
         auto const r = run_sys([&] { return ::waitid(idtype, id, &s, flags); });
         return {r.err, s};
@@ -154,47 +143,29 @@ std::shared_ptr<UnixSystem> global_system() {
     return system;
 }
 
-SystemTime parse_system_time(std::string const& s) {
+double parse_time(std::string const& s) {
     size_t end;
     double const d = std::stod(s, &end);
     if (!s.empty() && end >= s.size())
-        return SystemTime(Seconds(d));
+        return d;
 
-    SystemTime t = {};
+    std::chrono::system_clock::time_point t = {};
     std::istringstream is{s};
     date::from_stream(is, "%FT%H:%M:%20SZ", t);
-    if (!is.fail()) return t;
-
-    std::istringstream is2{s};
-    date::from_stream(is2, "%FT%H:%M:%20S%Ez", t);
-    if (!is2.fail()) return t;
-
-    throw std::runtime_error("Bad date: \"" + s + "\"");
-}
-
-std::string debug(Seconds s) {
-    return fmt::format("{:#.3f}s", s.count());
-}
-
-std::string debug(Interval<Seconds> interval) {
-    return fmt::format("{}~{}", debug(interval.begin), debug(interval.end));
-}
-
-std::string debug(IntervalSet<Seconds> const& interval_set) {
-    std::string out = "{";
-    for (auto const& interval : interval_set) {
-        if (out.size() > 1) out += ", ";
-        out += pivid::debug(interval);
+    if (is.fail()) {
+        std::istringstream is2{s};
+        date::from_stream(is2, "%FT%H:%M:%20S%Ez", t);
+        if (is2.fail()) throw std::runtime_error("Bad date: \"" + s + "\"");
     }
-    return out + "}";
+
+    return std::chrono::duration<double>{t.time_since_epoch()}.count();
 }
 
-std::string debug(SteadyTime t) {
-    return fmt::format("{:.3}t", debug(t.time_since_epoch()));
-}
-
-std::string debug(SystemTime t) {
-    return date::format("{0:%F}T{0:%R%z}", t);
+std::string format_time(double t) {
+    using namespace std::chrono;
+    duration<double> const double_d{t};
+    auto const system_d = duration_cast<system_clock::duration>(double_d);
+    return date::format("{0:%F}T{0:%R%z}", system_clock::time_point{system_d});
 }
 
 }  // namespace pivid

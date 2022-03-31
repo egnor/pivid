@@ -19,7 +19,6 @@
 #include <system_error>
 #include <type_traits>
 
-#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 #include "logging_policy.h"
@@ -181,15 +180,15 @@ class DrmDumbBuffer : public MemoryBuffer {
         this->fd = std::move(fd);
     }
 
-    virtual ~DrmDumbBuffer() {
+    virtual ~DrmDumbBuffer() final {
         if (!ddat.handle) return;
         drm_mode_destroy_dumb dddat = {.handle = ddat.handle};
         (void) fd->ioc<DRM_IOCTL_MODE_DESTROY_DUMB>(&dddat);
     }
 
-    virtual size_t size() const { return ddat.size; }
+    virtual size_t size() const final { return ddat.size; }
 
-    virtual uint8_t const* read() {
+    virtual uint8_t const* read() final {
         std::scoped_lock const lock{mem_mutex};
         if (!mem) {
             drm_mode_map_dumb mdat = {};
@@ -202,7 +201,7 @@ class DrmDumbBuffer : public MemoryBuffer {
         return (uint8_t const*) mem.get();
     }
 
-    virtual uint32_t drm_handle() const { return ddat.handle; }
+    virtual uint32_t drm_handle() const final { return ddat.handle; }
     uint8_t* write() { read(); return (uint8_t*) mem.get(); }
     ptrdiff_t stride() const { return ddat.pitch; }
 
@@ -291,8 +290,11 @@ class LoadedImageDef : public LoadedImage {
         logger->debug("Unload fb{} {}x{}", fdat.fb_id, fdat.width, fdat.height);
     }
 
-    virtual uint32_t drm_id() const { return fdat.fb_id; }
-    virtual XY<int> size() const { return XY<int>(fdat.width, fdat.height); }
+    virtual uint32_t drm_id() const final { return fdat.fb_id; }
+
+    virtual XY<int> size() const final {
+        return XY<int>(fdat.width, fdat.height);
+    }
 
   private:
     std::shared_ptr<FileDescriptor> fd;
@@ -310,7 +312,7 @@ class DisplayDriverDef : public DisplayDriver {
   public:
     DisplayDriverDef() {}
 
-    virtual std::vector<DisplayScreen> scan_screens() {
+    virtual std::vector<DisplayScreen> scan_screens() final {
         TRACE(logger, "Scanning screens...");
         std::vector<DisplayScreen> out;
         for (auto const& id_conn : connectors) {
@@ -349,7 +351,7 @@ class DisplayDriverDef : public DisplayDriver {
         return out;
     }
 
-    virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer im) {
+    virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer im) final {
         TRACE(
             logger, "Loading {}x{} {}...",
             im.size.x, im.size.y, debug_fourcc(im.fourcc)
@@ -473,7 +475,7 @@ class DisplayDriverDef : public DisplayDriver {
         uint32_t screen_id,
         DisplayMode const& mode,
         std::vector<DisplayLayer> const& layers
-    ) {
+    ) final {
         auto* const conn = &connectors.at(screen_id);
         TRACE(logger, "Starting {} update...", conn->name);
 
@@ -650,7 +652,7 @@ class DisplayDriverDef : public DisplayDriver {
         crtc->used_by_conn = conn;
     }
 
-    virtual std::optional<DisplayUpdateDone> update_done_yet(uint32_t id) {
+    virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) final {
         auto* const conn = &connectors.at(id);
         TRACE(logger, "Checking {} completion...", conn->name);
 
@@ -673,7 +675,7 @@ class DisplayDriverDef : public DisplayDriver {
             TRACE(logger, "> (update done)");
         }
 
-        done.time = conn->pageflip_time;
+        done.flip_time = conn->flip_time;
         return done;
     }
 
@@ -894,7 +896,7 @@ class DisplayDriverDef : public DisplayDriver {
 
         // Guarded by DisplayDriverDef::mutex
         Crtc* using_crtc = nullptr;
-        SteadyTime pageflip_time;
+        double flip_time;
     };
 
     // These containers are constant after startup (contained objects change)
@@ -937,12 +939,12 @@ class DisplayDriverDef : public DisplayDriver {
             // TODO: Check for writeback fence, once it works
             // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
 
-            double const seconds = ev.tv_sec + 1e-6 * ev.tv_usec;
-            conn->pageflip_time = SteadyTime(Seconds(seconds));
+            // TODO: Convert to system time!
+            conn->flip_time = ev.tv_sec + 1e-6 * ev.tv_usec;
 
             DEBUG(
-                logger, "Update pageflip: {} {:.3}",
-                conn->name, debug(conn->pageflip_time)
+                logger, "Update pageflip: {} {:.3f}s",
+                conn->name, conn->flip_time
             );
 
             if (!crtc->pending_flip->mode.vrefresh) {

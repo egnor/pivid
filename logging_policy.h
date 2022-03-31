@@ -50,7 +50,4 @@ inline std::shared_ptr<spdlog::logger> make_logger(char const* name) {
     return logger;
 }
 
-template <typename T>
-std::string debug(T const& t) { return fmt::format("{}", t); }
-
 }

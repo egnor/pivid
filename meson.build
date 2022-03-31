@@ -37,6 +37,7 @@ pivid_lib = library(
         'frame_loader.cpp',
         'frame_player.cpp',
         'image_buffer.cpp',
+        'interval.cpp',
         'media_decoder.cpp',
         'script_data.cpp',
         'script_runner.cpp',
@@ -77,7 +78,7 @@ executable(
 pivid_test = executable(
     'pivid_test', [
         'bezier_spline_test.cpp',
-        'interval_set_test.cpp',
+        'interval_test.cpp',
         'pivid_test_main.cpp',
         'script_data_test.cpp',
         'xy_test.cpp',

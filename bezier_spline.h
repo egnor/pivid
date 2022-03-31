@@ -6,14 +6,14 @@
 #include <utility>
 #include <vector>
 
-#include "interval_set.h"
+#include "interval.h"
 #include "xy.h"
 
 namespace pivid {
 
 // A 1-D parametric Bezier segment defined by four control points.
 struct BezierSegment {
-    Interval<double> t;
+    Interval t;
     double begin_x = 0.0, p1_x = 0.0, p2_x = 0.0, end_x = 0.0;
 };
 
@@ -23,7 +23,7 @@ struct BezierSpline {
     bool repeat = false;                  // Repeat after last segment?
 
     std::optional<double> value(double t) const;
-    IntervalSet<double> range(Interval<double> t) const;
+    IntervalSet range(Interval t) const;
 };
 
 }  // namespace pivid

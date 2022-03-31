@@ -89,7 +89,7 @@ TEST_CASE("BezierSpline::range") {
         .begin_x = 40.0, .p1_x = 30.0, .p2_x = 20.0, .end_x = 10.0,
     });
 
-    Interval<double> t;
+    Interval t;
     for (t.begin = -2.5; t.begin < 6.5; t.begin += 0.1999) {
         for (t.end = t.begin - 0.5; t.end < 7.0; t.end += 0.1999) {
             CAPTURE(t.begin);

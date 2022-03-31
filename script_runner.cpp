@@ -22,10 +22,9 @@ class ScriptRunnerDef : public ScriptRunner {
     virtual void update(
         Script const& script,
         std::shared_ptr<ThreadSignal> signal
-    ) {
+    ) final {
         DEBUG(logger, "UPDATE");
-        auto const steady_t = context.sys->steady_time();
-        auto const system_t = context.sys->system_time();
+        auto const now = context.sys->system_time();
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, screen] : script.screens) {
@@ -69,25 +68,24 @@ class ScriptRunnerDef : public ScriptRunner {
 
                 output->mode = screen.mode;
                 output->size = screen_mode.size;
-                output->refresh_period = Seconds(1.0) / screen_mode.actual_hz();
-                output->next_refresh = steady_t;
+                output->refresh_period = 1.0 / screen_mode.actual_hz();
                 output->player.reset();
                 output->player = context.player_f(screen_id, screen_mode);
             }
 
-            while (output->next_refresh <= steady_t)
-                output->next_refresh += output->refresh_period;
+            double next_output_time = 
+                std::ceil(now / output->refresh_period) *
+                output->refresh_period;
 
-            std::map<SteadyTime, std::vector<DisplayLayer>> timeline;
+            FramePlayer::Timeline timeline;
             for (size_t li = 0; li < screen.layers.size(); ++li) {
                 auto const& layer = screen.layers[li];
                 auto* input = &inputs[layer.media.file];
                 TRACE(logger, ">> layer \"{}\"", layer.media.file);
 
-                double const raw_sys_t = system_t.time_since_epoch().count();
-                Interval<double> buf{raw_sys_t, raw_sys_t + layer.media.buffer};
+                Interval buf{now, now + layer.media.buffer};
                 for (auto const& r : layer.media.play.range(buf)) {
-                    Interval range{Seconds(r.begin), Seconds(r.end)};
+                    Interval range{r.begin, r.end};
                     TRACE(logger, ">>> want {}", debug(range));
                     input->request.insert(range);
                 }
@@ -101,21 +99,18 @@ class ScriptRunnerDef : public ScriptRunner {
                 int frame_count = 0, unique_count = 0;
                 std::shared_ptr<LoadedImage> last_image = {};
 
-                SteadyTime output_t;
+                double output_time;
                 for (
-                    output_t = output->next_refresh;
-                    output_t < steady_t + Seconds(layer.media.buffer);
-                    output_t += output->refresh_period
+                    output_time = next_output_time;
+                    output_time < now + layer.media.buffer;
+                    output_time += output->refresh_period
                 ) {
-                    auto const out_sys_t = system_t + (output_t - steady_t);
-                    auto const out_raw_t = out_sys_t.time_since_epoch().count();
                     auto const get = [&](BezierSpline const& bez, double def) {
-                        return bez.value(out_raw_t).value_or(def);
+                        return bez.value(output_time).value_or(def);
                     };
 
-                    auto const media_raw_t = get(layer.media.play, -1);
-                    if (media_raw_t < 0) continue;
-                    auto media_t = Seconds(media_raw_t);
+                    auto const media_t = get(layer.media.play, -1);
+                    if (media_t < 0) continue;
 
                     auto frame_it = input->content->frames.upper_bound(media_t);
                     if (frame_it != input->content->frames.begin()) continue;
@@ -133,7 +128,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     display.to_size.x = get(layer.to_xy.x, output->size.x);
                     display.to_size.y = get(layer.to_xy.y, output->size.y);
                     display.opacity = get(layer.opacity, 1);
-                    timeline[output_t].push_back(std::move(display));
+                    timeline[output_time].push_back(std::move(display));
 
                     ++frame_count;
                     if (display.image != last_image) {
@@ -143,23 +138,22 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
 
                 TRACE(
-                    logger, ">>> add {}fr ({}im) {}~{}",
-                    frame_count, unique_count,
-                    debug(output->next_refresh), debug(output_t)
+                    logger, ">>> add {}fr ({}im) {:.3f}~{:.3f}s",
+                    frame_count, unique_count, next_output_time, output_time
                 );
             }
 
-            output->player->set_timeline(timeline, signal);
+            output->player->set_timeline(std::move(timeline), signal);
+            output->active = true;
         }
 
         for (const auto& standby : script.standbys) {
             auto* input = &inputs[standby.file];
             TRACE(logger, ">> standby \"{}\"", standby.file);
 
-            double const raw_sys_t = system_t.time_since_epoch().count();
-            Interval<double> buf{raw_sys_t, raw_sys_t + standby.buffer};
+            Interval buf{now, now + standby.buffer};
             for (auto const& r : standby.play.range(buf)) {
-                Interval range{Seconds(r.begin), Seconds(r.end)};
+                Interval range{r.begin, r.end};
                 TRACE(logger, ">>> want {}", debug(range));
                 input->request.insert(range);
             }
@@ -167,11 +161,11 @@ class ScriptRunnerDef : public ScriptRunner {
 
         auto input_it = inputs.begin();
         while (input_it != inputs.end()) {
-            if (input_it->second.request.empty()) {
+            auto *input = &input_it->second;
+            if (input->request.empty()) {
                 DEBUG(logger, "> drop \"{}\" loader", input_it->first);
                 input_it = inputs.erase(input_it);
             } else {
-                auto *input = &input_it->second;
                 if (input->loader) {
                     DEBUG(logger, "> use \"{}\" loader", input_it->first);
                 } else {
@@ -189,10 +183,11 @@ class ScriptRunnerDef : public ScriptRunner {
 
         auto output_it = outputs.begin();
         while (output_it != outputs.end()) {
-            if (output_it->second.next_refresh < steady_t) {
+            if (!output_it->second.active) {
                 DEBUG(logger, "> drop {} player", output_it->first);
                 output_it = outputs.erase(output_it);
             } else {
+                output_it->second.active = false;
                 ++output_it;
             }
         }
@@ -220,17 +215,17 @@ class ScriptRunnerDef : public ScriptRunner {
 
   private:
     struct Input {
-        IntervalSet<Seconds> request;
         std::unique_ptr<FrameLoader> loader;
+        IntervalSet request;
         std::optional<FrameLoader::Content> content;
     };
 
     struct Output {
         std::string mode;
         XY<int> size;
-        Seconds refresh_period = {};
-        SteadyTime next_refresh = {};
+        double refresh_period = {};
         std::unique_ptr<FramePlayer> player;
+        bool active = false;
     };
 
     std::shared_ptr<log::logger> const logger = runner_logger();

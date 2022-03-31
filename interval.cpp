@@ -1,54 +1,10 @@
-#pragma once
+#include "interval.h"
 
-#include <compare>
-#include <set>
+#include "fmt/core.h"
 
 namespace pivid {
 
-template <typename T>
-struct Interval {
-    T begin = {}, end = {};
-
-    bool empty() const { return begin >= end; }
-    bool contains(T t) const { return begin <= t && t < end; }
-    auto operator<=>(Interval const& o) const { return begin <=> o.begin; }
-    bool operator==(Interval const& o) const = default;
-};
-
-template <typename T>
-class IntervalSet {
-  public:
-    using Interval = pivid::Interval<T>;
-    using iterator = std::set<Interval>::const_iterator;
-
-    iterator insert(Interval);
-    void insert(IntervalSet const& s) { for (auto r : s) insert(r); }
-
-    iterator erase(Interval);
-    void erase(IntervalSet const& s) { for (auto r : s) erase(r); }
-
-    iterator begin() const { return ranges.begin(); }
-    iterator end() const { return ranges.end(); }
-    bool empty() const { return ranges.empty(); }
-    int count() const { return ranges.size(); }
-
-    iterator overlap_begin(T t) const;
-    iterator overlap_end(T t) const { return ranges.lower_bound({t, {}}); }
-    bool contains(T) const;
-
-    auto operator<=>(IntervalSet const& o) const = default;
-    bool operator==(IntervalSet const& o) const = default;
-
-  private:
-    std::set<Interval> ranges;
-};
-
-//
-// Implementation
-//
-
-template <typename T>
-IntervalSet<T>::iterator IntervalSet<T>::insert(Interval add) {
+IntervalSet::iterator IntervalSet::insert(Interval add) {
     if (add.begin >= add.end) return ranges.end();
 
     auto next_contact = ranges.upper_bound(add);
@@ -69,8 +25,7 @@ IntervalSet<T>::iterator IntervalSet<T>::insert(Interval add) {
     return ranges.insert(add).first;
 }
 
-template <typename T>
-IntervalSet<T>::iterator IntervalSet<T>::erase(Interval remove) {
+IntervalSet::iterator IntervalSet::erase(Interval remove) {
     if (remove.begin >= remove.end) return ranges.end();
 
     auto next_overlap = ranges.upper_bound(remove);
@@ -91,18 +46,34 @@ IntervalSet<T>::iterator IntervalSet<T>::erase(Interval remove) {
     return next_overlap;
 }
 
-template <typename T>
-IntervalSet<T>::iterator IntervalSet<T>::overlap_begin(T value) const {
+IntervalSet::iterator IntervalSet::overlap_begin(double value) const {
     auto const next_after = ranges.upper_bound({value, {}});
     if (next_after == ranges.begin()) return next_after;
     auto const at_or_before = std::prev(next_after);
     return (at_or_before->end > value) ? at_or_before : next_after;
 }
 
-template <typename T>
-bool IntervalSet<T>::contains(T value) const {
+bool IntervalSet::contains(double value) const {
     auto const iter = overlap_begin(value);
     return iter != ranges.end() && iter->begin <= value;
+}
+
+Interval IntervalSet::bounds() const {
+    if (empty()) return {};
+    return {ranges.begin()->begin, ranges.rbegin()->end};
+}
+
+std::string debug(Interval interval) {
+    return fmt::format("{:.3f}~{:.3f}s", interval.begin, interval.end);
+}
+
+std::string debug(IntervalSet const& interval_set) {
+    std::string out = "{";
+    for (auto const& interval : interval_set) {
+        if (out.size() > 1) out += ", ";
+        out += pivid::debug(interval);
+    }
+    return out + "}";
 }
 
 }  // namespace pivid

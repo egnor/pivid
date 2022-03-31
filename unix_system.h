@@ -23,16 +23,9 @@
 #include <type_traits>
 #include <vector>
 
-#include "interval_set.h"
+#include "interval.h"
 
 namespace pivid {
-
-// Preferred duration and time point representations.
-using Seconds = std::chrono::duration<double>;
-using SystemTime = std::chrono::sys_time<Seconds>;
-using SteadyTime = std::chrono::time_point<std::chrono::steady_clock, Seconds>;
-
-constexpr auto forever = Seconds{std::numeric_limits<double>::infinity()};
 
 // The return from a system call, with an errno *or* some return value.
 template <typename T>
@@ -93,10 +86,8 @@ class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
 
-    // System clocks
-    virtual SystemTime system_time() const = 0;
-    virtual SteadyTime steady_time() const = 0;
-    virtual void sleep_until(SteadyTime) const = 0;
+    // System clock
+    virtual double system_time() const = 0;
 
     // Filesystem operations
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
@@ -128,14 +119,7 @@ class UnixSystem {
 std::shared_ptr<UnixSystem> global_system();
 
 // Date parser.
-SystemTime parse_system_time(std::string const&);
-std::string format_system_time(SystemTime);
-
-// Debugging descriptions of values.
-std::string debug(Seconds);
-std::string debug(Interval<Seconds>);
-std::string debug(IntervalSet<Seconds> const&);
-std::string debug(SteadyTime);
-std::string debug(SystemTime t);
+double parse_time(std::string const&);
+std::string format_time(double);
 
 }  // namespace pivid

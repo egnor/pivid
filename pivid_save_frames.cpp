@@ -1,6 +1,5 @@
 // Simple command line tool to exercise video decoding and playback.
 
-#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <thread>
@@ -8,7 +7,6 @@
 #include <CLI/App.hpp>
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
-#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 extern "C" {
@@ -43,7 +41,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
         if (seek_arg) {
             fmt::print("Seeking to {:.3f} seconds...\n", seek_arg);
-            decoder->seek_before(Seconds(seek_arg));
+            decoder->seek_before(seek_arg);
         }
 
         int frame_index = 0;
