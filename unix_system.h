@@ -120,6 +120,7 @@ std::shared_ptr<UnixSystem> global_system();
 
 // Date parser.
 double parse_time(std::string const&);
-std::string format_time(double);
+std::string format_date_time(double);
+std::string abbrev_time(double);
 
 }  // namespace pivid

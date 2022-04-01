@@ -22,7 +22,7 @@ class FramePlayerDef : public FramePlayer {
     virtual ~FramePlayerDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            logger->debug("Stopping frame player...");
+            DEBUG(logger, "Stopping frame player...");
             shutdown = true;
             lock.unlock();
             wakeup->set();
@@ -44,13 +44,13 @@ class FramePlayerDef : public FramePlayer {
             );
 
         if (timeline.empty()) {
-            TRACE(logger, "Set timeline empty");
+            TRACE(logger, "SET empty");
         } else {
             TRACE(logger, 
-                "Set timeline {}f {:.3f}~{:.3f}s {}",
+                "SET {}f: {}~{} {}",
                 timeline.size(),
-                timeline.begin()->first,
-                timeline.rbegin()->first,
+                abbrev_time(timeline.begin()->first),
+                abbrev_time(timeline.rbegin()->first),
                 same_keys ? "[same]" : "[diff]"
             );
         }
@@ -91,7 +91,7 @@ class FramePlayerDef : public FramePlayer {
         DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
-        logger->debug("Frame player thread running...");
+        DEBUG(logger, "Frame player thread running...");
 
         std::unique_lock lock{mutex};
         while (!shutdown) {
@@ -104,10 +104,10 @@ class FramePlayerDef : public FramePlayer {
             }
 
             TRACE(logger, 
-                "PLAY timeline {}f {:.3f}~{:.3f}s",
+                "PLAY timeline {}f {}~{}",
                 timeline.size(),
-                timeline.begin()->first,
-                timeline.rbegin()->first
+                abbrev_time(timeline.begin()->first),
+                abbrev_time(timeline.rbegin()->first)
             );
 
             auto const now = sys->system_time();
@@ -164,10 +164,10 @@ class FramePlayerDef : public FramePlayer {
             if (notify) notify->set();
 
             auto const lag = now - shown;
-            logger->debug("Show frame sched={:.3f}s ({:.3f}s old)", shown, lag);
+            DEBUG(logger, "Show frame sched={:.3f}s ({:.3f}s old)", shown, lag);
         }
 
-        logger->debug("Frame player thread ending...");
+        DEBUG(logger, "Frame player thread ending...");
     }
 
   private:

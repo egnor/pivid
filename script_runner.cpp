@@ -138,8 +138,9 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
 
                 TRACE(
-                    logger, ">>> add {}fr ({}im) {:.3f}~{:.3f}s",
-                    frame_count, unique_count, next_output_time, output_time
+                    logger, ">>> add {}fr ({}im) {}~{}s",
+                    frame_count, unique_count,
+                    abbrev_time(next_output_time), abbrev_time(output_time)
                 );
             }
 

@@ -150,22 +150,33 @@ double parse_time(std::string const& s) {
         return d;
 
     std::chrono::system_clock::time_point t = {};
-    std::istringstream is{s};
-    date::from_stream(is, "%FT%H:%M:%20SZ", t);
-    if (is.fail()) {
-        std::istringstream is2{s};
-        date::from_stream(is2, "%FT%H:%M:%20S%Ez", t);
-        if (is2.fail()) throw std::runtime_error("Bad date: \"" + s + "\"");
+    for (auto f : {
+        "%FT%H:%M:%20SZ", "%FT%H:%M:%20S%Ez", "%F %H:%M:%S%Ez", "%F %H:%M:%S"
+    }) {
+        std::istringstream is{s};
+        date::from_stream(is, f, t);
+        if (!is.fail())
+            return std::chrono::duration<double>{t.time_since_epoch()}.count();
     }
 
-    return std::chrono::duration<double>{t.time_since_epoch()}.count();
+    throw std::invalid_argument("Bad date: \"" + s + "\"");
 }
 
-std::string format_time(double t) {
+static std::chrono::system_clock::time_point as_time_point(double t) {
     using namespace std::chrono;
     duration<double> const double_d{t};
     auto const system_d = duration_cast<system_clock::duration>(double_d);
-    return date::format("{0:%F}T{0:%R%z}", system_clock::time_point{system_d});
+    return system_clock::time_point{system_d};
+}
+
+std::string format_date_time(double t) {
+    int const millis = std::fmod(t, 1.0) * 1000;
+    return fmt::format("{0:%F %R:%S.}{1:03d}{0:%z}", as_time_point(t), millis);
+}
+
+std::string abbrev_time(double t) {
+    int const millis = std::fmod(t, 1.0) * 1000;
+    return fmt::format("{0:%R:%S.}{1:03d}", as_time_point(t), millis);
 }
 
 }  // namespace pivid

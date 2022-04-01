@@ -184,7 +184,7 @@ void play_video(
 
     for (;;) {
         auto now = sys->system_time();
-        TRACE(logger, "UPDATE at {}", format_time(now));
+        DEBUG(logger, "UPDATE at {}", format_date_time(now));
 
         Interval req;
         req.begin = std::max(player->last_shown() + 0.001 - start_time, 0.0);
