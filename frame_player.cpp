@@ -6,7 +6,6 @@
 #include <fmt/core.h>
 
 #include "logging_policy.h"
-#include "thread_signal.h"
 
 namespace pivid {
 
@@ -75,6 +74,7 @@ class FramePlayerDef : public FramePlayer {
         std::shared_ptr<UnixSystem> sys
     ) {
         logger->info("Launching frame player...");
+        wakeup = sys->make_signal();
         thread = std::thread(
             &FramePlayerDef::player_thread,
             this,
@@ -174,7 +174,7 @@ class FramePlayerDef : public FramePlayer {
     // Constant from start to ~
     std::shared_ptr<log::logger> const logger = player_logger();
     std::thread thread;
-    std::shared_ptr<ThreadSignal> wakeup = make_signal();
+    std::unique_ptr<ThreadSignal> wakeup;
 
     // Guarded by mutex
     std::mutex mutable mutex;

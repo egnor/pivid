@@ -29,7 +29,7 @@ struct DisplayMode {
     XY<int> doubling;       // Clock doubling / doublescan / interlace (+1 / -1)
     int pixel_khz = 0;      // Basic pixel clock
     int nominal_hz = 0;     // Approx refresh rate (like 30 or 60)
-    double actual_hz() const;  // Computes true refresh rate
+    double actual_hz() const;  // Computes true refresh frequency
 };
 
 // Current screen state and recommended modes based on monitor data (EDID).

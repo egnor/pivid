@@ -8,7 +8,6 @@
 #include <fmt/core.h>
 
 #include "logging_policy.h"
-#include "thread_signal.h"
 #include "unix_system.h"
 
 namespace pivid {
@@ -109,10 +108,12 @@ class FrameLoaderDef : public FrameLoader {
     void start(
         std::shared_ptr<DisplayDriver> display,
         std::string const& filename,
+        std::shared_ptr<UnixSystem> sys,
         std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener
     ) {
         this->display = display;
         this->filename = filename;
+        this->wakeup = sys->make_signal();
         this->opener = opener;
         DEBUG(logger, "main> START {}", filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
@@ -328,14 +329,15 @@ class FrameLoaderDef : public FrameLoader {
     }
 
   private:
+    // Constant from start to ~
     std::shared_ptr<log::logger> logger = loader_logger();
     std::shared_ptr<DisplayDriver> display;
     std::string filename;
+    std::unique_ptr<ThreadSignal> wakeup;
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
 
     std::mutex mutable mutex;
     std::thread thread;
-    std::shared_ptr<ThreadSignal> wakeup = make_signal();
 
     IntervalSet wanted;
     std::shared_ptr<ThreadSignal> notify;
@@ -349,10 +351,13 @@ class FrameLoaderDef : public FrameLoader {
 std::unique_ptr<FrameLoader> start_frame_loader(
     std::shared_ptr<DisplayDriver> display,
     std::string const& filename,
+    std::shared_ptr<UnixSystem> sys,
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener
 ) {
     auto loader = std::make_unique<FrameLoaderDef>();
-    loader->start(std::move(display), filename, std::move(opener));
+    loader->start(
+        std::move(display), filename, std::move(sys), std::move(opener)
+    );
     return loader;
 }
 

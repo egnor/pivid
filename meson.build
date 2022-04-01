@@ -41,7 +41,6 @@ pivid_lib = library(
         'media_decoder.cpp',
         'script_data.cpp',
         'script_runner.cpp',
-        'thread_signal.cpp',
         'unix_system.cpp',
     ],
     dependencies: [libav_deps, util_deps],

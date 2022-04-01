@@ -6,7 +6,6 @@
 #include "frame_loader.h"
 #include "frame_player.h"
 #include "logging_policy.h"
-#include "thread_signal.h"
 
 namespace pivid {
 
@@ -61,14 +60,15 @@ class ScriptRunnerDef : public ScriptRunner {
                     continue;
                 }
 
-                if (screen_mode.nominal_hz == 0) {
+                double const actual_hz = screen_mode.actual_hz();
+                if (!actual_hz) {
                     logger->error("Mode not found: \"{}\"", screen.mode);
                     continue;
                 }
 
                 output->mode = screen.mode;
                 output->size = screen_mode.size;
-                output->refresh_period = 1.0 / screen_mode.actual_hz();
+                output->refresh_period = 1.0 / actual_hz;
                 output->player.reset();
                 output->player = context.player_f(screen_id, screen_mode);
             }
@@ -83,12 +83,10 @@ class ScriptRunnerDef : public ScriptRunner {
                 auto* input = &inputs[layer.media.file];
                 TRACE(logger, ">> layer \"{}\"", layer.media.file);
 
-                Interval buf{now, now + layer.media.buffer};
-                for (auto const& r : layer.media.play.range(buf)) {
-                    Interval range{r.begin, r.end};
-                    TRACE(logger, ">>> want {}", debug(range));
-                    input->request.insert(range);
-                }
+                Interval buffer{now, now + layer.media.buffer};
+                auto const range = layer.media.play.range(buffer);
+                TRACE(logger, ">>> want {}", debug(range));
+                input->request.insert(range);
 
                 if (!input->content) {
                     if (!input->loader) continue;
@@ -110,30 +108,28 @@ class ScriptRunnerDef : public ScriptRunner {
                     };
 
                     auto const media_t = get(layer.media.play, -1);
-                    if (media_t < 0) continue;
-
+                    if (!input->content->have.contains(media_t)) continue;
                     auto frame_it = input->content->frames.upper_bound(media_t);
-                    if (frame_it != input->content->frames.begin()) continue;
+                    if (frame_it == input->content->frames.begin()) continue;
                     --frame_it;
 
                     auto const image_size = frame_it->second->size();
-                    DisplayLayer display = {};
-                    display.image = frame_it->second;
-                    display.from_xy.x = get(layer.from_xy.x, 0);
-                    display.from_xy.y = get(layer.from_xy.y, 0);
-                    display.from_size.x = get(layer.from_size.x, image_size.x);
-                    display.from_size.y = get(layer.from_size.y, image_size.y);
-                    display.to_xy.x = get(layer.to_xy.x, 0);
-                    display.to_xy.y = get(layer.to_xy.y, 0);
-                    display.to_size.x = get(layer.to_xy.x, output->size.x);
-                    display.to_size.y = get(layer.to_xy.y, output->size.y);
-                    display.opacity = get(layer.opacity, 1);
-                    timeline[output_time].push_back(std::move(display));
+                    auto* display = &timeline[output_time].emplace_back();
+                    display->image = frame_it->second;
+                    display->from_xy.x = get(layer.from_xy.x, 0);
+                    display->from_xy.y = get(layer.from_xy.y, 0);
+                    display->from_size.x = get(layer.from_size.x, image_size.x);
+                    display->from_size.y = get(layer.from_size.y, image_size.y);
+                    display->to_xy.x = get(layer.to_xy.x, 0);
+                    display->to_xy.y = get(layer.to_xy.y, 0);
+                    display->to_size.x = get(layer.to_xy.x, output->size.x);
+                    display->to_size.y = get(layer.to_xy.y, output->size.y);
+                    display->opacity = get(layer.opacity, 1);
 
                     ++frame_count;
-                    if (display.image != last_image) {
+                    if (display->image != last_image) {
                         ++unique_count;
-                        last_image = display.image;
+                        last_image = display->image;
                     }
                 }
 
@@ -152,12 +148,9 @@ class ScriptRunnerDef : public ScriptRunner {
             auto* input = &inputs[standby.file];
             TRACE(logger, ">> standby \"{}\"", standby.file);
 
-            Interval buf{now, now + standby.buffer};
-            for (auto const& r : standby.play.range(buf)) {
-                Interval range{r.begin, r.end};
-                TRACE(logger, ">>> want {}", debug(range));
-                input->request.insert(range);
-            }
+            auto const range = standby.play.range({now, now + standby.buffer});
+            TRACE(logger, ">>> want {}", debug(range));
+            input->request.insert(range);
         }
 
         auto input_it = inputs.begin();
@@ -203,7 +196,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
         if (!context.loader_f) {
             context.loader_f = [this](std::string const& file) {
-                return start_frame_loader(context.driver, file);
+                return start_frame_loader(context.driver, file, context.sys);
             };
         }
 

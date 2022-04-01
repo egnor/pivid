@@ -42,9 +42,8 @@ struct [[nodiscard]] ErrnoOr {
     }
 };
 
-// Interface to the operations on a Unix file descriptor.
-// The functions manage retry on EINTR, and return ErrnoOr values.
-// Returned by UnixSystem::open() and UnixSystem::adopt().
+// Interface to Unix fd operations returned by UnixSystem::open() and adopt().
+// The methods manage EINTR retry but otherwise return ErrnoOr values.
 // *Internally synchronized* (by the OS, mainly) for multithreaded access.
 class FileDescriptor {
   public:
@@ -80,21 +79,30 @@ class FileDescriptor {
     }
 };
 
-// Interface to the Unix OS. Normally a singleton returned by global_system().
+// A simple *internally synchronized* thread wakeup channel.
+class ThreadSignal {
+  public:
+    virtual ~ThreadSignal() = default;
+    virtual void set() = 0;               // Sets the signal flag.
+    virtual void wait() = 0;              // Waits for set, resets and returns.
+    virtual bool wait_for(double) = 0;    // Duration wait (true if signaled).
+    virtual bool wait_until(double) = 0;  // Deadline wait (true if signaled).
+};
+
+// Interface to the Unix OS, typically a singleton returned by global_system().
 // *Internally synchronized* (by the OS, mainly) for multithreaded access.
 class UnixSystem {
   public:
     virtual ~UnixSystem() = default;
 
-    // System clock
+    // System clock and synchronization
     virtual double system_time() const = 0;
+    virtual std::unique_ptr<ThreadSignal> make_signal() const = 0;
 
     // Filesystem operations
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
     virtual ErrnoOr<std::string> realpath(std::string const&) const = 0;
-    virtual ErrnoOr<std::vector<std::string>> list(
-        std::string const& dir
-    ) const = 0;
+    virtual ErrnoOr<std::vector<std::string>> ls(std::string const&) const = 0;
 
     // Returns a file descriptor for a file, like open().
     virtual ErrnoOr<std::unique_ptr<FileDescriptor>> open(

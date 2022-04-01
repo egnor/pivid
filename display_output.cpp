@@ -1043,7 +1043,7 @@ std::vector<DisplayDriverListing> list_display_drivers(
 ) {
     std::vector<DisplayDriverListing> out;
     std::string const dri_dir = "/dev/dri";
-    for (auto const& fname : sys->list(dri_dir).ex(dri_dir)) {
+    for (auto const& fname : sys->ls(dri_dir).ex(dri_dir)) {
         if (fname.substr(0, 4) != "card" || !isdigit(fname[4])) continue;
 
         DisplayDriverListing listing;
@@ -1116,7 +1116,7 @@ std::unique_ptr<DisplayDriver> open_display_driver(
 //
 
 double DisplayMode::actual_hz() const {
-    if (!scan_size.x || !scan_size.y) return 0;
+    if (!nominal_hz || !scan_size.x || !scan_size.y) return 0;
     double const raw_hz = pixel_khz * 1000.0 / scan_size.x / scan_size.y;
     return raw_hz * (doubling.y < 0 ? 2.0 : doubling.y > 0 ? 0.5 : 1.0);
 }

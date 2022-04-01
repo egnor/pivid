@@ -175,7 +175,7 @@ void play_video(
         overlay_layer.opacity = overlay_opacity_arg;
     }
 
-    std::shared_ptr const signal = make_signal();
+    std::shared_ptr const signal = sys->make_signal();
     auto const loader = start_frame_loader(driver, media_file);
     auto const player = start_frame_player(driver, screen.id, mode);
 
@@ -277,7 +277,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             context.driver = driver;
             auto runner = make_script_runner(context);
             auto script = load_script(script_arg);
-            auto signal = std::shared_ptr{make_signal()};
+            std::shared_ptr const signal = global_system()->make_signal();
             for (;;) {
                 runner->update(script, signal);
                 signal->wait();

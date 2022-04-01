@@ -61,6 +61,55 @@ class FileDescriptorDef : public FileDescriptor {
     int fd = -1;
 };
 
+class ThreadSignalDef : public ThreadSignal {
+  public:
+    virtual void set() final {
+        std::scoped_lock<std::mutex> lock{mutex};
+        if (!signal_flag) {
+            signal_flag = true;
+            condvar.notify_one();
+        }
+    }
+
+    virtual void wait() final {
+        std::unique_lock<std::mutex> lock{mutex};
+        while (!signal_flag)
+            condvar.wait(lock);
+        signal_flag = false;
+    }
+
+    virtual bool wait_until(double t) final {
+        using namespace std::chrono;
+        duration<double> const double_d{t};
+        auto const system_d = duration_cast<system_clock::duration>(double_d);
+        system_clock::time_point system_t(system_d);
+        std::unique_lock<std::mutex> lock{mutex};
+        while (!signal_flag) {
+            if (condvar.wait_until(lock, system_t) == std::cv_status::timeout)
+                return false;
+        }
+        signal_flag = false;
+        return true;
+    }
+
+    virtual bool wait_for(double t) final {
+        using namespace std::chrono;
+        auto const steady_t = steady_clock::now() + duration<double>{t};
+        std::unique_lock<std::mutex> lock{mutex};
+        while (!signal_flag) {
+            if (condvar.wait_until(lock, steady_t) == std::cv_status::timeout)
+                return false;
+        }
+        signal_flag = false;
+        return true;
+    }
+
+  private:
+    std::mutex mutable mutex;
+    std::condition_variable condvar;
+    bool signal_flag = false;
+};
+
 class UnixSystemDef : public UnixSystem {
   public:
     virtual double system_time() const final {
@@ -68,7 +117,11 @@ class UnixSystemDef : public UnixSystem {
         return std::chrono::duration<double>{now.time_since_epoch()}.count();
     }
 
-    virtual ErrnoOr<std::vector<std::string>> list(
+    virtual std::unique_ptr<ThreadSignal> make_signal() const final {
+        return std::make_unique<ThreadSignalDef>();
+    }
+
+    virtual ErrnoOr<std::vector<std::string>> ls(
         std::string const& dir
     ) const final {
         std::unique_ptr<DIR, int (*)(DIR*)> dp(opendir(dir.c_str()), closedir);

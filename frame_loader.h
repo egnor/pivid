@@ -10,7 +10,6 @@
 #include "media_decoder.h"
 #include "display_output.h"
 #include "interval.h"
-#include "thread_signal.h"
 #include "unix_system.h"
 
 namespace pivid {
@@ -43,6 +42,7 @@ class FrameLoader {
 std::unique_ptr<FrameLoader> start_frame_loader(
     std::shared_ptr<DisplayDriver>,
     std::string const& filename,
+    std::shared_ptr<UnixSystem> system = global_system(),
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> =
         open_media_decoder
 );
