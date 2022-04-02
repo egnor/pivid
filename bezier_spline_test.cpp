@@ -12,15 +12,15 @@ TEST_CASE("BezierSpline::value") {
     BezierSpline bz = {};
     bz.segments.push_back({
         .t = {1.0, 4.0},
-        .begin_x = 10.0, .p1_x = 20.0, .p2_x = 30.0, .end_x = 40.0,
+        .begin_v = 10.0, .p1_v = 20.0, .p2_v = 30.0, .end_v = 40.0,
     });
     bz.segments.push_back({
         .t = {5.0, 8.0},
-        .begin_x = 10.0, .p1_x = 30.0, .p2_x = 50.0, .end_x = 40.0,
+        .begin_v = 10.0, .p1_v = 30.0, .p2_v = 50.0, .end_v = 40.0,
     });
     bz.segments.push_back({
         .t = {11.0, INFINITY},
-        .begin_x = 50.0, .p1_x = 60.0, .p2_x = 70.0, .end_x = 80.0,
+        .begin_v = 50.0, .p1_v = 60.0, .p2_v = 70.0, .end_v = 80.0,
     });
 
     SUBCASE("non-repeating") {
@@ -68,11 +68,11 @@ TEST_CASE("BezierSpline::value") {
                 CHECK_FALSE(bz.value(t + 7.0));
                 CHECK_FALSE(bz.value(t + 14.0));
             } else {
-                double x = *bz.value(t);
+                double v = *bz.value(t);
                 CHECK_FALSE(bz.value(t - 10.0));
                 CHECK_FALSE(bz.value(t - 5.0));
-                CHECK(bz.value(t + 7.0) == doctest::Approx(x));
-                CHECK(bz.value(t + 14.0) == doctest::Approx(x));
+                CHECK(bz.value(t + 7.0) == doctest::Approx(v));
+                CHECK(bz.value(t + 14.0) == doctest::Approx(v));
             }
         }
     }
@@ -82,11 +82,11 @@ TEST_CASE("BezierSpline::range") {
     BezierSpline bz = {};
     bz.segments.push_back({
         .t = {-2.0, 2.0},
-        .begin_x = 10.0, .p1_x = -10.0, .p2_x = 50.0, .end_x = 40.0,
+        .begin_v = 10.0, .p1_v = -10.0, .p2_v = 50.0, .end_v = 40.0,
     });
     bz.segments.push_back({
         .t = {2.0, 6.0},
-        .begin_x = 40.0, .p1_x = 30.0, .p2_x = 20.0, .end_x = 10.0,
+        .begin_v = 40.0, .p1_v = 30.0, .p2_v = 20.0, .end_v = 10.0,
     });
 
     Interval t;
@@ -102,10 +102,10 @@ TEST_CASE("BezierSpline::range") {
                 REQUIRE(range.count() == 1);
                 double min = 100, max = -100;
                 for (double tt = t.begin; tt <= t.end; tt += 0.00999) {
-                    auto const maybe_x = bz.value(tt);
-                    if (maybe_x) {
-                        min = std::min(min, *maybe_x);
-                        max = std::max(max, *maybe_x);
+                    auto const maybe_v = bz.value(tt);
+                    if (maybe_v) {
+                        min = std::min(min, *maybe_v);
+                        max = std::max(max, *maybe_v);
                     }
                 }
 

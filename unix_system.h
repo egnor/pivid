@@ -97,6 +97,7 @@ class UnixSystem {
 
     // System clock and synchronization
     virtual double system_time() const = 0;
+    virtual void sleep_for(double) = 0;
     virtual std::unique_ptr<ThreadSignal> make_signal() const = 0;
 
     // Filesystem operations

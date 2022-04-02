@@ -105,27 +105,6 @@ DisplayMode find_mode(
     return found;
 }
 
-Script load_script(std::string const& filename) {
-    main_logger()->info("Loading script: {}", filename);
-
-    std::ifstream ifs;
-    ifs.exceptions(~std::ifstream::goodbit);
-    ifs.open(filename, std::ios::binary);
-    std::string const text(
-        (std::istreambuf_iterator<char>(ifs)),
-        (std::istreambuf_iterator<char>())
-    );
-
-    nlohmann::json json;
-    try {
-        json = nlohmann::json::parse(text);
-    } catch (nlohmann::json::parse_error const& je) {
-        throw_with_nested(std::invalid_argument(je.what()));
-    }
-
-    return json.get<Script>();
-}
-
 void set_kernel_debug(bool enable) {
     auto const debug_file = "/sys/module/drm/parameters/debug";
     auto const debug_stat = global_system()->stat(debug_file).ex(debug_file);
@@ -217,6 +196,45 @@ void play_video(
     logger->info("End of playback");
 }
 
+void run_script(
+    std::shared_ptr<DisplayDriver> driver,
+    std::string const& script_file
+) {
+    auto const logger = main_logger();
+    auto const sys = global_system();
+
+    logger->info("Loading script: {}", script_file);
+
+    std::ifstream ifs;
+    ifs.exceptions(~std::ifstream::goodbit);
+    ifs.open(script_file, std::ios::binary);
+    std::string const text(
+        (std::istreambuf_iterator<char>(ifs)),
+        (std::istreambuf_iterator<char>())
+    );
+
+    nlohmann::json json;
+    try {
+        json = nlohmann::json::parse(text);
+    } catch (nlohmann::json::parse_error const& je) {
+        throw_with_nested(std::invalid_argument(je.what()));
+    }
+
+    auto const run_start = global_system()->system_time();
+    auto const script = make_script_absolute(json.get<Script>(), run_start);
+    logger->info("Script start: {}", format_date_time(run_start));
+
+    ScriptContext context = {};
+    context.driver = std::move(driver);
+    auto const runner = make_script_runner(context);
+    std::shared_ptr const signal = sys->make_signal();
+    for (;;) {
+        runner->update(script, signal);
+        sys->sleep_for(0.010);  // Wait at least 10ms, to save CPU
+        signal->wait();
+    }
+}
+
 }  // namespace
 
 // Main program, parses flags and calls the decoder loop.
@@ -257,10 +275,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
     pivid::set_kernel_debug(debug_kernel);
 
     try {
-        if (!media_arg.empty() && !script_arg.empty()) {
-            throw std::runtime_error("");
-        }
-
         std::shared_ptr const driver = find_driver(dev_arg);
         auto const screen = find_screen(driver, screen_arg);
         auto const mode = find_mode(driver, screen, mode_arg);
@@ -273,15 +287,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
         }
 
         if (!script_arg.empty()) {
-            ScriptContext context = {};
-            context.driver = driver;
-            auto runner = make_script_runner(context);
-            auto script = load_script(script_arg);
-            std::shared_ptr const signal = global_system()->make_signal();
-            for (;;) {
-                runner->update(script, signal);
-                signal->wait();
-            }
+            run_script(driver, script_arg);
         }
     } catch (std::exception const& e) {
         main_logger()->critical("{}", e.what());

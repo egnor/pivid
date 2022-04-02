@@ -36,7 +36,8 @@ struct Script {
     bool run_relative = false;
 };
 
-void from_json(nlohmann::json const&, Script&, double run_start = 0.0);
-// TODO add run_start adjustment separately
+void from_json(nlohmann::json const&, Script&);
+
+Script make_script_absolute(Script, double run_start);
 
 }  // namespace pivid

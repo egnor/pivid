@@ -14,7 +14,7 @@ namespace pivid {
 // A 1-D parametric Bezier segment defined by four control points.
 struct BezierSegment {
     Interval t;
-    double begin_x = 0.0, p1_x = 0.0, p2_x = 0.0, end_x = 0.0;
+    double begin_v = 0.0, p1_v = 0.0, p2_v = 0.0, end_v = 0.0;
 };
 
 // Piecewise-cubic Bezier function in x parameterized on t.

@@ -92,9 +92,9 @@ class ThreadSignalDef : public ThreadSignal {
         return true;
     }
 
-    virtual bool wait_for(double t) final {
+    virtual bool wait_for(double d) final {
         using namespace std::chrono;
-        auto const steady_t = steady_clock::now() + duration<double>{t};
+        auto const steady_t = steady_clock::now() + duration<double>{d};
         std::unique_lock<std::mutex> lock{mutex};
         while (!signal_flag) {
             if (condvar.wait_until(lock, steady_t) == std::cv_status::timeout)
@@ -115,6 +115,10 @@ class UnixSystemDef : public UnixSystem {
     virtual double system_time() const final {
         auto const now = std::chrono::system_clock::now();
         return std::chrono::duration<double>{now.time_since_epoch()}.count();
+    }
+
+    virtual void sleep_for(double d) final {
+       std::this_thread::sleep_for(std::chrono::duration<double>{d});
     }
 
     virtual std::unique_ptr<ThreadSignal> make_signal() const final {

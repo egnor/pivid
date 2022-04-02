@@ -9,6 +9,15 @@ using json = nlohmann::json;
 
 namespace pivid {
 
+TEST_CASE("from_json (empty)") {
+    Script script;
+    from_json(json::object(), script);
+
+    CHECK(script.screens.empty());
+    CHECK(script.standbys.empty());
+    CHECK_FALSE(script.run_relative);
+}
+
 TEST_CASE("from_json") {
     auto const j = R"**({
       "screens": {
@@ -26,8 +35,8 @@ TEST_CASE("from_json") {
               "to_size": [700, 800],
               "opacity": {
                 "segments": [
-                  {"t": [0, 5], "x": [0.0, 1.0]},
-                  {"t": [5, 10], "x": [1.0, 0.0]}
+                  {"t": [0, 5], "v": [0.0, 1.0]},
+                  {"t": [5, 10], "v": [1.0, 0.0]}
                 ],
                 "repeat": true
               }
@@ -41,14 +50,14 @@ TEST_CASE("from_json") {
           "buffer": 0.5,
           "play": {
             "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30.5Z"],
-            "x": [0, 10, 90, 100]
+            "v": [0, 10, 90, 100]
           }
         }
       ]
     })**"_json;
 
     Script script;
-    from_json(j, script, 1e10);  // Not run_relative; run_start is ignored.
+    from_json(j, script);
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);
@@ -72,10 +81,10 @@ TEST_CASE("from_json") {
     CHECK_FALSE(screen.layers[1].media.play.repeat);
     CHECK(screen.layers[1].media.play.segments[0].t.begin == 1);
     CHECK(screen.layers[1].media.play.segments[0].t.end == 1e12);
-    CHECK(screen.layers[1].media.play.segments[0].begin_x == 0);
-    CHECK(screen.layers[1].media.play.segments[0].p1_x == Approx(2e12 / 3));
-    CHECK(screen.layers[1].media.play.segments[0].p2_x == Approx(2e12 * 2 / 3));
-    CHECK(screen.layers[1].media.play.segments[0].end_x == 2 * (1e12 - 1));
+    CHECK(screen.layers[1].media.play.segments[0].begin_v == 0);
+    CHECK(screen.layers[1].media.play.segments[0].p1_v == Approx(2e12 / 3));
+    CHECK(screen.layers[1].media.play.segments[0].p2_v == Approx(2e12 * 2 / 3));
+    CHECK(screen.layers[1].media.play.segments[0].end_v == 2 * (1e12 - 1));
 
     REQUIRE(screen.layers[1].from_xy.x.segments.size() == 1);
     REQUIRE(screen.layers[1].from_xy.y.segments.size() == 1);
@@ -86,31 +95,31 @@ TEST_CASE("from_json") {
     REQUIRE(screen.layers[1].to_size.x.segments.size() == 1);
     REQUIRE(screen.layers[1].to_size.y.segments.size() == 1);
 
-    CHECK(screen.layers[1].from_xy.x.segments[0].t.begin == -1e12);
+    CHECK(screen.layers[1].from_xy.x.segments[0].t.begin == 0);
     CHECK(screen.layers[1].from_xy.x.segments[0].t.end == 1e12);
-    CHECK(screen.layers[1].from_xy.x.segments[0].begin_x == 100);
-    CHECK(screen.layers[1].from_xy.x.segments[0].p1_x == 100);
-    CHECK(screen.layers[1].from_xy.x.segments[0].p2_x == 100);
-    CHECK(screen.layers[1].from_xy.x.segments[0].end_x == 100);
-    CHECK(screen.layers[1].from_xy.y.segments[0].begin_x == 200);
-    CHECK(screen.layers[1].from_size.x.segments[0].begin_x == 300);
-    CHECK(screen.layers[1].to_xy.x.segments[0].begin_x == 500);
-    CHECK(screen.layers[1].to_size.x.segments[0].begin_x == 700);
+    CHECK(screen.layers[1].from_xy.x.segments[0].begin_v == 100);
+    CHECK(screen.layers[1].from_xy.x.segments[0].p1_v == 100);
+    CHECK(screen.layers[1].from_xy.x.segments[0].p2_v == 100);
+    CHECK(screen.layers[1].from_xy.x.segments[0].end_v == 100);
+    CHECK(screen.layers[1].from_xy.y.segments[0].begin_v == 200);
+    CHECK(screen.layers[1].from_size.x.segments[0].begin_v == 300);
+    CHECK(screen.layers[1].to_xy.x.segments[0].begin_v == 500);
+    CHECK(screen.layers[1].to_size.x.segments[0].begin_v == 700);
 
     REQUIRE(screen.layers[1].opacity.segments.size() == 2);
     CHECK(screen.layers[1].opacity.repeat);
     CHECK(screen.layers[1].opacity.segments[0].t.begin == 0);
     CHECK(screen.layers[1].opacity.segments[0].t.end == 5);
-    CHECK(screen.layers[1].opacity.segments[0].begin_x == 0);
-    CHECK(screen.layers[1].opacity.segments[0].p1_x == Approx(1.0 / 3));
-    CHECK(screen.layers[1].opacity.segments[0].p2_x == Approx(2.0 / 3));
-    CHECK(screen.layers[1].opacity.segments[0].end_x == 1);
+    CHECK(screen.layers[1].opacity.segments[0].begin_v == 0);
+    CHECK(screen.layers[1].opacity.segments[0].p1_v == Approx(1.0 / 3));
+    CHECK(screen.layers[1].opacity.segments[0].p2_v == Approx(2.0 / 3));
+    CHECK(screen.layers[1].opacity.segments[0].end_v == 1);
     CHECK(screen.layers[1].opacity.segments[1].t.begin == 5);
     CHECK(screen.layers[1].opacity.segments[1].t.end == 10);
-    CHECK(screen.layers[1].opacity.segments[1].begin_x == 1);
-    CHECK(screen.layers[1].opacity.segments[1].p1_x == Approx(2.0 / 3));
-    CHECK(screen.layers[1].opacity.segments[1].p2_x == Approx(1.0 / 3));
-    CHECK(screen.layers[1].opacity.segments[1].end_x == 0);
+    CHECK(screen.layers[1].opacity.segments[1].begin_v == 1);
+    CHECK(screen.layers[1].opacity.segments[1].p1_v == Approx(2.0 / 3));
+    CHECK(screen.layers[1].opacity.segments[1].p2_v == Approx(1.0 / 3));
+    CHECK(screen.layers[1].opacity.segments[1].end_v == 0);
 
     REQUIRE(script.standbys.size() == 1);
     auto const& standby = script.standbys[0];
@@ -120,59 +129,87 @@ TEST_CASE("from_json") {
     REQUIRE(standby.play.segments.size() == 1);
     CHECK(standby.play.segments[0].t.begin == 1583064000);
     CHECK(standby.play.segments[0].t.end == Approx(1583064000 + 90.5));
-    CHECK(standby.play.segments[0].begin_x == 0);
-    CHECK(standby.play.segments[0].p1_x == 10);
-    CHECK(standby.play.segments[0].p2_x == 90);
-    CHECK(standby.play.segments[0].end_x == 100);
+    CHECK(standby.play.segments[0].begin_v == 0);
+    CHECK(standby.play.segments[0].p1_v == 10);
+    CHECK(standby.play.segments[0].p2_v == 90);
+    CHECK(standby.play.segments[0].end_v == 100);
     CHECK_FALSE(standby.play.repeat);
 }
 
-TEST_CASE("from_json (empty)") {
-    Script script;
-    from_json(json::object(), script);
-
-    CHECK(script.screens.empty());
-    CHECK(script.standbys.empty());
-    CHECK_FALSE(script.run_relative);
-}
-
-TEST_CASE("from_json (run_relative=true)") {
+TEST_CASE("make_script_absolute") {
     auto const j = R"**({
       "run_relative": true,
       "screens": {
-        "screen": {
+        "s0": {
           "layers": [
             {
-              "media": {"file": "full_layer", "play": {"t": 1, "rate": 2}},
-              "from_xy": [100, 200],
-              "from_size": [300, 400],
-              "to_xy": [500, 600],
-              "to_size": [700, 800],
-              "opacity": {
-                "segments": [
-                  {"t": [0, 5], "x": [0.0, 1.0]},
-                  {"t": [5, 10], "x": [1.0, 0.0]}
-                ],
-                "repeat": true
-              }
-            }
+              "media": {"file": "f0", "play": [{"t": [1, 2]}, {"t": [2, 3]}]},
+              "from_xy": [{"t": [3, 4]}, {"t": [4, 5]}],
+              "from_size": [5, 6],
+              "to_xy": [6, 7],
+              "to_size": [7, 8],
+              "opacity": 9
+            },
+            {"media": {"file": "f1", "play": 10}}
           ]
-        }
+        },
+        "s1": {"layers": [{"media": {"file": "f2", "play": 11}}]}
       },
-      "standbys": [
-        {
-          "file": "standby",
-          "buffer": 0.5,
-          "play": {
-            "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30.5Z"],
-            "x": [0, 10, 90, 100]
-          }
-        }
-      ]
+      "standbys": [{"file": "f3", "play": 12}, {"file": "f4", "play": 13}]
     })**"_json;
 
     Script script;
-    from_json(j, script, 1e9);  // run_start will be added to times
+    from_json(j, script);
+    CHECK(script.run_relative);
+
+    auto ab = make_script_absolute(script, 10000);
+    CHECK_FALSE(ab.run_relative);
+    REQUIRE(ab.screens.size() == 2);
+    REQUIRE(ab.screens["s0"].layers.size() == 2);
+    REQUIRE(ab.screens["s1"].layers.size() == 1);
+
+    auto const& s0_l0 = ab.screens["s0"].layers[0];
+    REQUIRE(s0_l0.media.play.segments.size() == 2);
+    CHECK(s0_l0.media.play.segments[0].t.begin == Approx(10001));
+    CHECK(s0_l0.media.play.segments[0].t.end == Approx(10002));
+    CHECK(s0_l0.media.play.segments[1].t.begin == Approx(10002));
+    CHECK(s0_l0.media.play.segments[1].t.end == Approx(10003));
+
+    REQUIRE(s0_l0.from_xy.x.segments.size() == 1);
+    REQUIRE(s0_l0.from_xy.y.segments.size() == 1);
+    CHECK(s0_l0.from_xy.x.segments[0].t.begin == Approx(10003));
+    CHECK(s0_l0.from_xy.y.segments[0].t.end == Approx(10005));
+
+    REQUIRE(s0_l0.from_size.x.segments.size() == 1);
+    CHECK(s0_l0.from_size.x.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l0.from_size.x.segments[0].t.end == Approx(1e12));
+    CHECK(s0_l0.from_size.x.segments[0].begin_v == Approx(5));
+
+    REQUIRE(s0_l0.to_xy.x.segments.size() == 1);
+    REQUIRE(s0_l0.to_size.x.segments.size() == 1);
+    REQUIRE(s0_l0.opacity.segments.size() == 1);
+    CHECK(s0_l0.to_xy.x.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l0.to_size.x.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l0.opacity.segments[0].t.begin == Approx(10000));
+
+    auto const& s0_l1 = ab.screens["s0"].layers[1];
+    REQUIRE(s0_l1.media.play.segments.size() == 1);
+    CHECK(s0_l1.media.play.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l1.media.play.segments[0].begin_v == Approx(10));
+
+    auto const& s1_l0 = ab.screens["s1"].layers[0];
+    REQUIRE(s1_l0.media.play.segments.size() == 1);
+    CHECK(s1_l0.media.play.segments[0].t.begin == Approx(10000));
+    CHECK(s1_l0.media.play.segments[0].begin_v == Approx(11));
+
+    REQUIRE(ab.standbys.size() == 2);
+    REQUIRE(ab.standbys[0].play.segments.size() == 1);
+    CHECK(ab.standbys[0].play.segments[0].t.begin == Approx(10000));
+    CHECK(ab.standbys[0].play.segments[0].begin_v == Approx(12));
+
+    REQUIRE(ab.standbys[1].play.segments.size() == 1);
+    CHECK(ab.standbys[1].play.segments[0].t.begin == Approx(10000));
+    CHECK(ab.standbys[1].play.segments[0].begin_v == Approx(13));
 }
 
 }  // namespace pivid

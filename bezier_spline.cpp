@@ -28,13 +28,13 @@ double segment_value_at(BezierSegment const& seg, double t) {
         "Bad eval: bt={} t={} et={}", seg.t.begin, t, seg.t.end
     );
 
-    if (t_len <= 0) return 0.5 * (seg.begin_x + seg.end_x);
+    if (t_len <= 0) return 0.5 * (seg.begin_v + seg.end_v);
     double const f = (t - seg.t.begin) / t_len;
     double const nf = 1 - f;
-    return seg.begin_x + (
-        3 * nf * nf * f * (seg.p1_x - seg.begin_x) +
-        3 * nf * f * f * (seg.p2_x - seg.begin_x) +
-        f * f * f * (seg.end_x - seg.begin_x)
+    return seg.begin_v + (
+        3 * nf * nf * f * (seg.p1_v - seg.begin_v) +
+        3 * nf * f * f * (seg.p2_v - seg.begin_v) +
+        f * f * f * (seg.end_v - seg.begin_v)
     );
 }
 
@@ -43,15 +43,15 @@ Interval segment_range(BezierSegment const& seg, Interval t) {
     t.end = std::min(seg.t.end, t.end);
     if (t.empty()) return {};
 
-    double const begin_x = segment_value_at(seg, t.begin);
-    double const end_x = segment_value_at(seg, t.end);
-    double min_x = std::min(begin_x, end_x);
-    double max_x = std::max(begin_x, end_x);
+    double const begin_v = segment_value_at(seg, t.begin);
+    double const end_v = segment_value_at(seg, t.end);
+    double min_v = std::min(begin_v, end_v);
+    double max_v = std::max(begin_v, end_v);
 
     // See https://pomax.github.io/bezierinfo/#extremities
-    double const a = 3 * (-seg.begin_x + 3 * (seg.p1_x - seg.p2_x) + seg.end_x);
-    double const b = 6 * (seg.begin_x - 2 * seg.p1_x + seg.p2_x);
-    double const c = 3 * (seg.p1_x - seg.begin_x);
+    double const a = 3 * (-seg.begin_v + 3 * (seg.p1_v - seg.p2_v) + seg.end_v);
+    double const b = 6 * (seg.begin_v - 2 * seg.p1_v + seg.p2_v);
+    double const c = 3 * (seg.p1_v - seg.begin_v);
     double const d = b * b - 4 * a * c;  // Quadratic formula discriminator
 
     if (d >= 0) {
@@ -60,20 +60,20 @@ Interval segment_range(BezierSegment const& seg, Interval t) {
 
         double const root_a_t = seg.t.begin + t_len * (-b - sqrt_d) / (2 * a);
         if (root_a_t >= t.begin && root_a_t <= t.end) {
-            double const root_a_x = segment_value_at(seg, root_a_t);
-            min_x = std::min(min_x, root_a_x);
-            max_x = std::max(max_x, root_a_x);
+            double const root_a_v = segment_value_at(seg, root_a_t);
+            min_v = std::min(min_v, root_a_v);
+            max_v = std::max(max_v, root_a_v);
         }
 
         double const root_b_t = seg.t.begin + t_len * (-b + sqrt_d) / (2 * a);
         if (root_b_t >= t.begin && root_b_t <= t.end) {
-            double const root_b_x = segment_value_at(seg, root_b_t);
-            min_x = std::min(min_x, root_b_x);
-            max_x = std::max(max_x, root_b_x);
+            double const root_b_v = segment_value_at(seg, root_b_t);
+            min_v = std::min(min_v, root_b_v);
+            max_v = std::max(max_v, root_b_v);
         }
     }
 
-    return {min_x, max_x};
+    return {min_v, max_v};
 }
 
 void add_range_nowrap(BezierSpline const& bez, Interval t, IntervalSet* out) {
