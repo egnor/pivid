@@ -97,6 +97,7 @@ void from_json(json const& j, BezierSpline& bezier) {
     } else if (j.is_array() && !j.at(0).is_number()) {
         j.get_to(bezier.segments);
     } else if (!j.empty()) {
+        if (j.is_object()) bezier.repeat = j.value("repeat", false);
         bezier.segments.resize(1);
         j.get_to(bezier.segments[0]);
     }
@@ -131,6 +132,7 @@ void from_json(json const& j, ScriptScreen& screen) {
     CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
     j.value("mode", json{}).get_to(screen.mode);
     screen.mode_hz = j.value("mode_hz", screen.mode_hz);
+    screen.update_hz = j.value("update_hz", screen.update_hz);
     j.value("layers", json::array()).get_to(screen.layers);
 }
 

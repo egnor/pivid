@@ -232,6 +232,7 @@ void run_script(
         runner->update(script, signal);
         sys->sleep_for(0.010);  // Wait at least 10ms, to save CPU
         signal->wait();
+        // TODO don't wait longer than buffer / 5? (How to find buffer?)
     }
 }
 

@@ -1,0 +1,17 @@
+{
+  "run_relative": true,
+  "screens": {
+    "HDMIA-1": {
+      "mode": [1920, 1080],
+      "update_hz": 12.5,
+      "layers": [
+        {
+          "media": {
+            "file": "test_media/totoro.pal8-t.gif",
+            "play": {"t": [0.2, 1.5], "rate": 1, "repeat": true}
+          }
+        }
+      ]
+    }
+  }
+}

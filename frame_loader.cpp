@@ -157,7 +157,7 @@ class FrameLoaderDef : public FrameLoader {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "> {} ({}) use {:.3f}s",
+                    logger, "> w={} l={} use d@{:.3f}s",
                     debug(*wi), debug(*li), di->first
                 );
 
@@ -177,7 +177,7 @@ class FrameLoaderDef : public FrameLoader {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "> {} ({}) get {:.3f}s",
+                    logger, "> w={} l={} recyc d@{:.3f}s",
                     debug(*wi), debug(*li), di->first
                 );
 
@@ -191,41 +191,27 @@ class FrameLoaderDef : public FrameLoader {
             while (li != to_load.end()) {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
-                TRACE(logger, "> {} ({}) new decoder", debug(*wi), debug(*li));
+                TRACE(logger, "> w={} l={} new dec", debug(*wi), debug(*li));
 
                 to_use.emplace_back(*li, 0.0, nullptr);
                 li = to_load.erase(*wi);
             }
 
             // Remove unused decoders unless positioned at request growth edges
+            // TODO: Allow the decoder to be a tiny bit early?
             auto di = decoders.begin();
             while (di != decoders.end()) {
-                if (out.eof && di->first >= *out.eof) {
-                    TRACE(
-                        logger, "> drop: {:.3f}s (>= eof {:.3f}s)",
-                        di->first, *out.eof
-                    );
-                    di = decoders.erase(di);
-                    continue;
-                }
-
-                if (out.have.empty() && di->first == 0.0) {
-                    TRACE(logger, "> keep: starting decoder");
-                    ++di;
-                    continue;
-                }
-
                 auto hi = out.have.overlap_begin(di->first);
                 if (hi != out.have.begin()) {
                     --hi;
                     if (di->first == hi->end) {
-                        TRACE(logger, "> keep: {} end decoder", debug(*hi));
+                        TRACE(logger, "> keep: d@{} (at frontier)", debug(*hi));
                         ++di;
                         continue;
                     }
                 }
 
-                TRACE(logger, "> drop: {:.3f}s", di->first);
+                TRACE(logger, "> drop d@{:.3f}s (unused decoder)", di->first);
                 di = decoders.erase(di);
             }
 
@@ -258,13 +244,14 @@ class FrameLoaderDef : public FrameLoader {
 
                 try {
                     if (!decoder) {
-                        TRACE(logger, "> new decoder");
+                        TRACE(logger, "> open new decoder");
                         decoder = opener(filename);
                     }
 
+                    // TODO: Don't seek if the decoder is a little early?
                     if (begin_pos < load.begin || begin_pos >= load.end) {
                         TRACE(
-                            logger, "> seek: {:.3f}s: {:.3f}s",
+                            logger, "> seek: {:.3f}s => {:.3f}s",
                             begin_pos, load.begin
                         );
                         decoder->seek_before(load.begin);
@@ -287,11 +274,18 @@ class FrameLoaderDef : public FrameLoader {
 
                 double end_pos = begin_pos;
                 if (!frame) {
-                    if (!out.eof || begin_pos < *out.eof) {
+                    if (!out.eof) {
                         TRACE(logger, "> EOF:  {:.3f}s (new)", begin_pos);
                         out.eof = begin_pos;
                         ++changes;
-                    } else if (begin_pos >= *out.eof) {
+                    } else if (begin_pos < *out.eof) {
+                        TRACE(
+                            logger, "> EOF:  {:.3f}s (< old {})",
+                            begin_pos, *out.eof
+                        );
+                        out.eof = begin_pos;
+                        ++changes;
+                    } else {
                         TRACE(
                             logger, "> EOF:  {:.3f}s (>= old {})",
                             begin_pos, *out.eof

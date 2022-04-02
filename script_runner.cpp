@@ -30,8 +30,8 @@ class ScriptRunnerDef : public ScriptRunner {
         Script const& script,
         std::shared_ptr<ThreadSignal> signal
     ) final {
-        DEBUG(logger, "UPDATE");
         auto const now = context.sys->system_time();
+        DEBUG(logger, "UPDATE {}", abbrev_time(now));
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, screen] : script.screens) {
@@ -51,14 +51,20 @@ class ScriptRunnerDef : public ScriptRunner {
                 uint32_t display_id = 0;
                 DisplayMode display_mode = {};
                 for (auto const& display : display_screens) {
-                    if (display.connector != connector) continue;
-                    for (auto const& mode : display.modes) {
-                        if (!matches_mode(screen, mode)) continue;
-                        display_mode = mode;
+                    if (display.connector == connector) {
+                        display_id = display.id;
+                        if (matches_mode(screen, display.active_mode)) {
+                            display_mode = display.active_mode;
+                        } else {
+                            for (auto const& mode : display.modes) {
+                                if (matches_mode(screen, mode)) {
+                                    display_mode = mode;
+                                    break;
+                                }
+                            }
+                        }
                         break;
                     }
-                    display_id = display.id;
-                    break;
                 }
 
                 if (display_id == 0) {
@@ -80,7 +86,8 @@ class ScriptRunnerDef : public ScriptRunner {
                 output->player = context.player_f(display_id, display_mode);
             }
 
-            double const hz = output->mode.actual_hz();
+            double const script_hz = screen.update_hz;
+            double const hz = script_hz ? script_hz : output->mode.actual_hz();
             double const next_output_time = std::ceil(now * hz) / hz;
 
             FramePlayer::Timeline timeline;
@@ -102,10 +109,10 @@ class ScriptRunnerDef : public ScriptRunner {
 
                 int frame_count = 0, unique_count = 0;
                 std::shared_ptr<LoadedImage> last_image = {};
+                double end_output_time = 0.0;
 
-                double output_time;
                 for (
-                    output_time = next_output_time;
+                    double output_time = next_output_time;
                     output_time < now + layer.media.buffer;
                     output_time += 1.0 / hz
                 ) {
@@ -134,17 +141,23 @@ class ScriptRunnerDef : public ScriptRunner {
                     display->opacity = get(layer.opacity, 1);
 
                     ++frame_count;
+                    end_output_time = output_time;
                     if (display->image != last_image) {
                         ++unique_count;
                         last_image = display->image;
                     }
                 }
 
-                TRACE(
-                    logger, ">>> add {}fr ({}im) {}~{}s",
-                    frame_count, unique_count,
-                    abbrev_time(next_output_time), abbrev_time(output_time)
-                );
+                if (!frame_count) {
+                    TRACE(logger, ">>> no frames to show!");
+                } else {
+                    TRACE(
+                        logger, ">>> plan {}fr ({}im) {}~{}s",
+                        frame_count, unique_count,
+                        abbrev_time(next_output_time),
+                        abbrev_time(end_output_time)
+                    );
+                }
             }
 
             output->player->set_timeline(std::move(timeline), signal);
@@ -164,17 +177,17 @@ class ScriptRunnerDef : public ScriptRunner {
         while (input_it != inputs.end()) {
             auto *input = &input_it->second;
             if (input->request.empty()) {
-                DEBUG(logger, "> drop \"{}\" loader", input_it->first);
+                DEBUG(logger, "> close \"{}\"", input_it->first);
                 input_it = inputs.erase(input_it);
             } else {
                 if (input->loader) {
-                    DEBUG(logger, "> use \"{}\" loader", input_it->first);
+                    TRACE(logger, "> use \"{}\"", input_it->first);
                 } else {
-                    DEBUG(logger, "> start \"{}\" loader", input_it->first);
+                    DEBUG(logger, "> open \"{}\"", input_it->first);
                     input->loader = context.loader_f(input_it->first);
                 }
 
-                DEBUG(logger, ">> request {}", debug(input->request));
+                TRACE(logger, ">> request {}", debug(input->request));
                 input->loader->set_request(input->request, signal);
                 input->request = {};
                 input->content = {};
@@ -185,7 +198,7 @@ class ScriptRunnerDef : public ScriptRunner {
         auto output_it = outputs.begin();
         while (output_it != outputs.end()) {
             if (!output_it->second.active) {
-                DEBUG(logger, "> drop {}", output_it->first);
+                DEBUG(logger, "> stop {}", output_it->first);
                 output_it = outputs.erase(output_it);
             } else {
                 output_it->second.active = false;

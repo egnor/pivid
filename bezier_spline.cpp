@@ -116,20 +116,20 @@ IntervalSet BezierSpline::range(Interval t) const {
     Interval const bz{segments.begin()->t.begin, segments.rbegin()->t.end};
     t.begin = std::max(t.begin, bz.begin);
     if (t.end - t.begin > bz.end - bz.begin) {
-        add_range_nowrap(*this, t, &out);
+        add_range_nowrap(*this, bz, &out);
         return out;
     }
 
     Interval wrap;
-    wrap.begin = std::fmod(t.begin - bz.begin, bz.end - bz.begin) + bz.begin;
-    wrap.end = (t.end - t.begin) + wrap.end;
+    wrap.begin = bz.begin + std::fmod(t.begin - bz.begin, bz.end - bz.begin);
+    wrap.end = wrap.begin + (t.end - t.begin);
     if (wrap.end <= bz.end) {
         add_range_nowrap(*this, wrap, &out);
         return out;
     }
 
     add_range_nowrap(*this, {wrap.begin, bz.end}, &out);
-    add_range_nowrap(*this, {bz.begin, (wrap.end - bz.end) + bz.begin}, &out);
+    add_range_nowrap(*this, {bz.begin, bz.begin + (wrap.end - bz.end)}, &out);
     return out;
 }
 

@@ -120,8 +120,8 @@ class FramePlayerDef : public FramePlayer {
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 logger->warn(
-                    "Skip frame sched={:.3f}s ({:.3f}s old)",
-                    s->first, now - s->first
+                    "Skip frame sched={} ({:.3f}s old)",
+                    abbrev_time(s->first), now - s->first
                 );
                 shown = s->first;
             }
@@ -164,7 +164,10 @@ class FramePlayerDef : public FramePlayer {
             if (notify) notify->set();
 
             auto const lag = now - shown;
-            DEBUG(logger, "Show frame sched={:.3f}s ({:.3f}s old)", shown, lag);
+            DEBUG(
+                logger, "Show frame sched={} ({:.3f}s old)",
+                abbrev_time(shown), lag
+            );
         }
 
         DEBUG(logger, "Frame player thread ending...");

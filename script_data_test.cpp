@@ -25,6 +25,7 @@ TEST_CASE("from_json") {
         "full_screen": {
           "mode": [1920, 1080],
           "mode_hz": 30,
+          "update_hz": 15.5,
           "layers": [
             {"media": {"file": "empty_layer"}},
             {
@@ -64,6 +65,7 @@ TEST_CASE("from_json") {
     CHECK(script.screens["empty_screen"].mode.x == 0);
     CHECK(script.screens["empty_screen"].mode.y == 0);
     CHECK(script.screens["empty_screen"].mode_hz == 0);
+    CHECK(script.screens["empty_screen"].update_hz == 0.0);
     CHECK(script.screens["empty_screen"].layers.empty());
 
     REQUIRE(script.screens.count("full_screen") == 1);
@@ -71,6 +73,7 @@ TEST_CASE("from_json") {
     CHECK(screen.mode.x == 1920);
     CHECK(screen.mode.y == 1080);
     CHECK(screen.mode_hz == 30);
+    CHECK(screen.update_hz == Approx(15.5));
     REQUIRE(screen.layers.size() == 2);
     CHECK(screen.layers[0].media.file == "empty_layer");
     CHECK(screen.layers[0].media.play.segments.empty());

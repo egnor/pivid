@@ -27,6 +27,7 @@ struct ScriptLayer {
 struct ScriptScreen {
     XY<int> mode = {0, 0};
     int mode_hz = 0;
+    double update_hz = 0.0;
     std::vector<ScriptLayer> layers;
 };
 
