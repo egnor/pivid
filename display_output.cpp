@@ -52,8 +52,8 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
         return (drm.flags & nflag) ? -1 : (drm.flags & pflag) ? +1 : 0;
     };
 
+    // Note, drm.name is just WxH[i], not worth capturing.
     return {
-        .name = drm.name,
         .size = {drm.hdisplay, drm.vdisplay},
         .scan_size = {drm.htotal, drm.vtotal},
         .sync_start = {drm.hsync_start, drm.vsync_start},
@@ -72,7 +72,7 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
 }
 
 drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
-    drm_mode_modeinfo out = {
+    return {
         .clock = uint32_t(mode.pixel_khz),
         .hdisplay = uint16_t(mode.size.x),
         .hsync_start = uint16_t(mode.sync_start.x),
@@ -98,9 +98,6 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
         .type = uint32_t(DRM_MODE_TYPE_USERDEF),
         .name = {},
     };
-
-    strncpy(out.name, mode.name.c_str(), sizeof(out.name) - 1);  // NUL term.
-    return out;
 }
 
 uint32_t format_to_drm(uint32_t format) {
@@ -1133,7 +1130,7 @@ std::string debug(DisplayMode const& m) {
     if (!m.nominal_hz) return "OFF";
     return fmt::format(
         "{:5.1f}MHz{} {:3}[{:3}{}]{:<3} {:>4}x"
-        "{:4}{} {:2}[{:2}{}]{:<2} {:6.3f}Hz \"{}\"",
+        "{:4}{} {:2}[{:2}{}]{:<2} {:6.3f}Hz",
         m.pixel_khz / 1000.0,
         m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "  ",
         m.sync_start.x - m.size.x,
@@ -1147,8 +1144,7 @@ std::string debug(DisplayMode const& m) {
         m.sync_end.y - m.sync_start.y,
         m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : " ",
         m.scan_size.y - m.sync_end.y,
-        m.actual_hz(),
-        m.name
+        m.actual_hz()
     );
 }
 

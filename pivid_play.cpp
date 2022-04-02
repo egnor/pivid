@@ -84,24 +84,24 @@ DisplayMode find_mode(
     if (!driver || !screen.id) return {};
 
     fmt::print("=== Video modes ===\n");
-    std::set<std::string> seen;
+    std::set<XY<int>> seen;
     DisplayMode found = mode_arg.empty() ? screen.active_mode : DisplayMode{};
     for (auto const& mode : screen.modes) {
         std::string const mode_str = debug(mode);
-        if (found.name.empty() && mode_str.find(mode_arg) != std::string::npos)
+        if (!found.nominal_hz && mode_str.find(mode_arg) != std::string::npos)
             found = mode;
 
-        if (seen.insert(mode.name).second) {
+        if (seen.insert(mode.size).second) {
             fmt::print(
                 "{} {}{}\n",
-                found.name == mode.name ? "=>" : "  ", mode_str,
-                screen.active_mode.name == mode.name ? " [on]" : ""
+                found.size == mode.size ? "=>" : "  ", mode_str,
+                screen.active_mode.size == mode.size ? " [on]" : ""
             );
         }
     }
     fmt::print("\n");
 
-    if (found.name.empty()) throw std::runtime_error("No matching mode");
+    if (!found.nominal_hz) throw std::runtime_error("No matching mode");
     return found;
 }
 

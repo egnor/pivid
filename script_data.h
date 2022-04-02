@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <map>
 #include <string>
 
@@ -24,15 +25,18 @@ struct ScriptLayer {
 };
 
 struct ScriptScreen {
-    std::string mode;
+    XY<int> mode = {0, 0};
+    int mode_hz = 0;
     std::vector<ScriptLayer> layers;
 };
 
 struct Script {
     std::map<std::string, ScriptScreen> screens;
     std::vector<ScriptMedia> standbys;
+    bool run_relative = false;
 };
 
-void from_json(nlohmann::json const&, Script&);
+void from_json(nlohmann::json const&, Script&, double run_start = 0.0);
+// TODO add run_start adjustment separately
 
 }  // namespace pivid

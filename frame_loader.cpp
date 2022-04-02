@@ -128,6 +128,7 @@ class FrameLoaderDef : public FrameLoader {
             TRACE(logger, "LOAD {}", filename);
 
             auto to_load = wanted;
+            to_load.erase({to_load.bounds().begin, 0});
             to_load.erase(out.have);
             if (out.eof) to_load.erase({*out.eof, to_load.bounds().end});
 

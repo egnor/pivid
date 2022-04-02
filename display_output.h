@@ -20,7 +20,6 @@ namespace pivid {
 // the desired mode to use is given to DisplayDriver::request_update().
 // (A custom/tweaked mode may also be used if you're wild and crazy.)
 struct DisplayMode {
-    std::string name;       // Like "1920x1080" (doesn't capture detail)
     XY<int> size;           // Displayable pixel size
     XY<int> scan_size;      // Overall timing size
     XY<int> sync_start;     // Horiz / vert sync start

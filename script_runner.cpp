@@ -16,6 +16,14 @@ auto const& runner_logger() {
     return logger;
 }
 
+bool matches_mode(ScriptScreen const& screen, DisplayMode const& mode) {
+    return (
+        (!screen.mode.x || screen.mode.x == mode.size.x) &&
+        (!screen.mode.y || screen.mode.y == mode.size.y) &&
+        (!screen.mode_hz || screen.mode_hz == mode.nominal_hz)
+    );
+}
+
 class ScriptRunnerDef : public ScriptRunner {
   public:
     virtual void update(
@@ -28,54 +36,52 @@ class ScriptRunnerDef : public ScriptRunner {
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, screen] : script.screens) {
             auto *output = &outputs[connector];
-            if (output->player && screen.mode == output->mode) {
-                TRACE(logger, "> use {} player: {}", connector, screen.mode);
+            if (output->player && matches_mode(screen, output->mode)) {
+                TRACE(logger, "> use {}: {}", connector, debug(output->mode));
             } else {
                 DEBUG(
-                    logger, "> {} {} player: {}",
-                    output->player ? "reset" : "start", connector, screen.mode
+                    logger, "> {} {}: {}",
+                    output->player ? "reset" : "start", connector,
+                    debug(output->mode)
                 );
 
                 if (display_screens.empty())
                     display_screens = context.driver->scan_screens();
 
-                uint32_t screen_id = 0;
-                DisplayMode screen_mode = {};
+                uint32_t display_id = 0;
+                DisplayMode display_mode = {};
                 for (auto const& display : display_screens) {
-                    if (display.connector == connector) {
-                        for (auto const& mode : display.modes) {
-                            if (mode.name == screen.mode) {
-                                screen_mode = mode;
-                                break;
-                            }
-                        }
-
-                        screen_id = display.id;
+                    if (display.connector != connector) continue;
+                    for (auto const& mode : display.modes) {
+                        if (!matches_mode(screen, mode)) continue;
+                        display_mode = mode;
                         break;
                     }
+                    display_id = display.id;
+                    break;
                 }
 
-                if (screen_id == 0) {
+                if (display_id == 0) {
                     logger->error("Connector not found: \"{}\"", connector);
                     continue;
                 }
 
-                double const actual_hz = screen_mode.actual_hz();
-                if (!actual_hz) {
-                    logger->error("Mode not found: \"{}\"", screen.mode);
+                if (!display_mode.nominal_hz) {
+                    logger->error(
+                        "Mode not found: {}x{} {}Hz",
+                        screen.mode.x, screen.mode.y, screen.mode_hz
+                    );
                     continue;
                 }
 
-                output->mode = screen.mode;
-                output->size = screen_mode.size;
-                output->refresh_period = 1.0 / actual_hz;
+                ASSERT(display_mode.actual_hz() > 0);
+                output->mode = display_mode;
                 output->player.reset();
-                output->player = context.player_f(screen_id, screen_mode);
+                output->player = context.player_f(display_id, display_mode);
             }
 
-            double next_output_time = 
-                std::ceil(now / output->refresh_period) *
-                output->refresh_period;
+            double const hz = output->mode.actual_hz();
+            double const next_output_time = std::ceil(now * hz) / hz;
 
             FramePlayer::Timeline timeline;
             for (size_t li = 0; li < screen.layers.size(); ++li) {
@@ -83,7 +89,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 auto* input = &inputs[layer.media.file];
                 TRACE(logger, ">> layer \"{}\"", layer.media.file);
 
-                Interval buffer{now, now + layer.media.buffer};
+                Interval const buffer{now, now + layer.media.buffer};
                 auto const range = layer.media.play.range(buffer);
                 TRACE(logger, ">>> want {}", debug(range));
                 input->request.insert(range);
@@ -101,7 +107,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 for (
                     output_time = next_output_time;
                     output_time < now + layer.media.buffer;
-                    output_time += output->refresh_period
+                    output_time += 1.0 / hz
                 ) {
                     auto const get = [&](BezierSpline const& bez, double def) {
                         return bez.value(output_time).value_or(def);
@@ -113,6 +119,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     if (frame_it == input->content->frames.begin()) continue;
                     --frame_it;
 
+                    auto const screen_size = output->mode.size;
                     auto const image_size = frame_it->second->size();
                     auto* display = &timeline[output_time].emplace_back();
                     display->image = frame_it->second;
@@ -122,8 +129,8 @@ class ScriptRunnerDef : public ScriptRunner {
                     display->from_size.y = get(layer.from_size.y, image_size.y);
                     display->to_xy.x = get(layer.to_xy.x, 0);
                     display->to_xy.y = get(layer.to_xy.y, 0);
-                    display->to_size.x = get(layer.to_xy.x, output->size.x);
-                    display->to_size.y = get(layer.to_xy.y, output->size.y);
+                    display->to_size.x = get(layer.to_xy.x, screen_size.x);
+                    display->to_size.y = get(layer.to_xy.y, screen_size.y);
                     display->opacity = get(layer.opacity, 1);
 
                     ++frame_count;
@@ -178,7 +185,7 @@ class ScriptRunnerDef : public ScriptRunner {
         auto output_it = outputs.begin();
         while (output_it != outputs.end()) {
             if (!output_it->second.active) {
-                DEBUG(logger, "> drop {} player", output_it->first);
+                DEBUG(logger, "> drop {}", output_it->first);
                 output_it = outputs.erase(output_it);
             } else {
                 output_it->second.active = false;
@@ -215,9 +222,8 @@ class ScriptRunnerDef : public ScriptRunner {
     };
 
     struct Output {
-        std::string mode;
         XY<int> size;
-        double refresh_period = {};
+        DisplayMode mode;
         std::unique_ptr<FramePlayer> player;
         bool active = false;
     };

@@ -19,7 +19,7 @@ TEST_CASE("BezierSpline::value") {
         .begin_x = 10.0, .p1_x = 30.0, .p2_x = 50.0, .end_x = 40.0,
     });
     bz.segments.push_back({
-        .t = {11.0, std::numeric_limits<double>::infinity()},
+        .t = {11.0, INFINITY},
         .begin_x = 50.0, .p1_x = 60.0, .p2_x = 70.0, .end_x = 80.0,
     });
 

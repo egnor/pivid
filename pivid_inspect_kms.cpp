@@ -126,8 +126,10 @@ void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
         } else if (name == "MODE_ID") {
             if (value) {
                 auto const blob = get_blob(fd, value);
-                auto const* const mode = (drm_mode_modeinfo const*) blob.data();
-                fmt::print(" \"{}\" {}Hz", mode->name, mode->vrefresh);
+                auto const* const m = (drm_mode_modeinfo const*) blob.data();
+                fmt::print(
+                    " {}x{} {}Hz", m->hdisplay, m->vdisplay, m->vrefresh
+                );
             } else {
                 fmt::print(" (none)");
             }
@@ -307,7 +309,10 @@ void inspect_device(DisplayDriverListing const& listing) {
         }
 
         if (crtc.mode_valid) {
-            fmt::print(" => \"{}\" {}Hz", crtc.mode.name, crtc.mode.vrefresh);
+            fmt::print(
+                " => {}x{} {}Hz",
+                crtc.mode.hdisplay, crtc.mode.vdisplay, crtc.mode.vrefresh
+            );
         }
 
         fmt::print("\n");
@@ -416,7 +421,8 @@ void inspect_device(DisplayDriverListing const& listing) {
             print_properties(dev, id);
             for (auto const& mode : modes) {
                 fmt::print(
-                    "        [mode] \"{}\" {}Hz", mode.name, mode.vrefresh
+                    "        [mode] {}x{} {}Hz",
+                    mode.hdisplay, mode.vdisplay, mode.vrefresh
                 );
                 for (uint32_t bit = 1; bit; bit <<= 1) {
                     if (mode.type & bit) {

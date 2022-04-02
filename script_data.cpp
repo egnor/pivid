@@ -1,6 +1,7 @@
 #include "script_data.h"
 
 #include <chrono>
+#include <cmath>
 #include <exception>
 #include <limits>
 #include <stdexcept>
@@ -33,7 +34,7 @@ static double parse_json_time(json const& j) {
 
 void from_json(json const& j, BezierSegment& seg) {
     if (j.is_number()) {
-        seg.t = {0.0, 1e12};
+        seg.t = {-1e12, 1e12};
         seg.begin_x = seg.p1_x = seg.p2_x = seg.end_x = j.get<double>();
         return;
     }
@@ -44,7 +45,7 @@ void from_json(json const& j, BezierSegment& seg) {
         seg.t = {0.0, j.value("len", 1e12)};
     } else if (t_j.is_number() || (t_j.is_array() && t_j.size() == 1)) {
         seg.t.begin = parse_json_time(t_j.is_array() ? t_j.at(0) : t_j);
-        seg.t.end = seg.t.begin + j.value("len", 1e12);
+        seg.t.end = seg.t.begin + j.value("len", 1e12 - seg.t.begin);
     } else {
         CHECK_ARG(t_j.is_array(), "Bad Bezier \"t\": {}", j.dump());
         CHECK_ARG(t_j.size() == 2, "Bad Bezier \"t\" length: {}", j.dump());
@@ -127,15 +128,49 @@ void from_json(json const& j, ScriptLayer& layer) {
 
 void from_json(json const& j, ScriptScreen& screen) {
     CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
-    screen.mode = j.value("mode", "");
+    j.value("mode", json{}).get_to(screen.mode);
+    screen.mode_hz = j.value("mode_hz", screen.mode_hz);
     j.value("layers", json::array()).get_to(screen.layers);
 }
 
-void from_json(json const& j, Script& script) {
+void from_json(json const& j, Script& script, double run_start) {
     script = {};
     CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
     j.value("screens", json::object()).get_to(script.screens);
     j.value("standbys", json::array()).get_to(script.standbys);
+    script.run_relative = j.value("run_relative", false);
+
+    if (script.run_relative) {
+        auto const fix_time = [run_start](double* t) {
+            if (std::abs(*t) < 1e12) *t += run_start;
+        };
+
+        auto const fix_bezier = [fix_time](BezierSpline* bezier) {
+            for (auto& segment : bezier->segments) {
+                fix_time(&segment.t.begin);
+                fix_time(&segment.t.end);
+            }
+        };
+
+        auto const fix_bezier_xy = [fix_bezier](XY<BezierSpline>* xy) {
+            fix_bezier(&xy->x);
+            fix_bezier(&xy->y);
+        };
+
+        for (auto& screen : script.screens) {
+            for (auto& layer : screen.second.layers) {
+                fix_bezier(&layer.media.play);
+                fix_bezier_xy(&layer.from_xy);
+                fix_bezier_xy(&layer.from_size);
+                fix_bezier_xy(&layer.to_xy);
+                fix_bezier_xy(&layer.to_size);
+                fix_bezier(&layer.opacity);
+            }
+        }
+
+        for (auto& standby : script.standbys)
+            fix_bezier(&standby.play);
+    }
 }
 
 }  // namespace pivid
