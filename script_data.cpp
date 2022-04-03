@@ -111,7 +111,7 @@ void from_json(json const& j, BezierSpline& bezier) {
 }
 
 void from_json(json const& j, ScriptMedia& media) {
-    CHECK_ARG(j.count("file"), "No JSON media file: {}", j.dump());
+    CHECK_ARG(j.count("file"), "No \"file\" in JSON media: {}", j.dump());
     j.at("file").get_to(media.file);
     j.value("play", json{}).get_to(media.play);
     media.buffer = j.value("buffer", media.buffer);
@@ -119,7 +119,7 @@ void from_json(json const& j, ScriptMedia& media) {
 
 void from_json(json const& j, ScriptLayer& layer) {
     CHECK_ARG(j.is_object(), "Bad JSON layer: {}", j.dump());
-    CHECK_ARG(j.count("media"), "No JSON layer media: {}", j.dump());
+    CHECK_ARG(j.count("media"), "No \"media\" in JSON layer: {}", j.dump());
     j.at("media").get_to(layer.media);
     j.value("from_xy", json{}).get_to(layer.from_xy);
     j.value("from_size", json{}).get_to(layer.from_size);
@@ -130,8 +130,8 @@ void from_json(json const& j, ScriptLayer& layer) {
 
 void from_json(json const& j, ScriptScreen& screen) {
     CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
-    j.value("mode", json{}).get_to(screen.mode);
-    screen.mode_hz = j.value("mode_hz", screen.mode_hz);
+    j.value("display_mode", json{}).get_to(screen.display_mode);
+    screen.display_hz = j.value("display_hz", screen.display_hz);
     screen.update_hz = j.value("update_hz", screen.update_hz);
     j.value("layers", json::array()).get_to(screen.layers);
 }
@@ -141,11 +141,13 @@ void from_json(json const& j, Script& script) {
     CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
     j.value("screens", json::object()).get_to(script.screens);
     j.value("standbys", json::array()).get_to(script.standbys);
-    script.run_relative = j.value("run_relative", false);
+    script.time_is_relative = j.value("time_is_relative", false);
+    script.main_loop_hz = j.value("main_loop_hz", script.main_loop_hz);
+    CHECK_ARG(script.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
 }
 
-Script make_script_absolute(Script script, double run_start) {
-    if (!script.run_relative) return script;
+void fix_script_time(double run_start, Script* script) {
+    if (!script->time_is_relative) return;
 
     auto const fix_time = [run_start](double* t) {
         if (std::abs(*t) < 1e12) *t += run_start;
@@ -163,7 +165,7 @@ Script make_script_absolute(Script script, double run_start) {
         fix_bezier(&xy->y);
     };
 
-    for (auto& screen : script.screens) {
+    for (auto& screen : script->screens) {
         for (auto& layer : screen.second.layers) {
             fix_bezier(&layer.media.play);
             fix_bezier_xy(&layer.from_xy);
@@ -174,11 +176,10 @@ Script make_script_absolute(Script script, double run_start) {
         }
     }
 
-    for (auto& standby : script.standbys)
+    for (auto& standby : script->standbys)
         fix_bezier(&standby.play);
 
-    script.run_relative = false;
-    return script;
+    script->time_is_relative = false;
 }
 
 }  // namespace pivid

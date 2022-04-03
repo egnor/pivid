@@ -40,7 +40,8 @@ class FrameLoaderDef : public FrameLoader {
         this->notify = std::move(notify);
 
         if (wanted == this->wanted) {
-            TRACE(logger, "SAME {}", filename);
+            TRACE(logger, "REQ  {}", filename);
+            TRACE(logger, "req> same {}", debug(wanted));
         } else {
             DEBUG(logger, "REQ  {}", filename);
             DEBUG(logger, "req> want {}", debug(wanted));
@@ -205,13 +206,16 @@ class FrameLoaderDef : public FrameLoader {
                 if (hi != out.have.begin()) {
                     --hi;
                     if (di->first == hi->end) {
-                        TRACE(logger, "> keep: d@{} (at frontier)", debug(*hi));
+                        TRACE(
+                            logger, "> keep d@{:.3f}s (h={} end)",
+                            di->first, debug(*hi)
+                        );
                         ++di;
                         continue;
                     }
                 }
 
-                TRACE(logger, "> drop d@{:.3f}s (unused decoder)", di->first);
+                TRACE(logger, "> drop d@{:.3f}s (unused)", di->first);
                 di = decoders.erase(di);
             }
 

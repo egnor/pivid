@@ -120,4 +120,14 @@ TEST_CASE("BezierSpline::range") {
     // TODO: Test range over repeating curves
 }
 
+TEST_CASE("constant_segment") {
+    auto bz = constant_segment({1.5, 2.5}, 3.5);
+    CHECK(bz.t.begin == 1.5);
+    CHECK(bz.t.end == 2.5);
+    CHECK(bz.begin_v == 3.5);
+    CHECK(bz.p1_v == 3.5);
+    CHECK(bz.p2_v == 3.5);
+    CHECK(bz.end_v == 3.5);
+}
+
 }  // namespace pivid

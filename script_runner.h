@@ -9,10 +9,18 @@
 
 namespace pivid {
 
+struct ScriptStatus {
+    double update_time;
+    std::map<std::string, DisplayMode> screen_mode;
+    std::map<std::string, double> media_eof;
+};
+
 class ScriptRunner {
   public:
     virtual ~ScriptRunner() = default;
-    virtual void update(Script const&, std::shared_ptr<ThreadSignal> = {}) = 0;
+    virtual ScriptStatus update(
+        Script const&, std::shared_ptr<ThreadSignal> = {}
+    ) = 0;
 };
 
 struct ScriptContext {

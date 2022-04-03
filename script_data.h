@@ -25,8 +25,8 @@ struct ScriptLayer {
 };
 
 struct ScriptScreen {
-    XY<int> mode = {0, 0};
-    int mode_hz = 0;
+    XY<int> display_mode = {0, 0};
+    int display_hz = 0;
     double update_hz = 0.0;
     std::vector<ScriptLayer> layers;
 };
@@ -34,11 +34,12 @@ struct ScriptScreen {
 struct Script {
     std::map<std::string, ScriptScreen> screens;
     std::vector<ScriptMedia> standbys;
-    bool run_relative = false;
+    bool time_is_relative = false;
+    double main_loop_hz = 20.0;
 };
 
 void from_json(nlohmann::json const&, Script&);
 
-Script make_script_absolute(Script, double run_start);
+void fix_script_time(double run_start, Script*);
 
 }  // namespace pivid

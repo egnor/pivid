@@ -26,4 +26,7 @@ struct BezierSpline {
     IntervalSet range(Interval t) const;
 };
 
+BezierSegment constant_segment(Interval t, double v);
+BezierSegment linear_segment(Interval t, Interval v);
+
 }  // namespace pivid

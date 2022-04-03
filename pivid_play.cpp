@@ -33,8 +33,6 @@ std::shared_ptr<log::logger> const& main_logger() {
 }
 
 std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
-    if (dev_arg == "none" || dev_arg == "/dev/null") return {};
-
     fmt::print("=== Video drivers ===\n");
     std::optional<DisplayDriverListing> found;
     for (auto const& d : list_display_drivers(global_system())) {
@@ -47,62 +45,6 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
 
     if (!found) throw std::runtime_error("No matching device");
     return open_display_driver(global_system(), found->dev_file);
-}
-
-DisplayScreen find_screen(
-    std::shared_ptr<DisplayDriver> const& driver, std::string const& screen_arg
-) {
-    if (!driver) return {};
-
-    fmt::print("=== Video screen connectors ===\n");
-    DisplayScreen found = {};
-    for (auto const& screen : driver->scan_screens()) {
-        if (
-            found.connector.empty() &&
-            screen.connector.find(screen_arg) != std::string::npos
-        ) {
-            found = screen;
-        }
-
-        fmt::print(
-            "{} Screen #{:<3} {}{}\n",
-            found.id == screen.id ? "=>" : "  ", screen.id, screen.connector,
-            screen.display_detected ? " [connected]" : " [no connection]"
-        );
-    }
-    fmt::print("\n");
-
-    if (!found.id) throw std::runtime_error("No matching screen");
-    return found;
-}
-
-DisplayMode find_mode(
-    std::shared_ptr<DisplayDriver> const& driver,
-    DisplayScreen const& screen,
-    std::string const& mode_arg
-) {
-    if (!driver || !screen.id) return {};
-
-    fmt::print("=== Video modes ===\n");
-    std::set<XY<int>> seen;
-    DisplayMode found = mode_arg.empty() ? screen.active_mode : DisplayMode{};
-    for (auto const& mode : screen.modes) {
-        std::string const mode_str = debug(mode);
-        if (!found.nominal_hz && mode_str.find(mode_arg) != std::string::npos)
-            found = mode;
-
-        if (seen.insert(mode.size).second) {
-            fmt::print(
-                "{} {}{}\n",
-                found.size == mode.size ? "=>" : "  ", mode_str,
-                screen.active_mode.size == mode.size ? " [on]" : ""
-            );
-        }
-    }
-    fmt::print("\n");
-
-    if (!found.nominal_hz) throw std::runtime_error("No matching mode");
-    return found;
 }
 
 void set_kernel_debug(bool enable) {
@@ -126,80 +68,48 @@ void set_kernel_debug(bool enable) {
     fd->write(val.data(), val.size()).ex(debug_file);
 }
 
-void play_video(
-    std::string const& media_file, 
+Script make_script(
+    std::string const& media_file,
     std::string const& overlay_file,
-    std::shared_ptr<DisplayDriver> driver,
-    DisplayScreen const& screen,
-    DisplayMode const& mode,
+    std::string const& screen_arg,
+    XY<int> mode_xy,
+    int mode_hz,
     double start_arg,
     double buffer_arg,
     double overlay_opacity_arg
 ) {
-    auto const logger = main_logger();
-    auto const sys = global_system();
+    Script script;
+    script.time_is_relative = true;
 
-    DisplayLayer overlay_layer = {};
+    auto *screen = &script.screens.try_emplace(screen_arg).first->second;
+    screen->display_mode = mode_xy;
+    screen->display_hz = mode_hz;
+
+    if (!media_file.empty()) {
+        ScriptLayer* layer = &screen->layers.emplace_back();
+        layer->media.file = media_file;
+        layer->media.buffer = buffer_arg;
+        layer->media.play.segments.push_back(
+            linear_segment({0, 1e12}, {start_arg, 1e12 + start_arg})
+        );
+    }
+
     if (!overlay_file.empty()) {
-        logger->info("Loading overlay: {}", overlay_file);
-        auto const overlay = open_media_decoder(overlay_file);
-        std::optional<MediaFrame> frame = overlay->next_frame();
-        if (!frame)
-            throw std::runtime_error("No frames in overlay media");
-
-        overlay_layer.image = driver->load_image(frame->image);
-        overlay_layer.from_size = frame->image.size.as<double>();
-        overlay_layer.to_xy = (mode.size - frame->image.size) / 2;
-        overlay_layer.to_size = frame->image.size;
-        overlay_layer.opacity = overlay_opacity_arg;
+        ScriptLayer* layer = &screen->layers.emplace_back();
+        layer->media.file = overlay_file;
+        layer->media.play.segments.push_back(constant_segment({0, 1e12}, 0));
+        layer->opacity.segments.push_back(
+            constant_segment({0, 1e12}, overlay_opacity_arg)
+        );
     }
 
-    std::shared_ptr const signal = sys->make_signal();
-    auto const loader = start_frame_loader(driver, media_file);
-    auto const player = start_frame_player(driver, screen.id, mode);
-
-    logger->info("Start at {:.3f} seconds...", start_arg);
-    auto const start_time = sys->system_time() - start_arg;
-
-    for (;;) {
-        auto now = sys->system_time();
-        DEBUG(logger, "UPDATE at {}", format_date_time(now));
-
-        Interval req;
-        req.begin = std::max(player->last_shown() + 0.001 - start_time, 0.0);
-        req.end = std::max(req.begin, now - start_time) + buffer_arg;
-
-        IntervalSet req_set;
-        req_set.insert(req);
-        loader->set_request(req_set, signal);
-
-        auto const loaded = loader->content();
-        if (loaded.error) break;
-        if (loaded.eof && now - start_time >= *loaded.eof) break;
-
-        FramePlayer::Timeline timeline;
-        for (auto const& [frame_time, frame_image] : loaded.frames) {
-            DisplayLayer frame_layer = {};
-            frame_layer.image = frame_image;
-            frame_layer.from_size = frame_image->size().as<double>();
-            frame_layer.to_size = mode.size;
-
-            std::vector<DisplayLayer> layers;
-            layers.push_back(std::move(frame_layer));
-            if (overlay_layer.image) layers.push_back(overlay_layer);
-            timeline[start_time + frame_time] = std::move(layers);
-        }
-        player->set_timeline(timeline, signal);
-        signal->wait_until(now + std::max(0.020, buffer_arg / 5));
-    }
-
-    logger->info("End of playback");
+    auto const run_start = global_system()->system_time();
+    fix_script_time(run_start, &script);
+    main_logger()->info("Play start: {}", format_date_time(run_start));
+    return script;
 }
 
-void run_script(
-    std::shared_ptr<DisplayDriver> driver,
-    std::string const& script_file
-) {
+Script load_script(std::string const& script_file) {
     auto const logger = main_logger();
     auto const sys = global_system();
 
@@ -220,19 +130,57 @@ void run_script(
         throw_with_nested(std::invalid_argument(je.what()));
     }
 
-    auto const run_start = global_system()->system_time();
-    auto const script = make_script_absolute(json.get<Script>(), run_start);
-    logger->info("Script start: {}", format_date_time(run_start));
+    auto script = json.get<Script>();
+    if (script.time_is_relative) {
+        auto const run_start = sys->system_time();
+        fix_script_time(run_start, &script);
+        logger->info("Script start: {}", format_date_time(run_start));
+    }
+
+    return script;
+}
+
+bool layer_is_done(ScriptLayer const& layer, ScriptStatus const& status) {
+    Interval const future{status.update_time, 1e12};
+    auto const bounds = layer.media.play.range(future).bounds();
+    if (bounds.empty() || bounds.end <= 0) return true;
+    auto const media_it = status.media_eof.find(layer.media.file);
+    if (media_it == status.media_eof.end()) return false;
+    return (bounds.begin >= media_it->second);
+}
+
+bool script_is_done(Script const& script, ScriptStatus const& status) {
+    for (auto const& [connector, screen] : script.screens) {
+        for (auto const& layer : screen.layers) {
+            if (!layer_is_done(layer, status))
+                return false;
+        }
+    }
+    return true;
+}
+
+void run_script(std::shared_ptr<DisplayDriver> driver, Script const& script) {
+    auto const logger = main_logger();
+    auto const sys = global_system();
+
+    ASSERT(script.main_loop_hz > 0);
+    double const loop_period = 1.0 / script.main_loop_hz;
+    double next_time = 0.0;
 
     ScriptContext context = {};
     context.driver = std::move(driver);
     auto const runner = make_script_runner(context);
-    std::shared_ptr const signal = sys->make_signal();
     for (;;) {
-        runner->update(script, signal);
-        sys->sleep_for(0.010);  // Wait at least 10ms, to save CPU
-        signal->wait();
-        // TODO don't wait longer than buffer / 5? (How to find buffer?)
+        double const now = sys->system_time();
+        next_time = std::clamp(next_time, now, now + loop_period);
+        sys->sleep_for(next_time - now);
+        next_time += loop_period;
+
+        auto const status = runner->update(script);
+        if (script_is_done(script, status)) {
+            logger->info("All media done playing");
+            break;
+        }
     }
 }
 
@@ -242,12 +190,13 @@ void run_script(
 extern "C" int main(int const argc, char const* const* const argv) {
     double buffer_arg = 0.1;
     std::string dev_arg;
-    std::string screen_arg;
+    std::string screen_arg = "*";
     std::string log_arg;
-    std::string mode_arg;
     std::string media_arg;
     std::string overlay_arg;
     std::string script_arg;
+    XY<int> mode_arg = {0, 0};
+    int mode_hz_arg = 0;
     double overlay_opacity_arg = 1.0;
     double start_arg = -0.2;
     bool debug_libav = false;
@@ -256,11 +205,13 @@ extern "C" int main(int const argc, char const* const* const argv) {
     CLI::App app("Decode and show a media file");
     app.add_option("--buffer", buffer_arg, "Seconds of readahead");
     app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
-    app.add_option("--screen", screen_arg, "Video output connector");
     app.add_option("--log", log_arg, "Log level/configuration");
-    app.add_option("--mode", mode_arg, "Video mode");
+    app.add_option("--mode_x", mode_arg.x, "Video pixels per line");
+    app.add_option("--mode_y", mode_arg.y, "Video scan lines");
+    app.add_option("--mode_hz", mode_hz_arg, "Video refresh rate");
     app.add_option("--overlay", overlay_arg, "Image file to overlay");
     app.add_option("--overlay_opacity", overlay_opacity_arg, "Overlay alpha");
+    app.add_option("--screen", screen_arg, "Video output connector");
     app.add_option("--start", start_arg, "Seconds into media to start");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
@@ -277,18 +228,16 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
     try {
         std::shared_ptr const driver = find_driver(dev_arg);
-        auto const screen = find_screen(driver, screen_arg);
-        auto const mode = find_mode(driver, screen, mode_arg);
-
-        if (!media_arg.empty() && driver) {
-            play_video(
-                media_arg, overlay_arg, driver, screen, mode,
+        if (!script_arg.empty()) {
+            auto const script = load_script(script_arg);
+            run_script(driver, script);
+        } else {
+            auto const script = make_script(
+                media_arg, overlay_arg, screen_arg, mode_arg, mode_hz_arg,
                 start_arg, buffer_arg, overlay_opacity_arg
             );
-        }
 
-        if (!script_arg.empty()) {
-            run_script(driver, script_arg);
+            run_script(driver, script);
         }
     } catch (std::exception const& e) {
         main_logger()->critical("{}", e.what());

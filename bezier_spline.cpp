@@ -133,4 +133,18 @@ IntervalSet BezierSpline::range(Interval t) const {
     return out;
 }
 
+BezierSegment constant_segment(Interval t, double v) {
+    return {.t = t, .begin_v = v, .p1_v = v, .p2_v = v, .end_v = v};
+}
+
+BezierSegment linear_segment(Interval t, Interval v) {
+    BezierSegment seg;
+    seg.t = t;
+    seg.begin_v = v.begin;
+    seg.p1_v = v.begin + (v.end - v.begin) / 3.0;
+    seg.p2_v = v.end - (v.end - v.begin) / 3.0;
+    seg.end_v = v.end;
+    return seg;
+}
+
 }  // namespace pivid

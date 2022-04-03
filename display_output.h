@@ -90,7 +90,7 @@ struct DisplayDriverListing {
     std::string driver_date;    // Like "20140616" (first development date)
     std::string driver_desc;    // Like "Broadcom VC4 graphics"
     std::string driver_bus_id;  // Like "fec00000.v3d" (PCI address, etc)
-    bool operator<=>(DisplayDriverListing const&) const = default;
+    auto operator<=>(DisplayDriverListing const&) const = default;
 };
 
 // Lists GPU devices present on the system (typically only one).

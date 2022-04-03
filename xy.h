@@ -16,6 +16,7 @@ struct XY {
     template <typename U> XY<U> as() const { return XY<U>(x, y); }
     operator bool() const { return x || y; }
     bool operator==(XY const&) const = default;
+    auto operator<=>(XY const&) const = default;
 
     XY operator+(XY const other) const { return {x + other.x, y + other.y}; }
     XY operator-(XY const other) const { return {x - other.x, y - other.y}; }

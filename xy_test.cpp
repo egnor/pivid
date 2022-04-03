@@ -25,4 +25,11 @@ TEST_CASE("XY arithmetic") {
     CHECK(XY{3, 5} / 2 == XY{1, 2});
 }
 
+TEST_CASE("XY comparisons") {
+    CHECK(XY{1, 2} < XY{2, 1});
+    CHECK_FALSE(XY{1, 2} > XY{2, 1});
+    CHECK(XY{1, 1} < XY{1, 2});
+    CHECK_FALSE(XY{1, 1} > XY{1, 2});
+}
+
 }  // namespace pivid
