@@ -69,10 +69,13 @@ std::string debug(ImageBuffer const& i) {
         }
 
         out += fmt::format("{}b", 8 * chan.stride / i.size.x);
-        if (chan.offset) out += "@" + debug_size(chan.offset);
+        if (chan.offset) out += fmt::format("@{}", debug_size(chan.offset));
     }
 
     if (i.channels.empty()) out += " [no data]";
+    if (!i.source_comment.empty())
+        out += fmt::format(" \"{}\"", i.source_comment);
+
     return out;
 }
 

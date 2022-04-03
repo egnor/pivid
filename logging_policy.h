@@ -23,13 +23,17 @@ using log_level = ::spdlog::level::level_enum;
     [&]{ if (l->should_log(log_level::debug)) l->debug(__VA_ARGS__); }()
 
 #define ASSERT(f) \
-    [&]{ if (!(f)) throw std::logic_error("ASSERT fail: " #f); }()
+    [&]{ if (!(f)) throw std::logic_error("ASSERT fail (" FILELINE ") " #f); }()
 
 #define CHECK_ARG(f, ...) \
     [&]{ if (!(f)) throw std::invalid_argument(fmt::format(__VA_ARGS__)); }()
 
 #define CHECK_RUNTIME(f, ...) \
     [&]{ if (!(f)) throw std::runtime_error(fmt::format(__VA_ARGS__)); }()
+
+#define FILELINE __FILE__ ":" STRINGIFY(__LINE__)
+#define STRINGIFY(x) STRINGIFY2(x)
+#define STRINGIFY2(x) #x
 
 
 // Configures the logger output format with our preferred pattern.

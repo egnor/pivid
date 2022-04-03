@@ -75,7 +75,7 @@ executable(
 )
 
 executable(
-    'pivid_scan_display', 'pivid_scan_display.cpp',
+    'pivid_scan_displays', 'pivid_scan_displays.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )

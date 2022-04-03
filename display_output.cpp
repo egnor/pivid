@@ -273,18 +273,17 @@ class LoadedImageDef : public LoadedImage {
         }
 
         auto const logger = display_logger();
-        TRACE(logger, "Creating DRM framebuffer...");
         this->fd = std::move(fd);
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fdat).ex("DRM framebuffer");
-        DEBUG(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
+        TRACE(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
+        comment = im.source_comment;
     }
 
     ~LoadedImageDef() {
         if (!fdat.fb_id) return;
         auto const logger = display_logger();
-        TRACE(logger, "Removing DRM framebuffer...");
         (void) fd->ioc<DRM_IOCTL_MODE_RMFB>(&fdat.fb_id);
-        logger->debug("Unload fb{} {}x{}", fdat.fb_id, fdat.width, fdat.height);
+        TRACE(logger, "Unload fb{} {}x{}", fdat.fb_id, fdat.width, fdat.height);
     }
 
     virtual uint32_t drm_id() const final { return fdat.fb_id; }
@@ -293,9 +292,12 @@ class LoadedImageDef : public LoadedImage {
         return XY<int>(fdat.width, fdat.height);
     }
 
+    virtual std::string const& source_comment() const final { return comment; }
+
   private:
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_fb_cmd2 fdat = {};
+    std::string comment;
 
     LoadedImageDef(LoadedImageDef const&) = delete;
     LoadedImageDef& operator=(LoadedImageDef const&) = delete;
@@ -349,11 +351,7 @@ class DisplayDriverDef : public DisplayDriver {
     }
 
     virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer im) final {
-        TRACE(
-            logger, "Loading {}x{} {}...",
-            im.size.x, im.size.y, debug_fourcc(im.fourcc)
-        );
-
+        TRACE(logger, "Loading {}", debug(im));
         switch (im.fourcc) {
             case fourcc("ABGR"):
             case fourcc("ARGB"):
@@ -474,7 +472,7 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        TRACE(logger, "Starting {} update...", conn->name);
+        TRACE(logger, "UPDATE {}", conn->name);
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
@@ -484,7 +482,7 @@ class DisplayDriverDef : public DisplayDriver {
         );
 
         if (!crtc && !mode.nominal_hz) {
-            TRACE(logger, "> (output remains off, no change)");
+            TRACE(logger, "> (off, no change)");
             return;
         }
 
@@ -505,7 +503,7 @@ class DisplayDriverDef : public DisplayDriver {
         int32_t writeback_fence_fd = -1;
 
         if (!mode.nominal_hz) {
-            logger->debug("{} :: [turning off]", conn->name);
+            DEBUG(logger, "{} :: [turning off]", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
             props[crtc->id][&crtc->ACTIVE] = 0;
             // Leave next state zeroed.
@@ -518,13 +516,11 @@ class DisplayDriverDef : public DisplayDriver {
                 DEBUG(logger, "{} NEW {}", conn->name, debug(mode));
                 mode_blob = create_blob(next.mode);
                 props[crtc->id][&crtc->MODE_ID] = *mode_blob;
-            } else {
-                DEBUG(logger, "{} SAME {}", conn->name, debug(mode));
             }
 
             if (conn->WRITEBACK_FB_ID.prop_id) {
                 XY<int> const size = {next.mode.hdisplay, next.mode.vdisplay};
-                TRACE(logger, "Making {}x{} writeback...", size.x, size.y);
+                TRACE(logger, "> {}x{} writeback...", size.x, size.y);
                 auto buf = std::make_shared<DrmDumbBuffer>(fd, size, 32);
 
                 Writeback wb = {};
@@ -536,7 +532,7 @@ class DisplayDriverDef : public DisplayDriver {
                 wb.fb_id = load_image(wb.image);
 
                 int const id = wb.fb_id->drm_id();
-                logger->debug("{} >> fb{} {}", conn->name, id, debug(wb.image));
+                DEBUG(logger, "{} >> fb{} {}", conn->name, id, debug(wb.image));
                 next.writeback = std::move(wb);
                 props[conn->id][&conn->WRITEBACK_FB_ID] = id;
                 props[conn->id][&conn->WRITEBACK_OUT_FENCE_PTR] =
@@ -569,7 +565,10 @@ class DisplayDriverDef : public DisplayDriver {
                 next.using_planes.push_back(plane);
                 next.images.push_back(layer.image);
 
-                logger->debug("{} << pl={} fb{}", conn->name, plane->id, fb_id);
+                DEBUG(
+                    logger, "{} pl{} << fb{} \"{}\"",
+                    conn->name, plane->id, fb_id, layer.image->source_comment()
+                );
 
                 auto* plane_props = &props[plane->id];
                 (*plane_props)[&plane->CRTC_ID] = crtc->id;
@@ -623,10 +622,9 @@ class DisplayDriverDef : public DisplayDriver {
             .user_data = 0,
         };
 
-        TRACE(logger, "Committing DRM atomic update...");
         auto ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
         if (ret.err == EBUSY) {
-            TRACE(logger, "> (driver busy, retrying update without NONBLOCK)");
+            TRACE(logger, "> (busy, retrying commit without NONBLOCK)");
             atomic.flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
             ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
         }
@@ -638,7 +636,7 @@ class DisplayDriverDef : public DisplayDriver {
         }
 
         ret.ex("DRM atomic update");
-        logger->debug("{} update committed", conn->name);
+        DEBUG(logger, "{} update committed!", conn->name);
         crtc->pending_flip.emplace(std::move(next));
         for (auto* plane : crtc->pending_flip->using_planes) {
             ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
@@ -813,8 +811,8 @@ class DisplayDriverDef : public DisplayDriver {
             }
         }
 
-        logger->debug(
-            "> opened fd={}: {} planes, {} crtcs, {} screen connectors",
+        DEBUG(
+            logger, "> opened fd={}: {} planes, {} crtcs, {} screen connectors",
             fd->raw_fd(), planes.size(), crtcs.size(), connectors.size()
         );
     }
@@ -939,8 +937,8 @@ class DisplayDriverDef : public DisplayDriver {
             // TODO: Convert to system time!
             conn->flip_time = ev.tv_sec + 1e-6 * ev.tv_usec;
 
-            DEBUG(
-                logger, "Update pageflip: {} {:.3f}s",
+            TRACE(
+                logger, "> pageflip event: {} {:.3f}s",
                 conn->name, conn->flip_time
             );
 

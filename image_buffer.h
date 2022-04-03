@@ -45,6 +45,7 @@ struct ImageBuffer {
     uint64_t modifier = 0;  // Modifier to image pixel layout
     XY<int> size = {};      // The pixel size of the image
     std::vector<Channel> channels;  // Channel count depends on the format
+    std::string source_comment;     // Debugging text about the image origin
 };
 
 // A pixel image that has been loaded into video memory for display;
@@ -54,6 +55,7 @@ class LoadedImage {
     virtual ~LoadedImage() = default;
     virtual uint32_t drm_id() const = 0;  // DRM framebuffer ID
     virtual XY<int> size() const = 0;     // Pixel dimensions
+    virtual std::string const& source_comment() const = 0;  // From ImageBuffer
 };
 
 // Assembles a fourcc uint32_t from text (like "RGBA").

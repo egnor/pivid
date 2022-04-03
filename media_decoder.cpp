@@ -334,18 +334,24 @@ class MediaDecoderDef : public MediaDecoder {
 
         auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
         std::shared_ptr<AVFrame> av_shared{this->av_frame, std::move(deleter)};
-        av_frame = nullptr;  // Owned by shared_ptr now.
+        av_frame = nullptr;  // The AVFrame is owned by av_shared now.
 
         TRACE(logger, "Converting frame...");
         auto tb = av_q2d(format_context->streams[stream_index]->time_base);
         auto out = frame_from_av(std::move(av_shared), tb);
+        out.image.source_comment = fmt::format(
+            "{} @{:.3f}", short_filename, out.time.begin
+        );
+
         DEBUG(logger, "{}", debug(out));
         return out;
     }
 
     void init(std::string const& fn) {
-        TRACE(logger, "Opening media ({})...", fn);
+        TRACE(logger, "Opening \"{}\"...", fn);
         media_info.filename = fn;
+        auto const pos = fn.find_last_of('/');
+        short_filename = (pos == std::string::npos) ? fn : fn.substr(pos + 1);
 
         check_av(
             avformat_open_input(&format_context, fn.c_str(), nullptr, nullptr),
@@ -425,6 +431,7 @@ class MediaDecoderDef : public MediaDecoder {
     AVCodecContext* codec_context = nullptr;
     int stream_index = -1;
     MediaFileInfo media_info = {};
+    std::string short_filename;
 
     AVPacket* av_packet = nullptr;
     AVFrame* av_frame = nullptr;
