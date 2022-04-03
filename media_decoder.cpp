@@ -175,14 +175,20 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
     return out;
 }
 
-MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, AVRational time_base) {
+MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, double time_base) {
+    auto timestamp = av->best_effort_timestamp;
+    if (timestamp == AV_NOPTS_VALUE) {
+        timestamp = av->pts;
+        if (timestamp == AV_NOPTS_VALUE) {
+            timestamp = av->pkt_dts;
+            if (timestamp == AV_NOPTS_VALUE)
+                timestamp = 0;  // sigh
+        }
+    }
+
     MediaFrame out = {};
-    auto const ts = av->best_effort_timestamp;
-    out.time.begin = 1.0 * ts * time_base.num / time_base.den;
-
-    auto const next_ts = ts + av->pkt_duration;
-    out.time.end = 1.0 * next_ts * time_base.num / time_base.den;
-
+    out.time.begin = timestamp * time_base;
+    out.time.end = (timestamp + av->pkt_duration) * time_base;
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
     switch (av->pict_type) {
@@ -331,8 +337,8 @@ class MediaDecoderDef : public MediaDecoder {
         av_frame = nullptr;  // Owned by shared_ptr now.
 
         TRACE(logger, "Converting frame...");
-        auto const* stream = format_context->streams[stream_index];
-        auto out = frame_from_av(std::move(av_shared), stream->time_base);
+        auto tb = av_q2d(format_context->streams[stream_index]->time_base);
+        auto out = frame_from_av(std::move(av_shared), tb);
         DEBUG(logger, "{}", debug(out));
         return out;
     }
@@ -394,8 +400,8 @@ class MediaDecoderDef : public MediaDecoder {
             media_info.size = {codec_context->width, codec_context->height};
 
         if (stream->duration > 0) {
-            auto const tb = stream->time_base;
-            media_info.duration = av_q2d(tb) * stream->duration;
+            auto const tb = av_q2d(stream->time_base);
+            media_info.duration = tb * stream->duration;
         } else if (format_context->duration > 0) {
             double constexpr tb = 1.0 / AV_TIME_BASE;
             media_info.duration = tb * format_context->duration;

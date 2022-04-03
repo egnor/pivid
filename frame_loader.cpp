@@ -24,7 +24,7 @@ class FrameLoaderDef : public FrameLoader {
     virtual ~FrameLoaderDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            DEBUG(logger, "main> STOP {}", filename);
+            DEBUG(logger, "main> STOP \"{}\"", filename);
             shutdown = true;
             lock.unlock();
             wakeup->set();
@@ -40,10 +40,10 @@ class FrameLoaderDef : public FrameLoader {
         this->notify = std::move(notify);
 
         if (wanted == this->wanted) {
-            TRACE(logger, "REQ  {}", filename);
+            TRACE(logger, "REQ  \"{}\"", filename);
             TRACE(logger, "req> same {}", debug(wanted));
         } else {
-            DEBUG(logger, "REQ  {}", filename);
+            DEBUG(logger, "REQ  \"{}\"", filename);
             DEBUG(logger, "req> want {}", debug(wanted));
 
             // Remove no-longer-wanted frames & have-regions
@@ -116,17 +116,17 @@ class FrameLoaderDef : public FrameLoader {
         this->filename = filename;
         this->wakeup = sys->make_signal();
         this->opener = opener;
-        DEBUG(logger, "main> START {}", filename);
+        DEBUG(logger, "main> START \"{}\"", filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
 
     void loader_thread() {
         std::unique_lock lock{mutex};
-        DEBUG(logger, "START {}", filename);
+        DEBUG(logger, "START \"{}\"", filename);
 
         std::map<double, std::unique_ptr<MediaDecoder>> decoders;
         while (!shutdown) {
-            TRACE(logger, "LOAD {}", filename);
+            TRACE(logger, "LOAD \"{}\"", filename);
 
             auto to_load = wanted;
             to_load.erase({to_load.bounds().begin, 0});
@@ -324,7 +324,7 @@ class FrameLoaderDef : public FrameLoader {
             }
         }
 
-        DEBUG(logger, "STOP {}", filename);
+        DEBUG(logger, "STOP \"{}\"", filename);
     }
 
   private:

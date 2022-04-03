@@ -184,11 +184,16 @@ class ScriptRunnerDef : public ScriptRunner {
         while (input_it != inputs.end()) {
             auto *input = &input_it->second;
             if (input->request.empty()) {
-                DEBUG(logger, "> close \"{}\"", input_it->first);
+                DEBUG(
+                    logger, "> {} \"{}\"",
+                    input->loader ? "close" : "ignore",
+                    input_it->first
+                );
+
                 input_it = inputs.erase(input_it);
             } else {
                 if (input->loader) {
-                    TRACE(logger, "> use \"{}\"", input_it->first);
+                    TRACE(logger, "> keep \"{}\"", input_it->first);
                 } else {
                     DEBUG(logger, "> open \"{}\"", input_it->first);
                     input->loader = context.loader_f(input_it->first);

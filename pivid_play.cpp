@@ -70,36 +70,21 @@ void set_kernel_debug(bool enable) {
 
 Script make_script(
     std::string const& media_file,
-    std::string const& overlay_file,
     std::string const& screen_arg,
-    XY<int> mode_xy,
-    int mode_hz,
-    double start_arg,
-    double buffer_arg,
-    double overlay_opacity_arg
+    XY<int> mode_size,
+    double start_arg
 ) {
     Script script;
     script.time_is_relative = true;
 
     auto *screen = &script.screens.try_emplace(screen_arg).first->second;
-    screen->display_mode = mode_xy;
-    screen->display_hz = mode_hz;
+    screen->display_mode = mode_size;
 
     if (!media_file.empty()) {
         ScriptLayer* layer = &screen->layers.emplace_back();
         layer->media.file = media_file;
-        layer->media.buffer = buffer_arg;
         layer->media.play.segments.push_back(
             linear_segment({0, 1e12}, {start_arg, 1e12 + start_arg})
-        );
-    }
-
-    if (!overlay_file.empty()) {
-        ScriptLayer* layer = &screen->layers.emplace_back();
-        layer->media.file = overlay_file;
-        layer->media.play.segments.push_back(constant_segment({0, 1e12}, 0));
-        layer->opacity.segments.push_back(
-            constant_segment({0, 1e12}, overlay_opacity_arg)
         );
     }
 
@@ -188,29 +173,21 @@ void run_script(std::shared_ptr<DisplayDriver> driver, Script const& script) {
 
 // Main program, parses flags and calls the decoder loop.
 extern "C" int main(int const argc, char const* const* const argv) {
-    double buffer_arg = 0.1;
     std::string dev_arg;
     std::string screen_arg = "*";
     std::string log_arg;
     std::string media_arg;
-    std::string overlay_arg;
     std::string script_arg;
     XY<int> mode_arg = {0, 0};
-    int mode_hz_arg = 0;
-    double overlay_opacity_arg = 1.0;
     double start_arg = -0.2;
     bool debug_libav = false;
     bool debug_kernel = false;
 
     CLI::App app("Decode and show a media file");
-    app.add_option("--buffer", buffer_arg, "Seconds of readahead");
     app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
     app.add_option("--log", log_arg, "Log level/configuration");
     app.add_option("--mode_x", mode_arg.x, "Video pixels per line");
     app.add_option("--mode_y", mode_arg.y, "Video scan lines");
-    app.add_option("--mode_hz", mode_hz_arg, "Video refresh rate");
-    app.add_option("--overlay", overlay_arg, "Image file to overlay");
-    app.add_option("--overlay_opacity", overlay_opacity_arg, "Overlay alpha");
     app.add_option("--screen", screen_arg, "Video output connector");
     app.add_option("--start", start_arg, "Seconds into media to start");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
@@ -233,8 +210,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             run_script(driver, script);
         } else {
             auto const script = make_script(
-                media_arg, overlay_arg, screen_arg, mode_arg, mode_hz_arg,
-                start_arg, buffer_arg, overlay_opacity_arg
+                media_arg, screen_arg, mode_arg, start_arg
             );
 
             run_script(driver, script);
