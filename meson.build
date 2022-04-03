@@ -74,6 +74,12 @@ executable(
     dependencies: [util_deps],
 )
 
+executable(
+    'pivid_scan_display', 'pivid_scan_display.cpp',
+    link_with: [pivid_lib],
+    dependencies: [util_deps],
+)
+
 pivid_test = executable(
     'pivid_test', [
         'bezier_spline_test.cpp',
