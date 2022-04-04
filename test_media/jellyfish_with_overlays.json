@@ -1,0 +1,29 @@
+{
+  "time_is_relative": true,
+  "screens": {
+    "*": {
+      "display_mode": [1920, 1080],
+      "update_hz": 30,
+      "layers": [
+        {
+          "media": {
+            "file": "local_media/jellyfish-3-mbps-hd-h264.mkv",
+            "play": {"t": [0.5, 30.5], "rate": 1}
+          }
+        },
+        {
+          "media": {
+            "file": "test_media/totoro.pal8-t.gif",
+            "play": {"t": [0.5, 1.8], "rate": 1, "repeat": true},
+            "buffer": 2.0
+          },
+          "to_xy": [230, 358]
+        },
+        {
+          "media": {"file": "test_media/kitten.rgba.png", "play": 0},
+          "to_xy": [1026, 61]
+        }
+      ]
+    }
+  }
+}
