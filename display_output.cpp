@@ -472,7 +472,7 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        DEBUG(logger, "UPDATE {}", conn->name);
+        DEBUG(logger, "UPDATE {} ({} layers)", conn->name, layers.size());
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
