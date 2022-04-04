@@ -472,7 +472,7 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        TRACE(logger, "UPDATE {}", conn->name);
+        DEBUG(logger, "UPDATE {}", conn->name);
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
@@ -503,7 +503,7 @@ class DisplayDriverDef : public DisplayDriver {
         int32_t writeback_fence_fd = -1;
 
         if (!mode.nominal_hz) {
-            DEBUG(logger, "{} :: [turning off]", conn->name);
+            DEBUG(logger, "> (turning off)", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
             props[crtc->id][&crtc->ACTIVE] = 0;
             // Leave next state zeroed.
@@ -511,16 +511,13 @@ class DisplayDriverDef : public DisplayDriver {
             next.mode = mode_to_drm(mode);
             static_assert(sizeof(crtc->active.mode) == sizeof(next.mode));
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
-                auto const old_mode = mode_from_drm(crtc->active.mode);
-                DEBUG(logger, "{} OLD {}", conn->name, debug(old_mode));
-                DEBUG(logger, "{} NEW {}", conn->name, debug(mode));
+                DEBUG(logger, "> mode: {}", conn->name, debug(mode));
                 mode_blob = create_blob(next.mode);
                 props[crtc->id][&crtc->MODE_ID] = *mode_blob;
             }
 
             if (conn->WRITEBACK_FB_ID.prop_id) {
                 XY<int> const size = {next.mode.hdisplay, next.mode.vdisplay};
-                TRACE(logger, "> {}x{} writeback...", size.x, size.y);
                 auto buf = std::make_shared<DrmDumbBuffer>(fd, size, 32);
 
                 Writeback wb = {};
@@ -532,7 +529,7 @@ class DisplayDriverDef : public DisplayDriver {
                 wb.fb_id = load_image(wb.image);
 
                 int const id = wb.fb_id->drm_id();
-                DEBUG(logger, "{} >> fb{} {}", conn->name, id, debug(wb.image));
+                DEBUG(logger, "> writeback: fb{} {}", id, debug(wb.image));
                 next.writeback = std::move(wb);
                 props[conn->id][&conn->WRITEBACK_FB_ID] = id;
                 props[conn->id][&conn->WRITEBACK_OUT_FENCE_PTR] =
@@ -565,10 +562,7 @@ class DisplayDriverDef : public DisplayDriver {
                 next.using_planes.push_back(plane);
                 next.images.push_back(layer.image);
 
-                DEBUG(
-                    logger, "{} pl{} << fb{} \"{}\"",
-                    conn->name, plane->id, fb_id, layer.image->source_comment()
-                );
+                DEBUG(logger, "> pl{}: {}", plane->id, debug(layer));
 
                 auto* plane_props = &props[plane->id];
                 (*plane_props)[&plane->CRTC_ID] = crtc->id;
@@ -636,7 +630,7 @@ class DisplayDriverDef : public DisplayDriver {
         }
 
         ret.ex("DRM atomic update");
-        DEBUG(logger, "{} update committed!", conn->name);
+        TRACE(logger, "> {} update committed!", conn->name);
         crtc->pending_flip.emplace(std::move(next));
         for (auto* plane : crtc->pending_flip->using_planes) {
             ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
@@ -649,25 +643,23 @@ class DisplayDriverDef : public DisplayDriver {
 
     virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) final {
         auto* const conn = &connectors.at(id);
-        TRACE(logger, "Checking {} completion...", conn->name);
-
         std::scoped_lock const lock{mutex};
         if (conn->using_crtc && conn->using_crtc->pending_flip) {
             process_events(lock);
             if (conn->using_crtc && conn->using_crtc->pending_flip) {
-                TRACE(logger, "> (previous update incomplete)");
+                TRACE(logger, "{} status: Update still pending", conn->name);
                 return {};
             }
         }
 
         DisplayUpdateDone done = {};
         if (!conn->using_crtc) {
-            TRACE(logger, "> (output is off, no update pending)");
+            TRACE(logger, "{} status: Off, no update pending", conn->name);
         } else if (conn->using_crtc->active.writeback) {
             done.writeback = conn->using_crtc->active.writeback->image;
-            TRACE(logger, "> (update done with writeback)");
+            TRACE(logger, "{} status: Update done with writeback", conn->name);
         } else {
-            TRACE(logger, "> (update done)");
+            TRACE(logger, "{} status: Update done", conn->name);
         }
 
         done.flip_time = conn->flip_time;
@@ -906,21 +898,14 @@ class DisplayDriverDef : public DisplayDriver {
     std::map<uint32_t, std::string> prop_names;
 
     void process_events(std::scoped_lock<std::mutex> const&) {
-        TRACE(logger, "Checking for DRM events...");
         drm_event_vblank ev = {};
         for (;;) {
             auto const ret = fd->read(&ev, sizeof(ev));
-            if (ret.err == EAGAIN) {
-                TRACE(logger, "> (no DRM events pending)");
-                break;
-            }
+            if (ret.err == EAGAIN) break;
 
             auto const ev_len = ret.ex("Read DRM event");
             CHECK_RUNTIME(ev_len == sizeof(ev), "Bad DRM event size");
-            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) {
-                TRACE(logger, "> (ignoring non-pageflip DRM event)");
-                continue;
-            }
+            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) continue;
 
             auto* const crtc = &crtcs.at(ev.crtc_id);
             CHECK_RUNTIME(
@@ -936,26 +921,31 @@ class DisplayDriverDef : public DisplayDriver {
 
             // TODO: Convert to system time!
             conn->flip_time = ev.tv_sec + 1e-6 * ev.tv_usec;
-
-            TRACE(
-                logger, "> pageflip event: {} {:.3f}s",
-                conn->name, conn->flip_time
+            DEBUG(
+                logger, "{} flip ({:.3f}s) {}=>{}pl",
+                conn->name, conn->flip_time,
+                crtc->active.using_planes.size(),
+                crtc->pending_flip->using_planes.size()
             );
 
             if (!crtc->pending_flip->mode.vrefresh) {
+                TRACE(logger, "> screen turned off");
                 ASSERT(conn->using_crtc == crtc);
+                ASSERT(crtc->pending_flip->using_planes.empty());
                 conn->using_crtc = nullptr;
                 crtc->used_by_conn = nullptr;
             }
 
-            for (auto* plane : crtc->pending_flip->using_planes) {
+            for (auto* plane : crtc->pending_flip->using_planes)
                 ASSERT(plane->used_by_crtc == crtc);
-            }
 
             for (auto* plane : crtc->active.using_planes) {
                 ASSERT(plane->used_by_crtc == crtc);
                 plane->used_by_crtc = nullptr;
             }
+
+            for (auto* plane : crtc->pending_flip->using_planes)
+                plane->used_by_crtc = crtc;
 
             crtc->active = std::move(*crtc->pending_flip);
             crtc->pending_flip.reset();
@@ -1116,14 +1106,6 @@ double DisplayMode::actual_hz() const {
     return raw_hz * (doubling.y < 0 ? 2.0 : doubling.y > 0 ? 0.5 : 1.0);
 }
 
-std::string debug(DisplayDriverListing const& d) {
-    return fmt::format(
-        "{} ({}): {}{}",
-        d.dev_file, d.driver, d.system_path,
-        d.driver_bus_id.empty() ? "" : fmt::format(" ({})", d.driver_bus_id)
-    );
-}
-
 std::string debug(DisplayMode const& m) {
     if (!m.nominal_hz) return "OFF";
     return fmt::format(
@@ -1143,6 +1125,33 @@ std::string debug(DisplayMode const& m) {
         m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : " ",
         m.scan_size.y - m.sync_end.y,
         m.actual_hz()
+    );
+}
+
+std::string debug(DisplayLayer const& l, XY<int> screen_size) {
+    std::string out = debug(*l.image);
+    if (l.from_xy != XY<double>{} || l.from_size != l.image->size()) {
+        out += fmt::format(
+            " [{},{}+{}x{}]",
+            l.from_xy.x, l.from_xy.y, l.from_size.x, l.from_size.y
+        );
+    }
+    if (l.to_xy != XY<int>{} || l.to_size != screen_size) {
+        out += fmt::format(
+            " => [{},{}+{}x{}]",
+            l.to_xy.x, l.to_xy.y, l.to_size.x, l.to_size.y
+        );
+    }
+    if (l.opacity != 1.0)
+        out += fmt::format(" (a{:.2f})", l.opacity);
+    return out;
+}
+
+std::string debug(DisplayDriverListing const& d) {
+    return fmt::format(
+        "{} ({}): {}{}",
+        d.dev_file, d.driver, d.system_path,
+        d.driver_bus_id.empty() ? "" : fmt::format(" ({})", d.driver_bus_id)
     );
 }
 

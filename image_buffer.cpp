@@ -79,4 +79,13 @@ std::string debug(ImageBuffer const& i) {
     return out;
 }
 
+std::string debug(LoadedImage const& l) {
+    auto const size = l.size();
+    auto const comment = l.source_comment();
+    auto out = fmt::format("{}x{} fb{}", size.x, size.y, l.drm_id());
+    if (!comment.empty())
+        out += fmt::format(" \"{}\"", comment);
+    return out;
+}
+
 }  // namespace pivid

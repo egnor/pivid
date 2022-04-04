@@ -139,8 +139,8 @@ class ScriptRunnerDef : public ScriptRunner {
                     display->from_size.y = get(layer.from_size.y, image_size.y);
                     display->to_xy.x = get(layer.to_xy.x, 0);
                     display->to_xy.y = get(layer.to_xy.y, 0);
-                    display->to_size.x = get(layer.to_xy.x, screen_size.x);
-                    display->to_size.y = get(layer.to_xy.y, screen_size.y);
+                    display->to_size.x = get(layer.to_size.x, screen_size.x);
+                    display->to_size.y = get(layer.to_size.y, screen_size.y);
                     display->opacity = get(layer.opacity, 1);
 
                     ++frame_count;

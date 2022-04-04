@@ -68,5 +68,6 @@ std::string debug_fourcc(uint32_t);
 std::string debug_size(size_t);
 std::string debug(MemoryBuffer const&);
 std::string debug(ImageBuffer const&);
+std::string debug(LoadedImage const&);
 
 }  // namespace pivid

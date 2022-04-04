@@ -105,8 +105,8 @@ std::unique_ptr<DisplayDriver> open_display_driver(
     std::shared_ptr<UnixSystem> sys, std::string const& dev_file
 );
 
-// Debugging descriptions of structures. TODO: Add more?
-std::string debug(DisplayDriverListing const&);
 std::string debug(DisplayMode const&);
+std::string debug(DisplayLayer const&, XY<int> screen_size = {});
+std::string debug(DisplayDriverListing const&);
 
 }  // namespace pivid
