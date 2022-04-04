@@ -73,7 +73,9 @@ Interval segment_range(BezierSegment const& seg, Interval t) {
         }
     }
 
-    return {min_v, max_v};
+    ASSERT(max_v >= min_v);
+    if (max_v > min_v) return {min_v, max_v};
+    return {min_v, std::nextafter(max_v, std::numeric_limits<double>::max())};
 }
 
 void add_range_nowrap(BezierSpline const& bez, Interval t, IntervalSet* out) {

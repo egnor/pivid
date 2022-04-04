@@ -127,7 +127,7 @@ class FramePlayerDef : public FramePlayer {
             }
 
             if (show == timeline.end()) {
-                TRACE(logger, "> (no more frames, waiting for wakeup)");
+                TRACE(logger, "  (no more frames, waiting for wakeup)");
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
@@ -136,7 +136,7 @@ class FramePlayerDef : public FramePlayer {
 
             if (show->first > now) {
                 auto const delay = show->first - now;
-                TRACE(logger, "> (waiting {:.3f}s for frame)", delay);
+                TRACE(logger, "  (waiting {:.3f}s for frame)", delay);
                 lock.unlock();
                 wakeup->wait_until(show->first);
                 lock.lock();
@@ -145,7 +145,7 @@ class FramePlayerDef : public FramePlayer {
 
             auto const done = driver->is_update_done(screen_id);
             if (!done) {
-                TRACE(logger, "> (update pending, waiting 5ms)");
+                TRACE(logger, "  (update pending, waiting 5ms)");
                 auto const try_again = now + 0.005;
                 lock.unlock();
                 wakeup->wait_until(try_again);

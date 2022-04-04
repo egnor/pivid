@@ -120,6 +120,21 @@ TEST_CASE("BezierSpline::range") {
     // TODO: Test range over repeating curves
 }
 
+TEST_CASE("BezierSplit::range of constant") {
+    BezierSpline bz = {};
+    bz.segments.push_back(constant_segment({1.5, 2.5}, 3.5));
+    CHECK(bz.range({1.0, 1.5}).empty());
+    CHECK(bz.range({2.0, 2.0}).empty());
+    CHECK(bz.range({2.5, 3.0}).empty());
+
+    auto const range = bz.range({1.5, 2.5});
+    CHECK(range.count() == 1);
+    auto const interval = *range.begin();
+    CHECK(!interval.empty());
+    CHECK(interval.begin == 3.5);
+    CHECK(interval.end - interval.begin == doctest::Approx(0));
+}
+
 TEST_CASE("constant_segment") {
     auto bz = constant_segment({1.5, 2.5}, 3.5);
     CHECK(bz.t.begin == 1.5);

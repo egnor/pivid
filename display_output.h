@@ -106,7 +106,7 @@ std::unique_ptr<DisplayDriver> open_display_driver(
 );
 
 std::string debug(DisplayMode const&);
-std::string debug(DisplayLayer const&, XY<int> screen_size = {});
+std::string debug(DisplayLayer const&);
 std::string debug(DisplayDriverListing const&);
 
 }  // namespace pivid

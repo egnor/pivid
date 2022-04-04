@@ -259,7 +259,7 @@ class MediaDecoderDef : public MediaDecoder {
 
         do {
             if (eof_seen_from_codec) {
-                TRACE(logger, "> (EOF reached, no more frames)");
+                TRACE(logger, "  (EOF reached, no more frames)");
                 return {};
             }
 
@@ -267,13 +267,13 @@ class MediaDecoderDef : public MediaDecoder {
                 TRACE(logger, "Checking for frame from codec...");
                 auto const err = avcodec_receive_frame(codec_context, av_frame);
                 if (err == AVERROR(EAGAIN)) {
-                    TRACE(logger, "> (codec needs more data, can't get frame)");
+                    TRACE(logger, "  (codec needs more data, can't get frame)");
                 } else if (err == AVERROR_EOF) {
                     logger->info("Got EOF from codec");
                     eof_seen_from_codec = true;
                 } else {
                     check_av(err, "Decode frame", codec_context->codec->name);
-                    TRACE(logger, "> Got frame from codec");
+                    TRACE(logger, "  Got frame from codec");
                 }
             }
 
@@ -281,19 +281,19 @@ class MediaDecoderDef : public MediaDecoder {
                 TRACE(logger, "Reading from file...");
                 auto const err = av_read_frame(format_context, av_packet);
                 if (err == AVERROR_EOF) {
-                    logger->debug("> Got EOF from file");
+                    logger->debug("  Got EOF from file");
                     eof_seen_from_file = true;
                 } else {
                     check_av(err, "Read", media_info.filename);
                     if (av_packet->stream_index == stream_index) {
                         TRACE(logger, 
-                            "> Read packet from file ({})",
+                            "  Read packet from file ({})",
                             debug_size(av_packet->size)
                         );
                     } else {
                         av_packet_unref(av_packet);
                         ASSERT(av_packet->data == nullptr);
-                        TRACE(logger, "> (got other stream packet, ignoring)");
+                        TRACE(logger, "  (got other stream packet, ignoring)");
                     }
                 }
             }
@@ -305,10 +305,10 @@ class MediaDecoderDef : public MediaDecoder {
                 );
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
-                    TRACE(logger, "> (app-to-codec full, can't send data)");
+                    TRACE(logger, "  (app-to-codec full, can't send data)");
                 } else {
                     check_av(err, "Decode packet", codec_context->codec->name);
-                    TRACE(logger, "> Sent packet to codec");
+                    TRACE(logger, "  Sent packet to codec");
                     av_packet_unref(av_packet);
                     ASSERT(av_packet->data == nullptr);
                 }
@@ -319,7 +319,7 @@ class MediaDecoderDef : public MediaDecoder {
                 TRACE(logger, "Sending EOF to codec...");
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
-                    TRACE(logger, "> (app-to-codec full, can't send EOF)");
+                    TRACE(logger, "  (app-to-codec full, can't send EOF)");
                 } else {
                     if (err != AVERROR_EOF)
                         check_av(err, "Decode EOF", codec_context->codec->name);
@@ -537,7 +537,7 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
         "Encoding packet", context->codec->name
     );
 
-    media_logger()->debug("> TIFF encoded ({})", debug_size(packet->size));
+    media_logger()->debug("  TIFF encoded ({})", debug_size(packet->size));
     return {packet->data, packet->data + packet->size};
 }
 

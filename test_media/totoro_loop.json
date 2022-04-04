@@ -1,7 +1,7 @@
 {
   "time_is_relative": true,
   "screens": {
-    "HDMIA-1": {
+    "*": {
       "display_mode": [1920, 1080],
       "update_hz": 12.5,
       "layers": [

@@ -113,7 +113,7 @@ void from_json(json const& j, BezierSpline& bezier) {
 void from_json(json const& j, ScriptMedia& media) {
     CHECK_ARG(j.count("file"), "No \"file\" in JSON media: {}", j.dump());
     j.at("file").get_to(media.file);
-    j.value("play", json{}).get_to(media.play);
+    j.value("play", json(0)).get_to(media.play);
     media.buffer = j.value("buffer", media.buffer);
 }
 
@@ -143,6 +143,7 @@ void from_json(json const& j, Script& script) {
     j.value("standbys", json::array()).get_to(script.standbys);
     script.time_is_relative = j.value("time_is_relative", false);
     script.main_loop_hz = j.value("main_loop_hz", script.main_loop_hz);
+    script.main_buffer = j.value("main_buffer", script.main_buffer);
     CHECK_ARG(script.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
 }
 

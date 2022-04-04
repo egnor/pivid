@@ -24,7 +24,7 @@ class FrameLoaderDef : public FrameLoader {
     virtual ~FrameLoaderDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            DEBUG(logger, "main> STOP \"{}\"", filename);
+            DEBUG(logger, "STOP \"{}\"", filename);
             shutdown = true;
             lock.unlock();
             wakeup->set();
@@ -40,11 +40,10 @@ class FrameLoaderDef : public FrameLoader {
         this->notify = std::move(notify);
 
         if (wanted == this->wanted) {
-            TRACE(logger, "REQ  \"{}\"", filename);
-            TRACE(logger, "req> same {}", debug(wanted));
+            TRACE(logger, "REQ (same) \"{}\"", filename);
         } else {
-            DEBUG(logger, "REQ  \"{}\"", filename);
-            DEBUG(logger, "req> want {}", debug(wanted));
+            DEBUG(logger, "REQ \"{}\"", filename);
+            DEBUG(logger, "  [req] want {}", debug(wanted));
 
             // Remove no-longer-wanted frames & have-regions
             auto to_erase = out.have;
@@ -91,8 +90,8 @@ class FrameLoaderDef : public FrameLoader {
                     nframe += std::distance(fbegin, fend);
                     out.frames.erase(fbegin, fend);
                 }
-                TRACE(logger, "req> dele {} ({}fr)", debug(to_erase), nframe);
-                TRACE(logger, "req> have {}", debug(out.have));
+                TRACE(logger, "  [req] del {} ({}fr)", debug(to_erase), nframe);
+                TRACE(logger, "  [req] have {}", debug(out.have));
             }
 
             this->wanted = wanted;
@@ -116,26 +115,27 @@ class FrameLoaderDef : public FrameLoader {
         this->filename = filename;
         this->wakeup = sys->make_signal();
         this->opener = opener;
-        DEBUG(logger, "main> START \"{}\"", filename);
+        DEBUG(logger, "START \"{}\"", filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
 
     void loader_thread() {
         std::unique_lock lock{mutex};
-        DEBUG(logger, "START \"{}\"", filename);
+        TRACE(logger, "starting \"{}\"", filename);
 
+        double last_backtrack = 0.0;
         std::map<double, std::unique_ptr<MediaDecoder>> decoders;
         while (!shutdown) {
-            TRACE(logger, "LOAD \"{}\"", filename);
+            DEBUG(logger, "LOAD \"{}\"", filename);
 
             auto to_load = wanted;
             to_load.erase({to_load.bounds().begin, 0});
             to_load.erase(out.have);
             if (out.eof) to_load.erase({*out.eof, to_load.bounds().end});
 
-            TRACE(logger, "> have {}", debug(out.have));
-            TRACE(logger, "> want {}", debug(wanted));
-            TRACE(logger, "> load {}", debug(to_load));
+            TRACE(logger, "  have {}", debug(out.have));
+            TRACE(logger, "  want {}", debug(wanted));
+            TRACE(logger, "  load {}", debug(to_load));
 
             //
             // Assign decoders to regions of the media to load
@@ -158,7 +158,7 @@ class FrameLoaderDef : public FrameLoader {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "> w={} l={} use d@{:.3f}s",
+                    logger, "  w={} l={}: d@{:.3f}",
                     debug(*wi), debug(*li), di->first
                 );
 
@@ -178,7 +178,7 @@ class FrameLoaderDef : public FrameLoader {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "> w={} l={} recyc d@{:.3f}s",
+                    logger, "  w={} l={}: recyc d@{:.3f}",
                     debug(*wi), debug(*li), di->first
                 );
 
@@ -192,7 +192,7 @@ class FrameLoaderDef : public FrameLoader {
             while (li != to_load.end()) {
                 auto wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
-                TRACE(logger, "> w={} l={} new dec", debug(*wi), debug(*li));
+                TRACE(logger, "  w={} l={}: new!", debug(*wi), debug(*li));
 
                 to_use.emplace_back(*li, 0.0, nullptr);
                 li = to_load.erase(*wi);
@@ -207,7 +207,7 @@ class FrameLoaderDef : public FrameLoader {
                     --hi;
                     if (di->first == hi->end) {
                         TRACE(
-                            logger, "> keep d@{:.3f}s (h={} end)",
+                            logger, "  keep d@{:.3f} (h={} end)",
                             di->first, debug(*hi)
                         );
                         ++di;
@@ -215,13 +215,13 @@ class FrameLoaderDef : public FrameLoader {
                     }
                 }
 
-                TRACE(logger, "> drop d@{:.3f}s (unused)", di->first);
+                TRACE(logger, "  drop d@{:.3f} (unused)", di->first);
                 di = decoders.erase(di);
             }
 
             // If there's no work, wait for a change in input.
             if (to_use.empty()) {
-                TRACE(logger, "> waiting (nothing to load)");
+                TRACE(logger, "  waiting (nothing to load)");
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
@@ -236,11 +236,11 @@ class FrameLoaderDef : public FrameLoader {
             int changes = 0;
             for (auto& [load, orig_pos, decoder] : to_use) {
                 if (!wanted.contains(load.begin)) {
-                    TRACE(logger, "> load: {} obsolete", debug(load));
+                    TRACE(logger, "  obsolete load {}", debug(load));
                     continue;
                 }
 
-                double begin_pos = orig_pos;
+                double decoder_pos = orig_pos;
                 std::optional<MediaFrame> frame;
                 std::unique_ptr<LoadedImage> image;
                 std::exception_ptr error;
@@ -248,18 +248,25 @@ class FrameLoaderDef : public FrameLoader {
 
                 try {
                     if (!decoder) {
-                        TRACE(logger, "> open new decoder");
+                        TRACE(logger, "  open new decoder");
                         decoder = opener(filename);
                     }
 
-                    // TODO: Don't seek if the decoder is a little early?
-                    if (begin_pos < load.begin || begin_pos >= load.end) {
+                    // Heuristic threshold for forward-seek vs. read-forward
+                    const auto min_seek = std::max(0.050, 2 * last_backtrack);
+                    const auto seek_cutoff = load.begin - min_seek;
+                    if (decoder_pos < seek_cutoff || decoder_pos >= load.end) {
                         TRACE(
-                            logger, "> seek: {:.3f}s => {:.3f}s",
-                            begin_pos, load.begin
+                            logger, "  seek {:.3f}s => {:.3f}s",
+                            decoder_pos, load.begin
                         );
                         decoder->seek_before(load.begin);
-                        begin_pos = load.begin;
+                        decoder_pos = load.begin;
+                    } else if (decoder_pos < load.begin) {
+                        TRACE(
+                            logger, "  nonseek {:.3f}s => {:.3f}s (<{:.3f}s)",
+                            decoder_pos, load.begin, min_seek
+                        );
                     }
 
                     frame = decoder->next_frame();
@@ -276,55 +283,56 @@ class FrameLoaderDef : public FrameLoader {
                     ++changes;
                 }
 
-                double end_pos = begin_pos;
                 if (!frame) {
                     if (!out.eof) {
-                        TRACE(logger, "> EOF:  {:.3f}s (new)", begin_pos);
-                        out.eof = begin_pos;
+                        TRACE(logger, "  EOF {:.3f}s (new)", decoder_pos);
+                        out.eof = decoder_pos;
                         ++changes;
-                    } else if (begin_pos < *out.eof) {
+                    } else if (decoder_pos < *out.eof) {
                         TRACE(
-                            logger, "> EOF:  {:.3f}s (< old {})",
-                            begin_pos, *out.eof
+                            logger, "  EOF {:.3f}s (< old {})",
+                            decoder_pos, *out.eof
                         );
-                        out.eof = begin_pos;
+                        out.eof = decoder_pos;
                         ++changes;
                     } else {
                         TRACE(
-                            logger, "> EOF:  {:.3f}s (>= old {})",
-                            begin_pos, *out.eof
+                            logger, "  EOF {:.3f}s (>= old {})",
+                            decoder_pos, *out.eof
                         );
                     }
                 } else {
-                    begin_pos = std::min(begin_pos, frame->time.begin);
-                    end_pos = std::max(end_pos, frame->time.end);
-                    DEBUG(logger, "{:.3f}~{}", begin_pos, debug(*frame));
+                    DEBUG(logger, "  d@{:.3f}: {}", decoder_pos, debug(*frame));
+                    auto const begin = std::min(decoder_pos, frame->time.begin);
+                    if (decoder_pos != orig_pos && begin < decoder_pos) {
+                        last_backtrack = decoder_pos - begin;
+                        TRACE(logger, "    backtrack {:.3f}s", last_backtrack);
+                    }
 
-                    auto const wi = wanted.overlap_begin(begin_pos);
-                    if (wi == wanted.overlap_end(end_pos)) {
-                        TRACE(logger, "> frame old, discarded");
+                    auto const wi = wanted.overlap_begin(begin);
+                    if (wi == wanted.overlap_end(frame->time.end)) {
+                        TRACE(logger, "    frame old, discarded");
                     } else {
-                        TRACE(logger, "> frame overlaps {}", debug(*wi));
-                        out.have.insert({begin_pos, end_pos});
+                        TRACE(logger, "    frame overlaps {}", debug(*wi));
+                        out.have.insert({begin, frame->time.end});
                         out.frames[frame->time.begin] = std::move(image);
                         ++changes;
                     }
+
+                    decoder_pos = std::max(decoder_pos, frame->time.end);
                 }
 
                 // Keep the decoder that was used, with its updated position
-                decoders.insert({end_pos, std::move(decoder)});
+                decoders.insert({decoder_pos, std::move(decoder)});
             }
 
             if (changes) {
-                TRACE(logger, "> now have {}", debug(out.have));
-                TRACE(logger, "> pass done ({} changes)", changes);
+                TRACE(logger, "  now have {} ({}ch)", debug(out.have), changes);
                 if (notify) notify->set();
-            } else {
-                TRACE(logger, "> pass done (no changes)");
             }
         }
 
-        DEBUG(logger, "STOP \"{}\"", filename);
+        DEBUG(logger, "stopped \"{}\"", filename);
     }
 
   private:

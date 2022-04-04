@@ -21,6 +21,7 @@ TEST_CASE("from_json (empty)") {
 TEST_CASE("from_json") {
     auto const j = R"**({
       "main_loop_hz": 10.5,
+      "main_buffer": 0.5,
       "screens": {
         "empty_screen": {},
         "full_screen": {
@@ -63,6 +64,7 @@ TEST_CASE("from_json") {
 
     CHECK_FALSE(script.time_is_relative);
     CHECK(script.main_loop_hz == Approx(10.5));
+    CHECK(script.main_buffer == Approx(0.5));
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);
@@ -80,8 +82,12 @@ TEST_CASE("from_json") {
     CHECK(screen.update_hz == Approx(15.5));
     REQUIRE(screen.layers.size() == 2);
     CHECK(screen.layers[0].media.file == "empty_layer");
-    CHECK(screen.layers[0].media.play.segments.empty());
     CHECK(screen.layers[0].media.buffer == 0.2);
+    CHECK(screen.layers[0].media.play.segments.size() == 1);  // Default
+    CHECK(screen.layers[0].media.play.segments[0].t.begin == 0);
+    CHECK(screen.layers[0].media.play.segments[0].t.end == 1e12);
+    CHECK(screen.layers[0].media.play.segments[0].begin_v == 0);
+    CHECK(screen.layers[0].media.play.segments[0].end_v == 0);
 
     CHECK(screen.layers[1].media.file == "full_layer");
     REQUIRE(screen.layers[1].media.play.segments.size() == 1);
@@ -169,6 +175,7 @@ TEST_CASE("make_time_absolute") {
     from_json(j, script);
     CHECK(script.time_is_relative);
     CHECK(script.main_loop_hz == Script{}.main_loop_hz);
+    CHECK(script.main_buffer == Script{}.main_buffer);
 
     fix_script_time(10000, &script);
     CHECK_FALSE(script.time_is_relative);
