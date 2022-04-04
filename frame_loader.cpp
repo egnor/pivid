@@ -240,7 +240,7 @@ class FrameLoaderDef : public FrameLoader {
                     continue;
                 }
 
-                double decoder_pos = orig_pos;
+                double pos = orig_pos;
                 std::optional<MediaFrame> frame;
                 std::unique_ptr<LoadedImage> image;
                 std::exception_ptr error;
@@ -253,19 +253,20 @@ class FrameLoaderDef : public FrameLoader {
                     }
 
                     // Heuristic threshold for forward-seek vs. read-forward
+                    // TODO: Track a map of seek positions?
                     const auto min_seek = std::max(0.050, 2 * last_backtrack);
                     const auto seek_cutoff = load.begin - min_seek;
-                    if (decoder_pos < seek_cutoff || decoder_pos >= load.end) {
+                    if (pos < seek_cutoff || pos >= load.end) {
                         TRACE(
                             logger, "  seek {:.3f}s => {:.3f}s",
-                            decoder_pos, load.begin
+                            pos, load.begin
                         );
                         decoder->seek_before(load.begin);
-                        decoder_pos = load.begin;
-                    } else if (decoder_pos < load.begin) {
+                        pos = load.begin;
+                    } else if (pos < load.begin) {
                         TRACE(
                             logger, "  nonseek {:.3f}s => {:.3f}s (<{:.3f}s)",
-                            decoder_pos, load.begin, min_seek
+                            pos, load.begin, min_seek
                         );
                     }
 
@@ -285,30 +286,24 @@ class FrameLoaderDef : public FrameLoader {
 
                 if (!frame) {
                     if (!out.eof) {
-                        TRACE(logger, "  EOF {:.3f}s (new)", decoder_pos);
-                        out.eof = decoder_pos;
+                        DEBUG(logger, "  EOF {:.3f}s (new)", pos);
+                        out.eof = pos;
                         ++changes;
-                    } else if (decoder_pos < *out.eof) {
-                        TRACE(
-                            logger, "  EOF {:.3f}s (< old {})",
-                            decoder_pos, *out.eof
-                        );
-                        out.eof = decoder_pos;
+                    } else if (pos < *out.eof) {
+                        DEBUG(logger, "  EOF {:.3f}s (old={})", pos, *out.eof);
+                        out.eof = pos;
                         ++changes;
                     } else {
-                        TRACE(
-                            logger, "  EOF {:.3f}s (>= old {})",
-                            decoder_pos, *out.eof
-                        );
+                        TRACE(logger, "  EOF {:.3f}s (old={})", pos, *out.eof);
                     }
                 } else {
-                    DEBUG(logger, "  d@{:.3f}: {}", decoder_pos, debug(*frame));
-                    auto const begin = std::min(decoder_pos, frame->time.begin);
-                    if (decoder_pos != orig_pos && begin < decoder_pos) {
-                        last_backtrack = decoder_pos - begin;
+                    DEBUG(logger, "  d@{:.3f}: {}", pos, debug(*frame));
+                    if (pos != orig_pos && frame->time.begin < pos) {
+                        last_backtrack = pos - frame->time.begin;
                         TRACE(logger, "    backtrack {:.3f}s", last_backtrack);
                     }
 
+                    auto const begin = std::min(pos, frame->time.begin);
                     auto const wi = wanted.overlap_begin(begin);
                     if (wi == wanted.overlap_end(frame->time.end)) {
                         TRACE(logger, "    frame old, discarded");
@@ -319,11 +314,11 @@ class FrameLoaderDef : public FrameLoader {
                         ++changes;
                     }
 
-                    decoder_pos = std::max(decoder_pos, frame->time.end);
+                    pos = frame->time.end;
                 }
 
                 // Keep the decoder that was used, with its updated position
-                decoders.insert({decoder_pos, std::move(decoder)});
+                decoders.insert({pos, std::move(decoder)});
             }
 
             if (changes) {
