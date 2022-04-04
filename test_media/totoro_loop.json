@@ -1,18 +1,3 @@
-{
-  "time_is_relative": true,
-  "screens": {
-    "*": {
-      "display_mode": [1920, 1080],
-      "update_hz": 12.5,
-      "layers": [
-        {
-          "media": {
-            "file": "test_media/totoro.pal8-t.gif",
-            "play": {"t": [0.2, 1.5], "rate": 1, "repeat": true},
-            "buffer": 2.0
-          }
-        }
-      ]
-    }
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:0074bf12f2479d5cad73fb722796172336cfd94589e9a1a21958611f80c3aa01
+size 352
