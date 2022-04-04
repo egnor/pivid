@@ -165,8 +165,8 @@ class FramePlayerDef : public FramePlayer {
 
             auto const lag = now - shown;
             DEBUG(
-                logger, "Show frame sched={} ({:.3f}s old)",
-                abbrev_time(shown), lag
+                logger, "Frame ({}lay) sch @{} ({:.3f}s old)",
+                show->second.size(), abbrev_time(shown), lag
             );
         }
 
