@@ -177,7 +177,7 @@ void seek_after(AVFormatContext* const avc, double seconds) {
     av_or_die("Seek", avformat_seek_file(avc, -1, t, t, max_t, 0));
 }
 
-void print_frames(AVFormatContext* const avc) {
+void list_packets(AVFormatContext* const avc) {
     AVPacket packet = {};
     fmt::print("--- Frames ---\n");
     while (av_read_frame(avc, &packet) >= 0) {
@@ -260,14 +260,14 @@ int main(int argc, char** argv) {
     double seek_before = NAN;
     double seek_after = NAN;
     bool debug_libav = false;
-    bool print_frames = false;
+    bool list_packets = false;
 
     CLI::App app("Use libavformat to inspect a media file");
     app.add_option("--media", media_file, "File or URL to inspect")->required();
     app.add_option("--seek_before", seek_before, "Find keyframe before time");
     app.add_option("--seek_after", seek_after, "Find keyframe after time");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
-    app.add_flag("--print_frames", print_frames, "Print individual frames");
+    app.add_flag("--list_packets", list_packets, "Print individual frames");
     CLI11_PARSE(app, argc, argv);
 
     if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
@@ -281,7 +281,7 @@ int main(int argc, char** argv) {
     inspect_media(avc);
     if (!std::isnan(seek_before)) ::seek_before(avc, seek_before);
     if (!std::isnan(seek_after)) ::seek_after(avc, seek_after);
-    if (print_frames) ::print_frames(avc);
+    if (list_packets) ::list_packets(avc);
 
     avformat_close_input(&avc);
     return 0;

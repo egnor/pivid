@@ -6,6 +6,7 @@
 #include <fmt/core.h>
 
 #include "display_output.h"
+#include "logging_policy.h"
 
 namespace pivid {
 
@@ -14,11 +15,14 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string log_arg;
 
     CLI::App app("Print video drivers, connectors and modes");
+    app.add_option("--log", log_arg, "Log level/configuration");
     CLI11_PARSE(app, argc, argv);
 
-    std::shared_ptr sys = global_system();
+    configure_logging(log_arg);
+    auto const logger = make_logger("main");
 
     try {
+        std::shared_ptr sys = global_system();
         for (auto const& listing : list_display_drivers(sys)) {
             fmt::print("## {}\n", debug(listing));
             auto driver = open_display_driver(sys, listing.dev_file);
@@ -38,7 +42,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             }
         }
     } catch (std::exception const& e) {
-        fmt::print("*** {}\n", e.what());
+        logger->critical("{}", e.what());
     }
 
     return 0;

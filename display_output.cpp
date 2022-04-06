@@ -263,7 +263,7 @@ class LoadedImageDef : public LoadedImage {
             fdat.modifier[ci] = im.modifier;
 
             // For the same memory buffer, reuse the handle & references.
-            for (int pci = 0; pci < ci; ++pci) {
+            for (size_t pci = 0; pci < ci; ++pci) {
                 if (ch.memory == im.channels[pci].memory) {
                     ASSERT(fdat.handles[pci]);
                     fdat.handles[ci] = fdat.handles[pci];

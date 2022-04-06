@@ -7,8 +7,8 @@
       "layers": [
         {
           "media": {
-            "file": "test_media/jellyfish-3-mbps-hd-h264.mkv",
-            "play": {"t": [0.5, 30.5], "rate": 1, "repeat": true},
+            "file": "test_media/jellyfish-3-mbps-hd-hevc.mkv",
+            "play": {"t": [0.5, 30], "v": 0.1, "rate": 1, "repeat": true},
             "buffer": 0.3
           }
         },

@@ -63,7 +63,7 @@ executable(
 )
 
 executable(
-    'pivid_save_frames', 'pivid_save_frames.cpp',
+    'pivid_scan_media', 'pivid_scan_media.cpp',
     link_with: [pivid_lib],
     dependencies: [util_deps],
 )

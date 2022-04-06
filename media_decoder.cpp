@@ -233,7 +233,7 @@ class MediaDecoderDef : public MediaDecoder {
         if (codec_context) avcodec_free_context(&codec_context);
         if (format_context) avformat_close_input(&format_context);
         if (!media_info.filename.empty())
-            logger->info("Closed \"{}\"", media_info.filename);
+            logger->debug("Closed \"{}\"", media_info.filename);
     }
 
     virtual MediaFileInfo const& file_info() const final { return media_info; }
@@ -438,7 +438,7 @@ class MediaDecoderDef : public MediaDecoder {
             media_info.bit_rate = format_context->bit_rate;
         }
 
-        logger->info("{}", debug(media_info));
+        logger->debug("{}", debug(media_info));
     }
 
   private:
