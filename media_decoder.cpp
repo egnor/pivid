@@ -67,33 +67,34 @@ T* check_alloc(T* item) {
 
 class LibavDrmBuffer : public MemoryBuffer {
   public:
-    ~LibavDrmBuffer() { if (mem) munmap(mem, av_obj->size); }
+    ~LibavDrmBuffer() { if (map) munmap(map, av_obj->size); }
     virtual size_t size() const final { return av_obj->size; }
     virtual int dma_fd() const final { return av_obj->fd; }
 
     virtual uint8_t const* read() final {
-        std::scoped_lock const lock{mem_mutex};
-        if (!mem) {
+        std::scoped_lock const lock{map_mutex};
+        if (!map) {
             int const prot = PROT_READ, flags = MAP_SHARED;
-            void* r = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
-            if (r == MAP_FAILED)
+            map = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
+            if (map == MAP_FAILED) {
+                map = nullptr;
                 throw std::system_error(errno, std::system_category(), "mmap");
-            mem = r;
+            }
         }
-        return (uint8_t const*) mem;
+        return (uint8_t const*) map;
     }
 
     void init(std::shared_ptr<AVDRMFrameDescriptor const> av_drm, int index) {
         auto const* obj = &av_drm->objects[index];
-        av_obj = std::shared_ptr<const AVDRMObjectDescriptor>{
+        av_obj = std::shared_ptr<AVDRMObjectDescriptor const>{
             std::move(av_drm), obj
         };
     }
 
   private:
     std::shared_ptr<AVDRMObjectDescriptor const> av_obj;
-    std::mutex mem_mutex;
-    void* mem = nullptr;
+    std::mutex map_mutex;
+    void* map = nullptr;
 };
 
 class LibavPlainBuffer : public MemoryBuffer {

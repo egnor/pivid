@@ -214,12 +214,10 @@ class DrmDumbBuffer : public MemoryBuffer {
 
 class DrmBufferImport {
   public:
-    DrmBufferImport(
-        std::shared_ptr<FileDescriptor> fd, MemoryBuffer const& buffer
-    ) {
-        hdat.fd = buffer.dma_fd();
-        fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("Import DMA");
-        this->fd = std::move(fd);
+    DrmBufferImport(std::shared_ptr<FileDescriptor> drm_fd, int dma_fd) {
+        hdat.fd = dma_fd;
+        drm_fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("Import DMA");
+        fd = std::move(drm_fd);
     }
 
     ~DrmBufferImport() {
@@ -241,35 +239,51 @@ class DrmBufferImport {
 class LoadedImageDef : public LoadedImage {
   public:
     LoadedImageDef(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
-        fdat.width = im.size.x;
-        fdat.height = im.size.y;
-        fdat.pixel_format = format_to_drm(im.fourcc);
-        fdat.flags = DRM_MODE_FB_MODIFIERS;
-
         size_t const max_channels = std::extent_v<decltype(fdat.handles)>;
         CHECK_ARG(
             im.channels.size() <= max_channels,
             "Too many image channels ({}) for DRM", im.channels.size()
         );
 
+        fdat.width = im.size.x;
+        fdat.height = im.size.y;
+        fdat.pixel_format = format_to_drm(im.fourcc);
+        fdat.flags = DRM_MODE_FB_MODIFIERS;
+
+        // Keep DMA-to-DRM imports until the ADDFB2 call which will ref them.
         std::vector<std::unique_ptr<DrmBufferImport>> imports;
         for (size_t ci = 0; ci < im.channels.size(); ++ci) {
-            auto const& channel = im.channels[ci];
-            fdat.pitches[ci] = channel.stride;
-            fdat.offsets[ci] = channel.offset;
+            auto const& ch = im.channels[ci];
+            auto const dma_fd = ch.memory->dma_fd();
+            auto const drm_handle = ch.memory->drm_handle();
+            CHECK_ARG(dma_fd >= 0 || drm_handle, "No DMA handle (ch{})", ci);
+
+            fdat.pitches[ci] = ch.stride;
+            fdat.offsets[ci] = ch.offset;
             fdat.modifier[ci] = im.modifier;
-            fdat.handles[ci] = channel.memory->drm_handle();
 
-            for (size_t pci = 0; pci < ci && !fdat.handles[ci]; ++pci) {
-                if (channel.memory == im.channels[pci].memory)
+            // For the same memory buffer, reuse the handle & references.
+            for (int pci = 0; pci < ci; ++pci) {
+                if (ch.memory == im.channels[pci].memory) {
+                    ASSERT(fdat.handles[pci]);
                     fdat.handles[ci] = fdat.handles[pci];
+                    break;
+                }
             }
 
-            if (!fdat.handles[ci]) {
-                auto const& mem = *channel.memory;
-                imports.push_back(std::make_unique<DrmBufferImport>(fd, mem));
-                fdat.handles[ci] = imports.back()->drm_handle();
+            if (fdat.handles[ci]) continue;
+
+            if (drm_handle) {
+                fdat.handles[ci] = drm_handle;
+            } else {
+                auto imp = std::make_unique<DrmBufferImport>(fd, dma_fd);
+                fdat.handles[ci] = imp->drm_handle();
+                imports.push_back(std::move(imp));
             }
+
+            // The import references the memory at the kernel level, but this
+            // also references the user object to avoid reuse via buffer pool.
+            buffers.push_back(ch.memory);
         }
 
         auto const logger = display_logger();
@@ -296,6 +310,7 @@ class LoadedImageDef : public LoadedImage {
 
   private:
     std::shared_ptr<FileDescriptor> fd;
+    std::vector<std::shared_ptr<MemoryBuffer>> buffers;
     drm_mode_fb_cmd2 fdat = {};
     std::string comment;
 
