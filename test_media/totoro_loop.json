@@ -8,7 +8,7 @@
         {
           "media": {
             "file": "test_media/totoro.pal8-t.gif",
-            "play": {"t": [0.2, 1.5], "rate": 1, "repeat": true},
+            "play": {"t": [0.2, 1.48], "rate": 1, "repeat": true},
             "buffer": 2.0
           }
         }

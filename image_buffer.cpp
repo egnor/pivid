@@ -81,7 +81,7 @@ std::string debug(ImageBuffer const& i) {
 std::string debug(LoadedImage const& l) {
     auto const size = l.size();
     auto const comment = l.source_comment();
-    auto out = fmt::format("{}x{} fb{}", size.x, size.y, l.drm_id());
+    auto out = fmt::format("fb{} {}x{}", l.drm_id(), size.x, size.y);
     if (!comment.empty())
         out += fmt::format(" \"{}\"", comment);
     return out;

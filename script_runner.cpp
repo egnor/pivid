@@ -111,10 +111,6 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
                 TRACE(logger, "      have {}", debug(input->content->have));
 
-                int frame_count = 0, change_count = 0;
-                std::shared_ptr<LoadedImage> last_image = {};
-                double final_output_time = 0.0;
-
                 for (
                     double t = next_output_time;
                     t < now + script.main_buffer;
@@ -125,41 +121,50 @@ class ScriptRunnerDef : public ScriptRunner {
                     };
 
                     auto const media_t = get(layer.media.play, -1);
-                    if (!input->content->have.contains(media_t)) continue;
-                    auto frame_it = input->content->frames.upper_bound(media_t);
-                    if (frame_it == input->content->frames.begin()) continue;
-                    --frame_it;
-
-                    auto const image_size = frame_it->second->size();
-                    auto* display = &timeline[t].emplace_back();
-                    display->image = frame_it->second;
-                    display->from_xy.x = get(layer.from_xy.x, 0);
-                    display->from_xy.y = get(layer.from_xy.y, 0);
-                    display->from_size.x = get(layer.from_size.x, image_size.x);
-                    display->from_size.y = get(layer.from_size.y, image_size.y);
-                    display->to_xy.x = get(layer.to_xy.x, 0);
-                    display->to_xy.y = get(layer.to_xy.y, 0);
-                    display->to_size.x = get(layer.to_size.x, image_size.x);
-                    display->to_size.y = get(layer.to_size.y, image_size.y);
-                    display->opacity = get(layer.opacity, 1);
-
-                    ++frame_count;
-                    final_output_time = t;
-                    if (display->image != last_image) {
-                        ++change_count;
-                        last_image = display->image;
+                    if (media_t < 0) {
+                        TRACE(
+                            logger, "      {:+.3f}s m={:.3f}s before start!",
+                            t - now, media_t
+                        );
+                        continue;
                     }
-                }
 
-                if (!frame_count) {
-                    TRACE(logger, "      no frames to show!");
-                } else {
+                    if (!input->content->have.contains(media_t)) {
+                        TRACE(
+                            logger, "      {:+.3f}s m={:.3f}s not loaded!",
+                            t - now, media_t
+                        );
+                        continue;
+                    }
+
+                    auto frame_it = input->content->frames.upper_bound(media_t);
+                    if (frame_it == input->content->frames.begin()) {
+                        TRACE(
+                            logger, "      {:+.3f}s m={:.3f}s no frame!",
+                            t - now, media_t
+                        );
+                        continue;
+                    }
+
+                    --frame_it;
+                    auto const frame_t = frame_it->first;
+                    auto const image_size = frame_it->second->size();
+                    auto* out = &timeline[t].emplace_back();
+                    out->from_xy.x = get(layer.from_xy.x, 0);
+                    out->from_xy.y = get(layer.from_xy.y, 0);
+                    out->from_size.x = get(layer.from_size.x, image_size.x);
+                    out->from_size.y = get(layer.from_size.y, image_size.y);
+                    out->to_xy.x = get(layer.to_xy.x, 0);
+                    out->to_xy.y = get(layer.to_xy.y, 0);
+                    out->to_size.x = get(layer.to_size.x, image_size.x);
+                    out->to_size.y = get(layer.to_size.y, image_size.y);
+                    out->opacity = get(layer.opacity, 1);
                     TRACE(
-                        logger, "      plan {}fr ({}im) {}~{}s",
-                        frame_count, change_count,
-                        abbrev_time(next_output_time),
-                        abbrev_time(final_output_time)
+                        logger, "        {:+.3f}s m{:.3f} f{:.3f} {}",
+                        t - now, media_t, frame_t, debug(*out)
                     );
+
+                    out->image = frame_it->second;  // Not in TRACE above
                 }
             }
 

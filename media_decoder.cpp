@@ -77,7 +77,7 @@ class LibavDrmBuffer : public MemoryBuffer {
             int const prot = PROT_READ, flags = MAP_SHARED;
             void* r = ::mmap(nullptr, av_obj->size, prot, flags, av_obj->fd, 0);
             if (r == MAP_FAILED)
-                throw std::system_error(errno, std::system_category(), "Mmap");
+                throw std::system_error(errno, std::system_category(), "mmap");
             mem = r;
         }
         return (uint8_t const*) mem;
@@ -189,6 +189,9 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, double time_base) {
     MediaFrame out = {};
     out.time.begin = timestamp * time_base;
     out.time.end = (timestamp + av->pkt_duration) * time_base;
+    if (out.time.end <= out.time.begin)
+        out.time.end = std::nextafter(out.time.begin, out.time.begin + 1);
+
     out.is_corrupt = (av->flags & AV_FRAME_FLAG_CORRUPT);
     out.is_key_frame = av->key_frame;
     switch (av->pict_type) {
@@ -235,16 +238,31 @@ class MediaDecoderDef : public MediaDecoder {
     virtual MediaFileInfo const& file_info() const final { return media_info; }
 
     virtual void seek_before(double when) final {
+        DEBUG(logger, "SEEK {:.3f}s \"{}\"", when, short_filename);
         ASSERT(format_context && codec_context);
+
+        // Need to finish EOF flush, avcodec_flush_buffers() isn't enough?
+        while (eof_sent_to_codec && !eof_seen_from_codec) {
+            if (!av_frame) av_frame = check_alloc(av_frame_alloc());
+            auto const err = avcodec_receive_frame(codec_context, av_frame);
+            if (err == AVERROR_EOF) {
+                DEBUG(logger, "  Finished EOF while seeking");
+                eof_seen_from_codec = true;
+            } else {
+                check_av(err, "Decode frame", codec_context->codec->name);
+                TRACE(logger, "  Flushed frame while seeking");
+            }
+        }
+
         if (av_packet) av_packet_unref(av_packet);
         if (av_frame) av_frame_unref(av_frame);
-
         avcodec_flush_buffers(codec_context);
+
         eof_sent_to_codec = false;
         eof_seen_from_codec = false;
 
         auto const tb = format_context->streams[stream_index]->time_base;
-        int64_t const t = when * tb.den / tb.num;
+        int64_t const t = when / av_q2d(tb);
         check_av(
             avformat_seek_file(format_context, stream_index, 0, t, t, 0),
             "Seek file", media_info.filename
@@ -253,24 +271,25 @@ class MediaDecoderDef : public MediaDecoder {
     }
 
     virtual std::optional<MediaFrame> next_frame() final {
+        if (eof_seen_from_codec) {
+            TRACE(logger, "EOF reread \"{}\"", short_filename);
+            return {};
+        }
+
+        DEBUG(logger, "READ \"{}\"", short_filename);
         ASSERT(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
 
         do {
-            if (eof_seen_from_codec) {
-                TRACE(logger, "  (EOF reached, no more frames)");
-                return {};
-            }
-
             if (!av_frame->width) {
-                TRACE(logger, "Checking for frame from codec...");
                 auto const err = avcodec_receive_frame(codec_context, av_frame);
-                if (err == AVERROR(EAGAIN)) {
-                    TRACE(logger, "  (codec needs more data, can't get frame)");
+                if (err == AVERROR(EAGAIN) && !eof_sent_to_codec) {
+                    TRACE(logger, "  (codec-to-app empty, more data needed)");
                 } else if (err == AVERROR_EOF) {
-                    logger->info("Got EOF from codec");
+                    DEBUG(logger, "  Got EOF from codec");
                     eof_seen_from_codec = true;
+                    return {};
                 } else {
                     check_av(err, "Decode frame", codec_context->codec->name);
                     TRACE(logger, "  Got frame from codec");
@@ -278,52 +297,49 @@ class MediaDecoderDef : public MediaDecoder {
             }
 
             if (!av_packet->data && !eof_seen_from_file) {
-                TRACE(logger, "Reading from file...");
                 auto const err = av_read_frame(format_context, av_packet);
                 if (err == AVERROR_EOF) {
-                    logger->debug("  Got EOF from file");
+                    DEBUG(logger, "  Got EOF from file");
                     eof_seen_from_file = true;
                 } else {
                     check_av(err, "Read", media_info.filename);
                     if (av_packet->stream_index == stream_index) {
                         TRACE(logger, 
-                            "  Read packet from file ({})",
+                            "  Got packet from file ({})",
                             debug_size(av_packet->size)
                         );
                     } else {
                         av_packet_unref(av_packet);
                         ASSERT(av_packet->data == nullptr);
-                        TRACE(logger, "  (got other stream packet, ignoring)");
+                        TRACE(logger, "  (ignoring nonvideo packet from file)");
                     }
                 }
             }
 
             if (av_packet->data) {
-                TRACE(logger, 
-                    "Sending packet to codec ({})...",
-                    debug_size(av_packet->size)
-                );
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
                     TRACE(logger, "  (app-to-codec full, can't send data)");
                 } else {
                     check_av(err, "Decode packet", codec_context->codec->name);
-                    TRACE(logger, "  Sent packet to codec");
+                    TRACE(
+                        logger, "  Sent packet to codec ({})",
+                        debug_size(av_packet->size)
+                    );
                     av_packet_unref(av_packet);
                     ASSERT(av_packet->data == nullptr);
                 }
             }
 
-            if (eof_seen_from_file && !eof_sent_to_codec) {
+            if (!av_packet->data && eof_seen_from_file && !eof_sent_to_codec) {
                 ASSERT(av_packet->data == nullptr);
-                TRACE(logger, "Sending EOF to codec...");
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
                     TRACE(logger, "  (app-to-codec full, can't send EOF)");
                 } else {
                     if (err != AVERROR_EOF)
                         check_av(err, "Decode EOF", codec_context->codec->name);
-                    logger->debug("Sent EOF to codec");
+                    DEBUG(logger, "  Sent EOF to codec");
                     eof_sent_to_codec = true;
                 }
             }
@@ -336,14 +352,13 @@ class MediaDecoderDef : public MediaDecoder {
         std::shared_ptr<AVFrame> av_shared{this->av_frame, std::move(deleter)};
         av_frame = nullptr;  // The AVFrame is owned by av_shared now.
 
-        TRACE(logger, "Converting frame...");
-        auto tb = av_q2d(format_context->streams[stream_index]->time_base);
-        auto out = frame_from_av(std::move(av_shared), tb);
+        auto const tb = format_context->streams[stream_index]->time_base;
+        auto out = frame_from_av(std::move(av_shared), av_q2d(tb));
+        DEBUG(logger, "  {}", debug(out));
+
         out.image.source_comment = fmt::format(
             "{} @{:.3f}", short_filename, out.time.begin
         );
-
-        DEBUG(logger, "{}", debug(out));
         return out;
     }
 

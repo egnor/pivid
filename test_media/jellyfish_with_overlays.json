@@ -8,21 +8,24 @@
         {
           "media": {
             "file": "test_media/jellyfish-3-mbps-hd-h264.mkv",
-            "play": {"t": [0.5, 30.5], "rate": 1},
+            "play": {"t": [0.5, 30.5], "rate": 1, "repeat": true},
             "buffer": 0.3
           }
         },
         {
           "media": {
-            "file": "test_media/totoro.pal8-t.gif",
-            "play": {"t": [0.3, 1.6], "rate": 1, "repeat": true},
-            "buffer": 2.0
+            "file": "test_media/kitten.rgba.png",
+            "play": {"t": [0.5, 1], "v": 0, "repeat": true}
           },
-          "to_xy": [230, 358]
+          "to_xy": [1026, 61]
         },
         {
-          "media": {"file": "test_media/kitten.rgba.png", "play": 0},
-          "to_xy": [1026, 61]
+          "media": {
+            "file": "test_media/totoro.pal8-t.gif",
+            "play": {"t": [0.5, 1.78], "rate": 1, "repeat": true},
+            "buffer": 2.0
+          },
+          "to_xy": [{"t": [0.5, 10.5], "v": [1920, -500], "repeat": true}, 358]
         }
       ]
     }

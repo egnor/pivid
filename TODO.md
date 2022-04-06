@@ -2,6 +2,7 @@
 
 * Network interface!
 * More unit testing!
+* File access sandboxing
 * Better control about what gets buffered
 * Better forward-seek vs play-forward decision making in frame_loader
 * Manage forward-edge decoder retention based on trend of bezier

@@ -613,7 +613,7 @@ class DisplayDriverDef : public DisplayDriver {
             .props_ptr = (uint64_t) prop_ids.data(),
             .prop_values_ptr = (uint64_t) prop_values.data(),
             .reserved = 0,
-            .user_data = 0,
+            .user_data = update_sequence++,
         };
 
         auto ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
@@ -630,7 +630,7 @@ class DisplayDriverDef : public DisplayDriver {
         }
 
         ret.ex("DRM atomic update");
-        TRACE(logger, "  {} update committed!", conn->name);
+        DEBUG(logger, "  {} upd{} committed!", conn->name, atomic.user_data);
         crtc->pending_flip.emplace(std::move(next));
         for (auto* plane : crtc->pending_flip->using_planes) {
             ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
@@ -896,6 +896,7 @@ class DisplayDriverDef : public DisplayDriver {
     std::map<uint32_t, Crtc> crtcs;
     std::map<uint32_t, Connector> connectors;
     std::map<uint32_t, std::string> prop_names;
+    uint64_t update_sequence = 0;
 
     void process_events(std::scoped_lock<std::mutex> const&) {
         drm_event_vblank ev = {};
@@ -922,8 +923,8 @@ class DisplayDriverDef : public DisplayDriver {
             // TODO: Convert to system time!
             conn->flip_time = ev.tv_sec + 1e-6 * ev.tv_usec;
             DEBUG(
-                logger, "{} flip ({:.3f}s) {}=>{}pl",
-                conn->name, conn->flip_time,
+                logger, "{} vblank upd{} seq{} ({:.3f}s): {}=>{}pl",
+                conn->name, ev.user_data, ev.sequence, conn->flip_time,
                 crtc->active.using_planes.size(),
                 crtc->pending_flip->using_planes.size()
             );
@@ -1129,21 +1130,16 @@ std::string debug(DisplayMode const& m) {
 }
 
 std::string debug(DisplayLayer const& l) {
-    std::string out = debug(*l.image);
-    if (l.from_xy != XY<double>{} || l.from_size != l.image->size()) {
-        out += fmt::format(
-            " [{}x{} @{},{}]",
-            l.from_size.x, l.from_size.y, l.from_xy.x, l.from_xy.y
-        );
-    }
-    if (l.to_xy != XY<int>{} || l.to_size != l.from_size) {
-        out += fmt::format(
-            " => [{}x{} @{},{}]",
-            l.to_size.x, l.to_size.y, l.to_xy.x, l.to_xy.y
-        );
-    }
-    if (l.opacity != 1.0)
-        out += fmt::format(" (a{:.2f})", l.opacity);
+    std::string out = (l.image ? debug(*l.image) + " " : "");
+    if (l.from_xy != XY<double>{})
+        out += fmt::format("{:.4g},{:.4g}+", l.from_xy.x, l.from_xy.y);
+    if (l.from_xy != XY<double>{} || !l.image || l.image->size() != l.from_size)
+        out += fmt::format("{:.4g}x{:.4g}", l.from_size.x, l.from_size.y);
+    out += fmt::format("=>{},{}", l.to_xy.x, l.to_xy.y);
+    if (l.to_size != l.from_size)
+        out += fmt::format("+{}x{}", l.to_size.x, l.to_size.y);
+    if (l.opacity < 1.0)
+        out += fmt::format(" a{:.2f}", l.opacity);
     return out;
 }
 
