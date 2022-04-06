@@ -48,6 +48,7 @@ pivid_lib = library(
 
 executable(
     'pivid_inspect_avformat', 'pivid_inspect_avformat.cpp',
+    link_with: [pivid_lib],
     dependencies: [util_deps, libav_deps],
 )
 

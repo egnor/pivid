@@ -23,6 +23,8 @@ extern "C" {
 #include <libavutil/rational.h>
 }
 
+#include "image_buffer.h"
+
 void av_or_die(std::string const& text, int const err) {
     if (err < 0) {
         char errbuf[256];
@@ -186,17 +188,17 @@ void list_packets(AVFormatContext* const avc) {
         if (stream->codecpar->codec_id)
             fmt::print(" ({})", avcodec_get_name(stream->codecpar->codec_id));
 
-        fmt::print(" {:4d}kB", packet.size / 1024);
+        fmt::print(" {}", pivid::debug_size(packet.size));
         if (packet.pos >= 0)
             fmt::print(" @{:<8d}", packet.pos);
 
         double const time_base = av_q2d(stream->time_base);
         if (packet.pts != AV_NOPTS_VALUE)
-            fmt::print(" pres@{:.3f}s", packet.pts * time_base);
+            fmt::print(" p@{:.3f}s", packet.pts * time_base);
         if (packet.duration != 0)
-            fmt::print(" len={:.3f}s", packet.duration * time_base);
+            fmt::print(" {:+.3f}s", packet.duration * time_base);
         if (packet.dts != AV_NOPTS_VALUE)
-            fmt::print(" deco@{:.3f}s", packet.dts * time_base);
+            fmt::print(" d@{:.3f}s", packet.dts * time_base);
 
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
             if ((packet.flags & bit)) {
