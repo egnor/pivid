@@ -7,9 +7,9 @@
       "layers": [
         {
           "media": {
-            "file": "test_media/jellyfish-3-mbps-hd-hevc.mkv",
+            "file": "test_media/big_buck_bunny_excerpt.hevc.mkv",
             "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
-            "buffer": 0.5
+            "buffer": 0.3
           }
         }
       ]

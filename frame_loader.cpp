@@ -111,10 +111,11 @@ class FrameLoaderDef : public FrameLoader {
         std::shared_ptr<UnixSystem> sys,
         std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener
     ) {
-        this->display = display;
+        this->display = std::move(display);
         this->filename = filename;
+        this->opener = std::move(opener);
         this->wakeup = sys->make_signal();
-        this->opener = opener;
+        this->sys = std::move(sys);
         DEBUG(logger, "START \"{}\"", filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
@@ -123,10 +124,10 @@ class FrameLoaderDef : public FrameLoader {
         std::unique_lock lock{mutex};
         TRACE(logger, "starting \"{}\"", filename);
 
-        double last_backtrack = 0.0;
-        std::map<double, std::unique_ptr<MediaDecoder>> decoders;
+        std::map<double, Decoder> decoders;
         while (!shutdown) {
-            DEBUG(logger, "LOAD \"{}\"", filename);
+            auto const now = sys->system_time();
+            DEBUG(logger, "LOAD {} \"{}\"", abbrev_time(now), filename);
 
             auto to_load = wanted;
             to_load.erase({to_load.bounds().begin, 0});
@@ -141,10 +142,7 @@ class FrameLoaderDef : public FrameLoader {
             // Assign decoders to regions of the media to load
             //
 
-            using Assignment = std::tuple<
-                Interval, double, std::unique_ptr<MediaDecoder>
-            >;
-            std::vector<Assignment> to_use;
+            std::map<double, Decoder> assigned;
 
             // Pass 1: assign decoders that are already well positioned
             auto li = to_load.begin();
@@ -155,15 +153,15 @@ class FrameLoaderDef : public FrameLoader {
                     continue;
                 }
 
-                auto wi = wanted.overlap_begin(li->begin);
+                auto const wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
                     logger, "  w={} l={}: d@{:.3f}",
                     debug(*wi), debug(*li), di->first
                 );
 
-                to_use.emplace_back(*li, di->first, std::move(di->second));
-                decoders.erase(di);
+                di = assigned.insert(decoders.extract(di)).position;
+                di->second.assignment = *li;
                 li = to_load.erase(*wi);
             }
 
@@ -175,107 +173,113 @@ class FrameLoaderDef : public FrameLoader {
                     if (di != decoders.begin()) --di;
                 }
 
-                auto wi = wanted.overlap_begin(li->begin);
+                auto const wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
                     logger, "  w={} l={}: recyc d@{:.3f}",
                     debug(*wi), debug(*li), di->first
                 );
 
-                to_use.emplace_back(*li, di->first, std::move(di->second));
-                decoders.erase(di);
+                di = assigned.insert(decoders.extract(di)).position;
+                di->second.assignment = *li;
                 li = to_load.erase(*wi);
             }
 
-            // Pass 3: plan to create decoders for remaining needs
+            // Pass 3: request decoder creation for remaining needs
             li = to_load.begin();
             while (li != to_load.end()) {
-                auto wi = wanted.overlap_begin(li->begin);
+                auto const wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
-                TRACE(logger, "  w={} l={}: new!", debug(*wi), debug(*li));
+                DEBUG(logger, "  w={} l={}: new!", debug(*wi), debug(*li));
 
-                to_use.emplace_back(*li, 0.0, nullptr);
+                assigned[li->begin].assignment = *li;
                 li = to_load.erase(*wi);
             }
 
-            // Remove unused decoders unless positioned at request growth edges
-            // TODO: Allow the decoder to be a tiny bit early?
+            // Shut down unused decoders that have aged out
             auto di = decoders.begin();
             while (di != decoders.end()) {
-                auto hi = out.have.overlap_begin(di->first);
-                if (hi != out.have.begin()) {
-                    --hi;
-                    if (di->first == hi->end) {
-                        TRACE(
-                            logger, "  keep d@{:.3f} (h={} end)",
-                            di->first, debug(*hi)
-                        );
-                        ++di;
-                        continue;
-                    }
-                }
+                di->second.use_time = std::min(di->second.use_time, now);
+                double const age = now - di->second.use_time;
 
-                TRACE(logger, "  drop d@{:.3f} (unused)", di->first);
-                di = decoders.erase(di);
+                // TODO make a configurable age cutoff
+                double const age_cutoff = 1.0;
+                if (age > age_cutoff) {
+                    DEBUG(
+                        logger, "  drop d@{:.3f} ({:.3f}s old > {:.3f}s)",
+                        di->first, age, age_cutoff
+                    );
+                    di = decoders.erase(di);
+                } else {
+                    TRACE(
+                        logger, "  keep d@{:.3f} ({:.3f}s old <= {:.3f}s)",
+                        di->first, age, age_cutoff
+                    );
+                    ++di;
+                }
             }
 
+            //
+            // Do actual blocking work
+            // (the lock is released here; request state may change!)
+            //
+
             // If there's no work, wait for a change in input.
-            if (to_use.empty()) {
-                TRACE(logger, "  waiting (nothing to load)");
+            if (assigned.empty()) {
+                DEBUG(logger, "  waiting (nothing to load)");
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
                 continue;
             }
 
-            //
-            // Do actual blocking work
-            // (the lock is released; request state may change!)
-            //
-
             int changes = 0;
-            for (auto& [load, orig_pos, decoder] : to_use) {
+            while (!assigned.empty()) {
+                auto node = assigned.extract(assigned.begin());
+                auto const& load = node.mapped().assignment;
                 if (!wanted.contains(load.begin)) {
                     TRACE(logger, "  obsolete load {}", debug(load));
                     continue;
                 }
 
-                double pos = orig_pos;
                 std::optional<MediaFrame> frame;
-                std::unique_ptr<LoadedImage> image;
+                std::unique_ptr<LoadedImage> loaded;
                 std::exception_ptr error;
                 lock.unlock();
 
                 try {
-                    if (!decoder) {
+                    node.mapped().use_time = now;
+                    if (!node.mapped().decoder) {
                         TRACE(logger, "  open new decoder");
-                        decoder = opener(filename);
+                        node.mapped().decoder = opener(filename);
+                        node.key() = 0.0;
                     }
 
                     // Heuristic threshold for forward-seek vs. read-forward
-                    // TODO: Track a map of seek positions?
-                    const auto min_seek = std::max(0.050, 2 * last_backtrack);
-                    const auto seek_cutoff = load.begin - min_seek;
-                    if (pos < seek_cutoff || pos >= load.end) {
+                    const auto seek_cutoff = load.begin - std::max(
+                        0.050, 2 * node.mapped().backtrack
+                    );
+                    if (node.key() < seek_cutoff || node.key() >= load.end) {
                         TRACE(
                             logger, "  seek {:.3f}s => {:.3f}s",
-                            pos, load.begin
+                            node.key(), load.begin
                         );
-                        decoder->seek_before(load.begin);
-                        pos = load.begin;
-                    } else if (pos < load.begin) {
+                        node.mapped().decoder->seek_before(load.begin);
+                        node.key() = load.begin;
+                        node.mapped().backtrack = 0.0;
+                    } else if (node.key() < load.begin) {
                         TRACE(
-                            logger, "  nonseek {:.3f}s => {:.3f}s (<{:.3f}s)",
-                            pos, load.begin, min_seek
+                            logger, "  nonseek {:.3f}s (>{:.3f}s) => {:.3f}s",
+                            node.key(), seek_cutoff, load.begin
                         );
                     }
 
-                    frame = decoder->next_frame();
-                    if (frame) image = display->load_image(frame->image);
+                    frame = node.mapped().decoder->next_frame();
+                    if (frame) loaded = display->load_image(frame->image);
                 } catch (std::runtime_error const& e) {
                     logger->error("{}", e.what());
                     error = std::current_exception();
-                    // Pretend as if EOF (frame == nullptr) to avoid looping
+                    frame.reset();  // Treat as EOF to avoid looping
                 }
 
                 lock.lock();
@@ -285,40 +289,42 @@ class FrameLoaderDef : public FrameLoader {
                 }
 
                 if (!frame) {
+                    double const eof = node.key();
                     if (!out.eof) {
-                        DEBUG(logger, "  EOF {:.3f}s (new)", pos);
-                        out.eof = pos;
+                        DEBUG(logger, "  EOF {:.3f}s (new)", eof);
+                        out.eof = eof;
                         ++changes;
-                    } else if (pos < *out.eof) {
-                        DEBUG(logger, "  EOF {:.3f}s (old={})", pos, *out.eof);
-                        out.eof = pos;
+                    } else if (eof < *out.eof) {
+                        DEBUG(logger, "  EOF {:.3f}s < old={}", eof, *out.eof);
+                        out.eof = eof;
                         ++changes;
                     } else {
-                        TRACE(logger, "  EOF {:.3f}s (old={})", pos, *out.eof);
+                        TRACE(logger, "  EOF {:.3f}s >= old={}", eof, *out.eof);
                     }
                 } else {
-                    DEBUG(logger, "  d@{:.3f}: {}", pos, debug(*frame));
-                    if (pos != orig_pos && frame->time.begin < pos) {
-                        last_backtrack = pos - frame->time.begin;
-                        TRACE(logger, "    backtrack {:.3f}s", last_backtrack);
+                    DEBUG(logger, "  d@{:.3f}: {}", node.key(), debug(*frame));
+                    double const backtrack = node.key() - frame->time.begin;
+                    if (backtrack > node.mapped().backtrack) {
+                        node.mapped().backtrack = backtrack;
+                        TRACE(logger, "    backtrack {:.3f}s", backtrack);
                     }
 
-                    auto const begin = std::min(pos, frame->time.begin);
+                    auto const begin = std::min(node.key(), frame->time.begin);
                     auto const wi = wanted.overlap_begin(begin);
                     if (wi == wanted.overlap_end(frame->time.end)) {
                         TRACE(logger, "    frame old, discarded");
                     } else {
                         TRACE(logger, "    frame overlaps {}", debug(*wi));
                         out.have.insert({begin, frame->time.end});
-                        out.frames[frame->time.begin] = std::move(image);
+                        out.frames[frame->time.begin] = std::move(loaded);
                         ++changes;
                     }
 
-                    pos = frame->time.end;
+                    node.key() = frame->time.end;
                 }
 
                 // Keep the decoder that was used, with its updated position
-                decoders.insert({pos, std::move(decoder)});
+                decoders.insert(std::move(node));
             }
 
             if (changes) {
@@ -331,12 +337,20 @@ class FrameLoaderDef : public FrameLoader {
     }
 
   private:
+    struct Decoder {
+        std::unique_ptr<MediaDecoder> decoder;
+        Interval assignment;
+        double backtrack = 0.0;
+        double use_time = 0.0;
+    };
+
     // Constant from start to ~
     std::shared_ptr<log::logger> logger = loader_logger();
     std::shared_ptr<DisplayDriver> display;
     std::string filename;
-    std::unique_ptr<ThreadSignal> wakeup;
+    std::shared_ptr<UnixSystem> sys;
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
+    std::unique_ptr<ThreadSignal> wakeup;
 
     std::mutex mutable mutex;
     std::thread thread;
