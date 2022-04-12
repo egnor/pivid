@@ -1,7 +1,7 @@
 {
   "time_is_relative": true,
   "screens": {
-    "*": {
+    "HDMI-1": {
       "display_mode": [1920, 1080],
       "update_hz": 30,
       "layers": [
@@ -9,6 +9,19 @@
           "media": {
             "file": "test_media/big_buck_bunny_excerpt.hevc.mkv",
             "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
+            "buffer": 0.3
+          }
+        }
+      ]
+    },
+    "HDMI-2": {
+      "display_mode": [1920, 1080],
+      "update_hz": 24,
+      "layers": [
+        {
+          "media": {
+            "file": "test_media/big_buck_bunny_excerpt.hevc.mkv",
+            "play": {"t": [0.5, 30], "v": [0.5, 30], "repeat": true},
             "buffer": 0.3
           }
         }

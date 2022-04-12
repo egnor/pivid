@@ -92,13 +92,15 @@ void add_range_nowrap(BezierSpline const& bez, Interval t, IntervalSet* out) {
 
 std::optional<double> BezierSpline::value(double t) const {
     if (segments.empty()) return {};
+    auto const& segs = segments;
 
+    CHECK_ARG(repeat >= 0, "Bad Bezier repeat: {}", repeat);
     if (repeat) {
-        Interval const bz{segments.begin()->t.begin, segments.rbegin()->t.end};
-        t = std::fmod(t - bz.begin, bz.end - bz.begin) + bz.begin;
+        auto const begin = segs.begin()->t.begin;
+        if (t < begin) return {};
+        t = std::fmod(t - begin, repeat) + begin;
     }
 
-    auto const& segs = segments;
     auto const after = std::upper_bound(segs.begin(), segs.end(), t, lt_begin);
     if (after == segments.begin()) return {};
     BezierSegment const& seg = *std::prev(after);
@@ -115,23 +117,25 @@ IntervalSet BezierSpline::range(Interval t) const {
         return out;
     }
 
-    Interval const bz{segments.begin()->t.begin, segments.rbegin()->t.end};
-    t.begin = std::max(t.begin, bz.begin);
-    if (t.end - t.begin > bz.end - bz.begin) {
-        add_range_nowrap(*this, bz, &out);
+    CHECK_ARG(repeat >= 0, "Bad Bezier repeat: {}", repeat);
+    double const begin = segments.begin()->t.begin;
+    double const repeat_at = begin + repeat;
+    t.begin = std::max(t.begin, begin);
+    if (t.end - t.begin > repeat_at - begin) {
+        add_range_nowrap(*this, {begin, repeat_at}, &out);
         return out;
     }
 
-    Interval wrap;
-    wrap.begin = bz.begin + std::fmod(t.begin - bz.begin, bz.end - bz.begin);
-    wrap.end = wrap.begin + (t.end - t.begin);
-    if (wrap.end <= bz.end) {
-        add_range_nowrap(*this, wrap, &out);
+    Interval wrapped;
+    wrapped.begin = begin + std::fmod(t.begin - begin, repeat_at - begin);
+    wrapped.end = wrapped.begin + (t.end - t.begin);
+    if (wrapped.end <= repeat_at) {
+        add_range_nowrap(*this, wrapped, &out);
         return out;
     }
 
-    add_range_nowrap(*this, {wrap.begin, bz.end}, &out);
-    add_range_nowrap(*this, {bz.begin, bz.begin + (wrap.end - bz.end)}, &out);
+    add_range_nowrap(*this, {wrapped.begin, repeat_at}, &out);
+    add_range_nowrap(*this, {begin, begin + (wrapped.end - repeat_at)}, &out);
     return out;
 }
 

@@ -656,7 +656,7 @@ class DisplayDriverDef : public DisplayDriver {
         crtc->used_by_conn = conn;
     }
 
-    virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) final {
+    virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) final {
         auto* const conn = &connectors.at(id);
         std::scoped_lock const lock{mutex};
         if (conn->using_crtc && conn->using_crtc->pending_flip) {

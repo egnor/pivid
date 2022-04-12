@@ -93,11 +93,9 @@ void from_json(json const& j, BezierSegment& seg) {
 void from_json(json const& j, BezierSpline& bezier) {
     if (j.is_object() && j.count("segments")) {
         j.at("segments").get_to(bezier.segments);
-        bezier.repeat = j.value("repeat", false);
     } else if (j.is_array() && !j.at(0).is_number()) {
         j.get_to(bezier.segments);
     } else if (!j.empty()) {
-        if (j.is_object()) bezier.repeat = j.value("repeat", false);
         bezier.segments.resize(1);
         j.get_to(bezier.segments[0]);
     }
@@ -108,6 +106,21 @@ void from_json(json const& j, BezierSpline& bezier) {
              "Bad Bezier time sequence: {}", j.dump()
         );
     }
+
+    if (j.is_object()) {
+        auto const rep_j = j.value("repeat", json{});
+        if (rep_j.is_number()) {
+            bezier.repeat = rep_j.get<double>();
+        } else if (rep_j.is_boolean()) {
+            auto const& segs = bezier.segments;
+            if (rep_j.get<bool>() && !bezier.segments.empty())
+                bezier.repeat = segs.rbegin()->t.end - segs.begin()->t.begin;
+        } else {
+            CHECK_ARG(rep_j.is_null(), "Bad Bezier \"repeat\": {}", j.dump());
+        }
+    }
+
+    CHECK_ARG(bezier.repeat >= 0, "Bad Bezier repeat period: {}", j.dump());
 }
 
 void from_json(json const& j, ScriptMedia& media) {

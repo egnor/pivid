@@ -96,7 +96,7 @@ class FramePlayerDef : public FramePlayer {
         std::unique_lock lock{mutex};
         while (!shutdown) {
             if (timeline.empty()) {
-                TRACE(logger, "PLAY (no frames, waiting for wakeup)");
+                TRACE(logger, "PLAY s={} (no frames, sleep)", screen_id);
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
@@ -104,8 +104,8 @@ class FramePlayerDef : public FramePlayer {
             }
 
             TRACE(logger, 
-                "PLAY timeline {}f {}~{}",
-                timeline.size(),
+                "PLAY s={} {}f {}~{}",
+                screen_id, timeline.size(),
                 abbrev_time(timeline.begin()->first),
                 abbrev_time(timeline.rbegin()->first)
             );
@@ -120,14 +120,14 @@ class FramePlayerDef : public FramePlayer {
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 logger->warn(
-                    "Skip frame sched={} ({:.3f}s old)",
-                    abbrev_time(s->first), now - s->first
+                    "Skip s={} sch={} ({:.3f}s old)",
+                    screen_id, abbrev_time(s->first), now - s->first
                 );
                 shown = s->first;
             }
 
             if (show == timeline.end()) {
-                TRACE(logger, "  (no more frames, waiting for wakeup)");
+                TRACE(logger, "  (s={} no more frames, sleep)", screen_id);
                 lock.unlock();
                 wakeup->wait();
                 lock.lock();
@@ -136,16 +136,16 @@ class FramePlayerDef : public FramePlayer {
 
             if (show->first > now) {
                 auto const delay = show->first - now;
-                TRACE(logger, "  (waiting {:.3f}s for frame)", delay);
+                TRACE(logger, "  (s={} waiting {:.3f}s)", screen_id, delay);
                 lock.unlock();
                 wakeup->wait_until(show->first);
                 lock.lock();
                 continue;
             }
 
-            auto const done = driver->is_update_done(screen_id);
+            auto const done = driver->update_status(screen_id);
             if (!done) {
-                TRACE(logger, "  (update pending, waiting 5ms)");
+                TRACE(logger, "  s={} (update pending, wait 5ms)", screen_id);
                 auto const try_again = now + 0.005;
                 lock.unlock();
                 wakeup->wait_until(try_again);
@@ -156,7 +156,7 @@ class FramePlayerDef : public FramePlayer {
             try {
                 driver->update(screen_id, mode, show->second);
             } catch (std::runtime_error const& e) {
-                logger->error("Display: {}", e.what());
+                logger->error("Display (screen {}): {}", screen_id, e.what());
                 // Continue as if displayed to avoid looping
             }
 
@@ -165,8 +165,8 @@ class FramePlayerDef : public FramePlayer {
 
             auto const lag = now - shown;
             DEBUG(
-                logger, "Frame ({}lay) sch @{} ({:.3f}s old)",
-                show->second.size(), abbrev_time(shown), lag
+                logger, "Frame s={} ({}lay) sch={} ({:.3f}s old)",
+                screen_id, show->second.size(), abbrev_time(shown), lag
             );
         }
 

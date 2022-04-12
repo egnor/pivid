@@ -53,7 +53,8 @@ TEST_CASE("from_json") {
           "buffer": 0.5,
           "play": {
             "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30.5Z"],
-            "v": [0, 10, 90, 100]
+            "v": [0, 10, 90, 100],
+            "repeat": 7200
           }
         }
       ]
@@ -91,7 +92,7 @@ TEST_CASE("from_json") {
 
     CHECK(screen.layers[1].media.file == "full_layer");
     REQUIRE(screen.layers[1].media.play.segments.size() == 1);
-    CHECK_FALSE(screen.layers[1].media.play.repeat);
+    CHECK(screen.layers[1].media.play.repeat == 0.0);
     CHECK(screen.layers[1].media.play.segments[0].t.begin == 1);
     CHECK(screen.layers[1].media.play.segments[0].t.end == 1e12);
     CHECK(screen.layers[1].media.play.segments[0].begin_v == 0);
@@ -120,7 +121,7 @@ TEST_CASE("from_json") {
     CHECK(screen.layers[1].to_size.x.segments[0].begin_v == 700);
 
     REQUIRE(screen.layers[1].opacity.segments.size() == 2);
-    CHECK(screen.layers[1].opacity.repeat);
+    CHECK(screen.layers[1].opacity.repeat == 10.0);
     CHECK(screen.layers[1].opacity.segments[0].t.begin == 0);
     CHECK(screen.layers[1].opacity.segments[0].t.end == 5);
     CHECK(screen.layers[1].opacity.segments[0].begin_v == 0);
@@ -146,7 +147,7 @@ TEST_CASE("from_json") {
     CHECK(standby.play.segments[0].p1_v == 10);
     CHECK(standby.play.segments[0].p2_v == 90);
     CHECK(standby.play.segments[0].end_v == 100);
-    CHECK_FALSE(standby.play.repeat);
+    CHECK(standby.play.repeat == 7200.0);
 }
 
 TEST_CASE("make_time_absolute") {

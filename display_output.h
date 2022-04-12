@@ -51,7 +51,7 @@ struct DisplayLayer {
     // TODO: rotation?
 };
 
-// Returned by DisplayDriver::is_frame_shown() after a frame has become visible.
+// Returned by DisplayDriver::update_status() after a frame has become visible.
 struct DisplayUpdateDone {
     double flip_time;                      // Time of vsync flip
     std::optional<ImageBuffer> writeback;  // Output for writeback "connectors"
@@ -71,15 +71,15 @@ class DisplayDriver {
     virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer) = 0;
 
     // Updates a screen's contents &/or video mode at the next vsync.
-    // Do not call again until the update completes (per is_update_done()).
+    // Do not call again until the update completes (per update_status()).
     virtual void update(
         uint32_t screen_id,
         DisplayMode const& mode,
         std::vector<DisplayLayer> const& layers  // Z-order, back to front
     ) = 0;
 
-    // Returns {} if an update is still pending, otherwise returns status.
-    virtual std::optional<DisplayUpdateDone> is_update_done(uint32_t id) = 0;
+    // Returns {} if an update is still pending, otherwise update result.
+    virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) = 0;
 };
 
 // Description of a GPU device. Returned by list_device_drivers().

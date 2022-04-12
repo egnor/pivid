@@ -46,8 +46,7 @@ TEST_CASE("BezierSpline::value") {
     }
 
     SUBCASE("repeating") {
-        bz.segments.resize(2);  // Drop infinite segment to allow repeat
-        bz.repeat = true;
+        bz.repeat = 7.0;
 
         CHECK(*bz.value(1.0) == doctest::Approx(10.0));
         CHECK(*bz.value(2.5) == doctest::Approx(25.0));
@@ -69,8 +68,8 @@ TEST_CASE("BezierSpline::value") {
                 CHECK_FALSE(bz.value(t + 14.0));
             } else {
                 double v = *bz.value(t);
-                CHECK_FALSE(bz.value(t - 10.0));
-                CHECK_FALSE(bz.value(t - 5.0));
+                CHECK_FALSE(bz.value(t - 14.0));
+                CHECK_FALSE(bz.value(t - 7.0));
                 CHECK(bz.value(t + 7.0) == doctest::Approx(v));
                 CHECK(bz.value(t + 14.0) == doctest::Approx(v));
             }
