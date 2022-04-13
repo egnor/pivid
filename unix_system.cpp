@@ -2,22 +2,21 @@
 
 #include <dirent.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <mutex>
 #include <sstream>
-#include <thread>
 
-#include <date/date.h>
-#include <fmt/chrono.h>
 #include <fmt/core.h>
+
+#include "logging_policy.h"
 
 namespace pivid {
 
@@ -61,68 +60,67 @@ class FileDescriptorDef : public FileDescriptor {
     int fd = -1;
 };
 
-class ThreadSignalDef : public ThreadSignal {
+class SyncFlagDef : public SyncFlag {
   public:
+    SyncFlagDef(clockid_t clockid) {
+        pthread_condattr_t attr;
+        pthread_condattr_init(&attr);
+        pthread_condattr_setclock(&attr, clockid);
+        pthread_cond_init(&cond, &attr);
+        pthread_condattr_destroy(&attr);
+    }
+
+    virtual ~SyncFlagDef() final { pthread_cond_destroy(&cond); }
+
     virtual void set() final {
-        std::scoped_lock<std::mutex> lock{mutex};
-        if (!signal_flag) {
-            signal_flag = true;
-            condvar.notify_one();
+        pthread_mutex_lock(&mutex);
+        if (!wake_flag) {
+            wake_flag = true;
+            pthread_cond_signal(&cond);
         }
+        pthread_mutex_unlock(&mutex);
     }
 
-    virtual void wait() final {
-        std::unique_lock<std::mutex> lock{mutex};
-        while (!signal_flag)
-            condvar.wait(lock);
-        signal_flag = false;
+    virtual void sleep() final {
+        pthread_mutex_lock(&mutex);
+        while (!wake_flag)
+            pthread_cond_wait(&cond, &mutex);
+        wake_flag = false;
+        pthread_mutex_unlock(&mutex);
     }
 
-    virtual bool wait_until(double t) final {
-        using namespace std::chrono;
-        duration<double> const double_d{t};
-        auto const system_d = duration_cast<system_clock::duration>(double_d);
-        system_clock::time_point system_t(system_d);
-        std::unique_lock<std::mutex> lock{mutex};
-        while (!signal_flag) {
-            if (condvar.wait_until(lock, system_t) == std::cv_status::timeout)
+    virtual bool sleep_until(double t) final {
+        struct timespec ts;
+        ts.tv_sec = t;
+        ts.tv_nsec = (t - ts.tv_sec) * 1e9;
+        pthread_mutex_lock(&mutex);
+        while (!wake_flag) {
+            if (pthread_cond_timedwait(&cond, &mutex, &ts) == ETIMEDOUT) {
+                pthread_mutex_unlock(&mutex);
                 return false;
+            }
         }
-        signal_flag = false;
-        return true;
-    }
-
-    virtual bool wait_for(double d) final {
-        using namespace std::chrono;
-        auto const steady_t = steady_clock::now() + duration<double>{d};
-        std::unique_lock<std::mutex> lock{mutex};
-        while (!signal_flag) {
-            if (condvar.wait_until(lock, steady_t) == std::cv_status::timeout)
-                return false;
-        }
-        signal_flag = false;
+        wake_flag = false;
+        pthread_mutex_unlock(&mutex);
         return true;
     }
 
   private:
-    std::mutex mutable mutex;
-    std::condition_variable condvar;
-    bool signal_flag = false;
+    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t cond;
+    bool wake_flag = false;
 };
 
 class UnixSystemDef : public UnixSystem {
   public:
-    virtual double system_time() const final {
-        auto const now = std::chrono::system_clock::now();
-        return std::chrono::duration<double>{now.time_since_epoch()}.count();
+    virtual double clock(clockid_t clockid) const final {
+        struct timespec ts;
+        clock_gettime(clockid, &ts);
+        return ts.tv_sec + 1e-9 * ts.tv_nsec;
     }
 
-    virtual void sleep_for(double d) final {
-       std::this_thread::sleep_for(std::chrono::duration<double>{d});
-    }
-
-    virtual std::unique_ptr<ThreadSignal> make_signal() const final {
-        return std::make_unique<ThreadSignalDef>();
+    virtual std::unique_ptr<SyncFlag> make_flag(clockid_t clockid) const final {
+        return std::make_unique<SyncFlagDef>(clockid);
     }
 
     virtual ErrnoOr<std::vector<std::string>> ls(
@@ -200,40 +198,73 @@ std::shared_ptr<UnixSystem> global_system() {
     return system;
 }
 
-double parse_time(std::string const& s) {
+double parse_realtime(std::string const& s) {
     size_t end;
     double const d = std::stod(s, &end);
     if (!s.empty() && end >= s.size())
         return d;
 
-    std::chrono::system_clock::time_point t = {};
-    for (auto f : {
-        "%FT%H:%M:%20SZ", "%FT%H:%M:%20S%Ez", "%F %H:%M:%S%Ez", "%F %H:%M:%S"
-    }) {
-        std::istringstream is{s};
-        date::from_stream(is, f, t);
-        if (!is.fail())
-            return std::chrono::duration<double>{t.time_since_epoch()}.count();
+    int year = 0, mon = 0, day = 0, hr = 0, min = 0, sec = 0, tzh = 0, tzm = 0;
+    char sep = '\0', tzsep = '\0';
+    char frac[21] = "";
+    int const scanned = sscanf(
+        s.c_str(), "%d-%d-%d%c %d:%d:%d%20[,.0-9]%c%d:%d", 
+        &year, &mon, &day, &sep, &hr, &min, &sec, frac, &tzsep, &tzh, &tzm
+    );
+
+    CHECK_ARG(scanned >= 7, "Bad date format: \"{}\"", s);
+    CHECK_ARG(sep == 'T' || sep == ' ', "Bad date separator: \"{}\"", s);
+    struct tm parts = {};
+    parts.tm_sec = sec;
+    parts.tm_min = min;
+    parts.tm_hour = hr;
+    parts.tm_mday = day;
+    parts.tm_mon = mon - 1;
+    parts.tm_year = year - 1900;
+
+    time_t const tt = timegm(&parts);
+    CHECK_ARG(tt != (time_t) -1, "Date overflow: \"{}\"", s);
+
+    double extra = 0.0;
+    if (scanned >= 8 && frac[0] != '\0') {
+        CHECK_ARG(frac[0] == '.' || frac[0] == ',', "Bad fraction: \"{}\"", s);
+        frac[0] = '.';
+        extra = atof(frac);
     }
 
-    throw std::invalid_argument("Bad date: \"" + s + "\"");
+    int offset = 0;
+    if (scanned >= 9) {
+        if (tzsep == 'Z' || tzsep == 'z') {
+            CHECK_ARG(scanned == 9, "Bad UTC date: \"{}\"", s);
+        } else {
+            CHECK_ARG(tzsep == '+' || tzsep == '-', "Bad TZ format: \"{}\"", s);
+            CHECK_ARG(scanned == 11, "Bad TZ offset: \"{}\"", s);
+            offset = (tzsep == '-' ? -1 : 1) * (tzh * 3600 + tzm * 60);
+        }
+    }
+
+    return tt + extra - offset;
 }
 
-static std::chrono::system_clock::time_point as_time_point(double t) {
-    using namespace std::chrono;
-    duration<double> const double_d{t};
-    auto const system_d = duration_cast<system_clock::duration>(double_d);
-    return system_clock::time_point{system_d};
+std::string format_realtime(double t) {
+    struct tm parts = {};
+    time_t tt = t;
+    gmtime_r(&tt, &parts);
+    return fmt::format(
+        "{}-{:02d}-{:02d} {:02d}:{:02d}:{:06.3f}Z",
+        parts.tm_year + 1900, parts.tm_mon + 1, parts.tm_mday,
+        parts.tm_hour, parts.tm_min, parts.tm_sec + (t - tt)
+    );
 }
 
-std::string format_date_time(double t) {
-    int const millis = std::fmod(t, 1.0) * 1000;
-    return fmt::format("{0:%F %R:%S.}{1:03d}{0:%z}", as_time_point(t), millis);
-}
-
-std::string abbrev_time(double t) {
-    int const millis = std::fmod(t, 1.0) * 1000;
-    return fmt::format("{0:%R:%S.}{1:03d}", as_time_point(t), millis);
+std::string abbrev_realtime(double t) {
+    struct tm parts = {};
+    time_t tt = t;
+    gmtime_r(&tt, &parts);
+    return fmt::format(
+        "{:02d}:{:02d}:{:06.3f}",
+        parts.tm_hour, parts.tm_min, parts.tm_sec + (t - tt)
+    );
 }
 
 }  // namespace pivid

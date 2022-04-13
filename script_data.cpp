@@ -1,6 +1,5 @@
 #include "script_data.h"
 
-#include <chrono>
 #include <cmath>
 #include <exception>
 #include <limits>
@@ -29,7 +28,7 @@ void from_json(json const& j, XY<T>& xy) {
 static double parse_json_time(json const& j) {
     if (j.is_number()) return j;
     CHECK_ARG(j.is_string(), "Bad JSON time: {}", j.dump());
-    return parse_time(j);
+    return parse_realtime(j);
 }
 
 void from_json(json const& j, BezierSegment& seg) {

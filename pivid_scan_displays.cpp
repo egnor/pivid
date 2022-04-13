@@ -43,6 +43,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
         }
     } catch (std::exception const& e) {
         logger->critical("{}", e.what());
+        return 1;
     }
 
     return 0;

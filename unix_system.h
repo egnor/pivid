@@ -3,7 +3,6 @@
 
 #pragma once
 
-#undef NDEBUG
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -13,8 +12,8 @@
 #include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 
-#include <chrono>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -79,14 +78,13 @@ class FileDescriptor {
     }
 };
 
-// A simple *internally synchronized* thread wakeup channel.
-class ThreadSignal {
+// A thread condition linked to some clock, suitable for waiting and signaling.
+class SyncFlag {
   public:
-    virtual ~ThreadSignal() = default;
-    virtual void set() = 0;               // Sets the signal flag.
-    virtual void wait() = 0;              // Waits for set, resets and returns.
-    virtual bool wait_for(double) = 0;    // Duration wait (true if signaled).
-    virtual bool wait_until(double) = 0;  // Deadline wait (true if signaled).
+    virtual ~SyncFlag() = default;
+    virtual void set() = 0;    // Sets the wakeup flag.
+    virtual void sleep() = 0;  // Waits for wakeup flag, resets it and returns.
+    virtual bool sleep_until(double) = 0;  // Deadline wait (true if woken).
 };
 
 // Interface to the Unix OS, typically a singleton returned by global_system().
@@ -96,9 +94,10 @@ class UnixSystem {
     virtual ~UnixSystem() = default;
 
     // System clock and synchronization
-    virtual double system_time() const = 0;
-    virtual void sleep_for(double) = 0;
-    virtual std::unique_ptr<ThreadSignal> make_signal() const = 0;
+    virtual double clock(clockid_t = CLOCK_REALTIME) const = 0;
+    virtual std::unique_ptr<SyncFlag> make_flag(
+        clockid_t = CLOCK_REALTIME
+    ) const = 0;
 
     // Filesystem operations
     virtual ErrnoOr<struct stat> stat(std::string const&) const = 0;
@@ -128,8 +127,8 @@ class UnixSystem {
 std::shared_ptr<UnixSystem> global_system();
 
 // Date parser.
-double parse_time(std::string const&);
-std::string format_date_time(double);
-std::string abbrev_time(double);
+double parse_realtime(std::string const&);
+std::string format_realtime(double);
+std::string abbrev_realtime(double);
 
 }  // namespace pivid

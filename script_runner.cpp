@@ -27,10 +27,10 @@ bool matches_mode(ScriptScreen const& screen, DisplayMode const& mode) {
 class ScriptRunnerDef : public ScriptRunner {
   public:
     virtual ScriptStatus update(
-        Script const& script, std::shared_ptr<ThreadSignal> signal
+        Script const& script, std::shared_ptr<SyncFlag> signal
     ) final {
-        auto const now = context.sys->system_time();
-        DEBUG(logger, "UPDATE {}", abbrev_time(now));
+        auto const now = context.sys->clock();
+        DEBUG(logger, "UPDATE {}", abbrev_realtime(now));
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [key, screen] : script.screens) {

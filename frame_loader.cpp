@@ -34,7 +34,7 @@ class FrameLoaderDef : public FrameLoader {
 
     virtual void set_request(
         IntervalSet const& wanted,
-        std::shared_ptr<ThreadSignal> notify
+        std::shared_ptr<SyncFlag> notify
     ) final {
         std::unique_lock lock{mutex};
         this->notify = std::move(notify);
@@ -114,7 +114,7 @@ class FrameLoaderDef : public FrameLoader {
         this->display = std::move(display);
         this->filename = filename;
         this->opener = std::move(opener);
-        this->wakeup = sys->make_signal();
+        this->wakeup = sys->make_flag();
         this->sys = std::move(sys);
         DEBUG(logger, "START \"{}\"", filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
@@ -126,8 +126,8 @@ class FrameLoaderDef : public FrameLoader {
 
         std::map<double, Decoder> decoders;
         while (!shutdown) {
-            auto const now = sys->system_time();
-            DEBUG(logger, "LOAD {} \"{}\"", abbrev_time(now), filename);
+            auto const now = sys->clock();
+            DEBUG(logger, "LOAD {} \"{}\"", abbrev_realtime(now), filename);
 
             auto to_load = wanted;
             to_load.erase({to_load.bounds().begin, 0});
@@ -228,7 +228,7 @@ class FrameLoaderDef : public FrameLoader {
             if (assigned.empty()) {
                 DEBUG(logger, "  waiting (nothing to load)");
                 lock.unlock();
-                wakeup->wait();
+                wakeup->sleep();
                 lock.lock();
                 continue;
             }
@@ -350,13 +350,13 @@ class FrameLoaderDef : public FrameLoader {
     std::string filename;
     std::shared_ptr<UnixSystem> sys;
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
-    std::unique_ptr<ThreadSignal> wakeup;
+    std::unique_ptr<SyncFlag> wakeup;
 
     std::mutex mutable mutex;
     std::thread thread;
 
     IntervalSet wanted;
-    std::shared_ptr<ThreadSignal> notify;
+    std::shared_ptr<SyncFlag> notify;
 
     bool shutdown = false;
     Content out = {};

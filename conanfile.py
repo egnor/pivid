@@ -12,7 +12,7 @@ class PividConan(conans.ConanFile):
     default_options = {"shared": False}  # Used by Meson build helper
 
     requires = [
-        "cli11/2.1.1", "cpp-httplib/0.10.1", "date/3.0.1",
+        "cli11/2.1.1", "cpp-httplib/0.10.1",
         "ffmpeg/4.3+rpi@pivid/specific", "fmt/8.0.1",
         "linux-headers-generic/5.14.9", "nlohmann_json/3.10.5",
         "openssl/1.1.1n", "spdlog/1.9.2",

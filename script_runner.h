@@ -19,7 +19,7 @@ class ScriptRunner {
   public:
     virtual ~ScriptRunner() = default;
     virtual ScriptStatus update(
-        Script const&, std::shared_ptr<ThreadSignal> = {}
+        Script const&, std::shared_ptr<SyncFlag> = {}
     ) = 0;
 };
 

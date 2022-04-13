@@ -31,7 +31,7 @@ class FramePlayerDef : public FramePlayer {
 
     virtual void set_timeline(
         Timeline timeline,
-        std::shared_ptr<ThreadSignal> notify
+        std::shared_ptr<SyncFlag> notify
     ) final {
         std::unique_lock lock{mutex};
 
@@ -48,8 +48,8 @@ class FramePlayerDef : public FramePlayer {
             TRACE(logger, 
                 "SET {}f: {}~{} {}",
                 timeline.size(),
-                abbrev_time(timeline.begin()->first),
-                abbrev_time(timeline.rbegin()->first),
+                abbrev_realtime(timeline.begin()->first),
+                abbrev_realtime(timeline.rbegin()->first),
                 same_keys ? "[same]" : "[diff]"
             );
         }
@@ -74,7 +74,7 @@ class FramePlayerDef : public FramePlayer {
         std::shared_ptr<UnixSystem> sys
     ) {
         logger->info("Launching frame player...");
-        wakeup = sys->make_signal();
+        wakeup = sys->make_flag();
         thread = std::thread(
             &FramePlayerDef::player_thread,
             this,
@@ -93,24 +93,25 @@ class FramePlayerDef : public FramePlayer {
     ) {
         DEBUG(logger, "Frame player thread running...");
 
+        double last_update = 0.0;
         std::unique_lock lock{mutex};
         while (!shutdown) {
             if (timeline.empty()) {
-                TRACE(logger, "PLAY s={} (no frames, sleep)", screen_id);
+                TRACE(logger, "PLAY (s={}) no frames, sleep", screen_id);
                 lock.unlock();
-                wakeup->wait();
+                wakeup->sleep();
                 lock.lock();
                 continue;
             }
 
             TRACE(logger, 
-                "PLAY s={} {}f {}~{}",
+                "PLAY (s={}) {}f {}~{}",
                 screen_id, timeline.size(),
-                abbrev_time(timeline.begin()->first),
-                abbrev_time(timeline.rbegin()->first)
+                abbrev_realtime(timeline.begin()->first),
+                abbrev_realtime(timeline.rbegin()->first)
             );
 
-            auto const now = sys->system_time();
+            auto const now = sys->clock();
             auto show = timeline.upper_bound(now);
             if (show != timeline.begin()) {
                 auto before = show;
@@ -120,8 +121,8 @@ class FramePlayerDef : public FramePlayer {
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 logger->warn(
-                    "Skip s={} sch={} ({:.3f}s old)",
-                    screen_id, abbrev_time(s->first), now - s->first
+                    "Skip (s={}) sch={} ({:.3f}s old)",
+                    screen_id, abbrev_realtime(s->first), now - s->first
                 );
                 shown = s->first;
             }
@@ -129,7 +130,7 @@ class FramePlayerDef : public FramePlayer {
             if (show == timeline.end()) {
                 TRACE(logger, "  (s={} no more frames, sleep)", screen_id);
                 lock.unlock();
-                wakeup->wait();
+                wakeup->sleep();
                 lock.lock();
                 continue;
             }
@@ -138,23 +139,29 @@ class FramePlayerDef : public FramePlayer {
                 auto const delay = show->first - now;
                 TRACE(logger, "  (s={} waiting {:.3f}s)", screen_id, delay);
                 lock.unlock();
-                wakeup->wait_until(show->first);
+                wakeup->sleep_until(show->first);
                 lock.lock();
                 continue;
             }
 
             auto const done = driver->update_status(screen_id);
             if (!done) {
-                TRACE(logger, "  s={} (update pending, wait 5ms)", screen_id);
-                auto const try_again = now + 0.005;
+                if (last_update && now - last_update > 1.0 / mode.actual_hz()) {
+                    logger->warn(
+                        "Slow update: {:.3f}s pending > {:.3f}s refresh",
+                        now - last_update, 1.0 / mode.actual_hz()
+                    );
+                }
+                TRACE(logger, "  (s={} update pending, wait 5ms)", screen_id);
                 lock.unlock();
-                wakeup->wait_until(try_again);
+                wakeup->sleep_until(now + 0.005);
                 lock.lock();
                 continue;
             }
 
             try {
                 driver->update(screen_id, mode, show->second);
+                last_update = sys->clock();
             } catch (std::runtime_error const& e) {
                 logger->error("Display (screen {}): {}", screen_id, e.what());
                 // Continue as if displayed to avoid looping
@@ -165,8 +172,8 @@ class FramePlayerDef : public FramePlayer {
 
             auto const lag = now - shown;
             DEBUG(
-                logger, "Frame s={} ({}lay) sch={} ({:.3f}s old)",
-                screen_id, show->second.size(), abbrev_time(shown), lag
+                logger, "Frame (s={}) sch={} ({:.3f}s old)",
+                screen_id, abbrev_realtime(shown), lag
             );
         }
 
@@ -177,12 +184,12 @@ class FramePlayerDef : public FramePlayer {
     // Constant from start to ~
     std::shared_ptr<log::logger> const logger = player_logger();
     std::thread thread;
-    std::unique_ptr<ThreadSignal> wakeup;
+    std::unique_ptr<SyncFlag> wakeup;
 
     // Guarded by mutex
     std::mutex mutable mutex;
     bool shutdown = false;
-    std::shared_ptr<ThreadSignal> notify;
+    std::shared_ptr<SyncFlag> notify;
     Timeline timeline;
     double shown = {};
 };

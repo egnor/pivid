@@ -334,6 +334,10 @@ class DisplayDriverDef : public DisplayDriver {
             cdat.connector_id = id_conn.first;
             std::vector<drm_mode_modeinfo> modes;
             do {
+                TRACE(
+                    logger, "  (get connector {}, {} modes)",
+                    cdat.connector_id, cdat.count_modes
+                );
                 cdat.count_props = cdat.count_encoders = 0;
                 fd->ioc<DRM_IOCTL_MODE_GETCONNECTOR>(&cdat).ex("DRM connector");
             } while (size_vec(&cdat.modes_ptr, &cdat.count_modes, &modes));
@@ -351,6 +355,7 @@ class DisplayDriverDef : public DisplayDriver {
             if (cdat.encoder_id) {
                 drm_mode_get_encoder edat = {};
                 edat.encoder_id = cdat.encoder_id;
+                TRACE(logger, "  (get encoder {})", edat.encoder_id);
                 fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
                 if (edat.crtc_id) {
                     // We are DRM master, assume no sneaky mode changes.
@@ -620,7 +625,7 @@ class DisplayDriverDef : public DisplayDriver {
         drm_mode_atomic atomic = {
             .flags =
                 DRM_MODE_PAGE_FLIP_EVENT |
-                DRM_MODE_ATOMIC_NONBLOCK |
+                // DRM_MODE_ATOMIC_NONBLOCK |
                 DRM_MODE_ATOMIC_ALLOW_MODESET,
             .count_objs = (uint32_t) obj_ids.size(),
             .objs_ptr = (uint64_t) obj_ids.data(),
@@ -631,6 +636,7 @@ class DisplayDriverDef : public DisplayDriver {
             .user_data = update_sequence++,
         };
 
+        TRACE(logger, "  {} committing u{}...", conn->name, atomic.user_data);
         auto ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
         if (ret.err == EBUSY) {
             TRACE(logger, "  (busy, retrying commit without NONBLOCK)");
@@ -645,7 +651,11 @@ class DisplayDriverDef : public DisplayDriver {
         }
 
         ret.ex("DRM atomic update");
-        DEBUG(logger, "  {} upd{} committed!", conn->name, atomic.user_data);
+        DEBUG(
+            logger, "  {} u{} committed! (m{:.3f})",
+            conn->name, atomic.user_data, sys->clock(CLOCK_MONOTONIC)
+        );
+
         crtc->pending_flip.emplace(std::move(next));
         for (auto* plane : crtc->pending_flip->using_planes) {
             ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
@@ -935,13 +945,24 @@ class DisplayDriverDef : public DisplayDriver {
             // TODO: Check for writeback fence, once it works
             // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
 
-            // TODO: Convert to system time!
-            conn->flip_time = ev.tv_sec + 1e-6 * ev.tv_usec;
+            double const flip_mt = ev.tv_sec + 1e-6 * ev.tv_usec;
+            while (true) {
+                double const mt0 = sys->clock(CLOCK_MONOTONIC);
+                double const rt1 = sys->clock();
+                double const mt2 = sys->clock(CLOCK_MONOTONIC);
+                ASSERT(mt2 >= mt0);
+                if (mt2 - mt0 > 0.001) {
+                    TRACE(logger, "Clock jump: m{:.6f} => m{:.6f}", mt0, mt2);
+                } else {
+                    conn->flip_time = flip_mt - 0.5 * (mt0 + mt2) + rt1;
+                    break;
+                }
+            }
+
             DEBUG(
-                logger, "{} vblank upd{} seq{} ({:.3f}s): {}=>{}pl",
-                conn->name, ev.user_data, ev.sequence, conn->flip_time,
-                crtc->active.using_planes.size(),
-                crtc->pending_flip->using_planes.size()
+                logger, "{} u{} flip! {} (m{:.3f})",
+                conn->name, ev.user_data,
+                abbrev_realtime(conn->flip_time), flip_mt
             );
 
             if (!crtc->pending_flip->mode.vrefresh) {

@@ -31,7 +31,7 @@ class FrameLoader {
     // Sets the regions of interest to load, discarding frames outside them.
     virtual void set_request(
         IntervalSet const&,
-        std::shared_ptr<ThreadSignal> = {}
+        std::shared_ptr<SyncFlag> = {}
     ) = 0;
 
     // Returns the frames loaded so far.

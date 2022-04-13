@@ -88,9 +88,9 @@ Script make_script(
         );
     }
 
-    auto const run_start = global_system()->system_time();
+    auto const run_start = global_system()->clock();
     fix_script_time(run_start, &script);
-    main_logger()->info("Play start: {}", format_date_time(run_start));
+    main_logger()->info("Play start: {}", format_realtime(run_start));
     return script;
 }
 
@@ -117,9 +117,9 @@ Script load_script(std::string const& script_file) {
 
     auto script = json.get<Script>();
     if (script.time_is_relative) {
-        auto const run_start = sys->system_time();
+        auto const run_start = sys->clock();
         fix_script_time(run_start, &script);
-        logger->info("Script start: {}", format_date_time(run_start));
+        logger->info("Script start: {}", format_realtime(run_start));
     }
 
     return script;
@@ -147,19 +147,18 @@ bool script_is_done(Script const& script, ScriptStatus const& status) {
 void run_script(std::shared_ptr<DisplayDriver> driver, Script const& script) {
     auto const logger = main_logger();
     auto const sys = global_system();
+    auto const waiter = sys->make_flag(CLOCK_MONOTONIC);
 
     ASSERT(script.main_loop_hz > 0);
-    double const loop_period = 1.0 / script.main_loop_hz;
-    double next_time = 0.0;
+    double const period = 1.0 / script.main_loop_hz;
+    double loop_time = 0.0;
 
     ScriptContext context = {};
     context.driver = std::move(driver);
     auto const runner = make_script_runner(context);
     for (;;) {
-        double const now = sys->system_time();
-        next_time = std::clamp(next_time, now, now + loop_period);
-        sys->sleep_for(next_time - now);
-        next_time += loop_period;
+        loop_time = std::max(sys->clock(CLOCK_MONOTONIC), loop_time + period);
+        waiter->sleep_until(loop_time);
 
         auto const status = runner->update(script);
         if (script_is_done(script, status)) {
@@ -217,6 +216,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
         }
     } catch (std::exception const& e) {
         main_logger()->critical("{}", e.what());
+        return 1;
     }
 
     fmt::print("Done!\n\n");

@@ -12,7 +12,6 @@ add_project_arguments(
 )
 
 util_deps = [
-    dependency('date'),
     dependency('doctest'),
     dependency('CLI11'),
     dependency('fmt'),
@@ -59,6 +58,12 @@ executable(
 )
 
 executable(
+    'pivid_inspect_kmsg', 'pivid_inspect_kmsg.cpp',
+    link_with: [pivid_lib],
+    dependencies: [util_deps],
+)
+
+executable(
     'pivid_inspect_v4l2', 'pivid_inspect_v4l2.cpp',
     dependencies: [util_deps],
 )
@@ -87,6 +92,7 @@ pivid_test = executable(
         'interval_test.cpp',
         'pivid_test_main.cpp',
         'script_data_test.cpp',
+        'unix_system_test.cpp',
         'xy_test.cpp',
     ],
     link_with: [pivid_lib],

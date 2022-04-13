@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <map>
 #include <memory>
 
@@ -25,7 +24,7 @@ class FramePlayer {
     // Sets the list of frames to play. These are uncompressed; normally this
     // is limited to a short near-term buffer and periodically refreshed.
     // The signal (if any) is set when frames are shown.
-    virtual void set_timeline(Timeline, std::shared_ptr<ThreadSignal> = {}) = 0;
+    virtual void set_timeline(Timeline, std::shared_ptr<SyncFlag> = {}) = 0;
 
     // Returns the *scheduled* time of the most recently shown frame.
     // (TODO: Make DisplayOutputDone also available.)
