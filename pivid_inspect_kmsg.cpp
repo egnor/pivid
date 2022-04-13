@@ -62,7 +62,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             int64_t seq = 0, micros = 0;
             char flag = '\0';
             int const scanned = sscanf(
-                record, "%d,%Ld,%Ld,%c;%n",
+                record, "%d,%ld,%ld,%c;%n",
                 &tag, &seq, &micros, &flag, &prefix
             );
 
