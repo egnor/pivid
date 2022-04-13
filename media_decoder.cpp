@@ -3,6 +3,7 @@
 #include <drm_fourcc.h>
 #include <sys/mman.h>
 
+#include <cctype>
 #include <map>
 #include <system_error>
 
@@ -31,7 +32,7 @@ auto const& media_logger() {
 }
 
 //
-// Libav-specific error handling
+// Libav-specific error handling and logging
 //
 
 class LibavErrorCategory : public std::error_category {
@@ -59,6 +60,33 @@ template <typename T>
 T* check_alloc(T* item) {
     if (item) return item;  // No error.
     throw std::bad_alloc();
+}
+
+void av_log_callback(void* avcl, int level, char const* format, va_list args) {
+    static const auto logger = make_logger("libav");
+    (void) avcl;
+
+    std::string_view prefix;
+    char buffer[8192];
+    if (vsnprintf(buffer, sizeof(buffer), format, args) < 0) {
+        logger->error("Bad libav log: {}\"{}\"", prefix, format);
+    } else {
+        std::string_view message{buffer};
+        while (!message.empty() && isspace(message.back()))
+            message.remove_suffix(1);
+        switch (level) {
+            case AV_LOG_PANIC: logger->critical("{}{}", prefix, message); break;
+            case AV_LOG_FATAL: logger->error("{}{}", prefix, message); break;
+            case AV_LOG_ERROR: logger->warn("{}{}", prefix, message); break;
+            case AV_LOG_WARNING: logger->warn("{}{}", prefix, message); break;
+            case AV_LOG_INFO: logger->debug("{}{}", prefix, message); break;
+            case AV_LOG_VERBOSE: logger->debug("{}{}", prefix, message); break;
+            case AV_LOG_DEBUG: logger->trace("{}{}", prefix, message); break;
+            case AV_LOG_TRACE: logger->trace("{}{}", prefix, message); break;
+            case AV_LOG_QUIET: logger->trace("{}{}", prefix, message); break;
+            default: logger->error("?{}? {}{}", level, prefix, message); break;
+        }
+    }
 }
 
 //
@@ -472,10 +500,10 @@ class MediaDecoderDef : public MediaDecoder {
     }
 };
 
-
 }  // anonymous namespace
 
 std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
+    av_log_set_callback(av_log_callback);
     auto decoder = std::make_unique<MediaDecoderDef>();
     decoder->init(filename);
     return decoder;
@@ -486,6 +514,7 @@ std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
 //
 
 std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
+    av_log_set_callback(av_log_callback);
     media_logger()->trace("Encoding TIFF ({})...", debug(im));
     AVCodec const* tiff_codec = avcodec_find_encoder(AV_CODEC_ID_TIFF);
     if (!tiff_codec) throw std::runtime_error("No TIFF encoder found");
