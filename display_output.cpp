@@ -492,7 +492,7 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        DEBUG(logger, "UPDATE {} ({}lay)", conn->name, layers.size());
+        DEBUG(logger, "UPDATE {} ({} layers)", conn->name, layers.size());
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
@@ -501,12 +501,7 @@ class DisplayDriverDef : public DisplayDriver {
             "Update requested before prev done"
         );
 
-        if (!crtc && !mode.nominal_hz) {
-            TRACE(logger, "  (off, no change)");
-            return;
-        }
-
-        if (!crtc) {
+        if (!crtc && mode.nominal_hz) {
             for (auto* const c : conn->usable_crtcs) {
                 if (c->used_by_conn) continue;
                 ASSERT(!c->pending_flip);
@@ -523,17 +518,22 @@ class DisplayDriverDef : public DisplayDriver {
         int32_t writeback_fence_fd = -1;
 
         if (!mode.nominal_hz) {
-            DEBUG(logger, "  (turning off)", conn->name);
+            DEBUG(logger, "  ({} turning off)", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
-            props[crtc->id][&crtc->ACTIVE] = 0;
-            // Leave next state zeroed.
+            if (crtc) {
+                props[crtc->id][&crtc->ACTIVE] = 0;
+                props[crtc->id][&crtc->MODE_ID] = 0;
+            }
+            // Leave next state zeroed (disassociate CRTC).
         } else {
+            ASSERT(crtc);
             next.mode = mode_to_drm(mode);
             static_assert(sizeof(crtc->active.mode) == sizeof(next.mode));
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
-                DEBUG(logger, "  mode: {}", conn->name, debug(mode));
-                mode_blob = create_blob(next.mode);
-                props[crtc->id][&crtc->MODE_ID] = *mode_blob;
+                DEBUG(logger, "  {}: {}", conn->name, debug(mode));
+                if (mode.nominal_hz) mode_blob = create_blob(next.mode);
+                props[crtc->id][&crtc->ACTIVE] = mode.nominal_hz ? 1 : 0;
+                props[crtc->id][&crtc->MODE_ID] = mode_blob ? *mode_blob : 0;
             }
 
             if (conn->WRITEBACK_FB_ID.prop_id) {
@@ -605,6 +605,17 @@ class DisplayDriverDef : public DisplayDriver {
             }
         }
 
+        if (props.empty()) {
+            TRACE(logger, "  {} unchanged!", conn->name);
+            ASSERT(conn->using_crtc == crtc);
+            if (crtc) {
+                ASSERT(crtc->used_by_conn == conn);
+                ASSERT(!crtc->pending_flip);
+                crtc->active = std::move(next);
+            }
+            return;
+        }
+
         std::vector<uint32_t> obj_ids;
         std::vector<uint32_t> obj_prop_counts;
         std::vector<uint32_t> prop_ids;
@@ -613,9 +624,9 @@ class DisplayDriverDef : public DisplayDriver {
             obj_ids.push_back(obj_props.first);
             obj_prop_counts.push_back(obj_props.second.size());
             for (auto const& prop_value : obj_props.second) {
-               TRACE(logger, 
-                   "  #{} {} = {}",
-                   obj_props.first, prop_value.first->name, prop_value.second
+               TRACE(
+                   logger, "  #{} {} = {}", obj_props.first,
+                   prop_value.first->name, prop_value.second
                );
                prop_ids.push_back(prop_value.first->prop_id);
                prop_values.push_back(prop_value.second);
@@ -625,7 +636,7 @@ class DisplayDriverDef : public DisplayDriver {
         drm_mode_atomic atomic = {
             .flags =
                 DRM_MODE_PAGE_FLIP_EVENT |
-                // DRM_MODE_ATOMIC_NONBLOCK |
+                DRM_MODE_ATOMIC_NONBLOCK |
                 DRM_MODE_ATOMIC_ALLOW_MODESET,
             .count_objs = (uint32_t) obj_ids.size(),
             .objs_ptr = (uint64_t) obj_ids.data(),
@@ -636,7 +647,7 @@ class DisplayDriverDef : public DisplayDriver {
             .user_data = update_sequence++,
         };
 
-        TRACE(logger, "  {} committing u{}...", conn->name, atomic.user_data);
+        TRACE(logger, "  {} sending u{}...", conn->name, atomic.user_data);
         auto ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
         if (ret.err == EBUSY) {
             TRACE(logger, "  (busy, retrying commit without NONBLOCK)");
@@ -652,18 +663,19 @@ class DisplayDriverDef : public DisplayDriver {
 
         ret.ex("DRM atomic update");
         DEBUG(
-            logger, "  {} u{} committed! (m{:.3f})",
-            conn->name, atomic.user_data, sys->clock(CLOCK_MONOTONIC)
+            logger, "  {} u{} committed!",
+            conn->name, atomic.user_data
         );
 
-        crtc->pending_flip.emplace(std::move(next));
-        for (auto* plane : crtc->pending_flip->using_planes) {
-            ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
-            plane->used_by_crtc = crtc;
-        }
-
         conn->using_crtc = crtc;
-        crtc->used_by_conn = conn;
+        if (crtc) {
+            crtc->used_by_conn = conn;
+            crtc->pending_flip.emplace(std::move(next));
+            for (auto* plane : crtc->pending_flip->using_planes) {
+                ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
+                plane->used_by_crtc = crtc;
+            }
+        }
     }
 
     virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) final {
@@ -783,10 +795,16 @@ class DisplayDriverDef : public DisplayDriver {
                 fd->ioc<DRM_IOCTL_MODE_GETENCODER>(&edat).ex("DRM encoder");
                 for (size_t i = 0; i < crtc_ids.size(); ++i) {
                     if (edat.possible_crtcs & (1 << i)) {
-                        auto* const crtc = &crtcs[crtc_ids[i]];
+                        auto* const crtc = &crtcs.at(crtc_ids[i]);
                         conn->usable_crtcs.push_back(crtc);
                     }
                 }
+            }
+
+            if (conn->CRTC_ID.init_value) {
+                auto *crtc = &crtcs.at(conn->CRTC_ID.init_value);
+                conn->using_crtc = crtc;
+                crtc->used_by_conn = conn;
             }
         }
 
@@ -966,7 +984,7 @@ class DisplayDriverDef : public DisplayDriver {
             );
 
             if (!crtc->pending_flip->mode.vrefresh) {
-                TRACE(logger, "  screen turned off");
+                TRACE(logger, "  {} is off", conn->name);
                 ASSERT(conn->using_crtc == crtc);
                 ASSERT(crtc->pending_flip->using_planes.empty());
                 conn->using_crtc = nullptr;

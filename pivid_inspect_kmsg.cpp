@@ -1,5 +1,8 @@
 // Command line tool like 'dmesg' but with better timestamps.
 
+#include <regex>
+#include <string>
+
 #include <CLI/App.hpp>
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
@@ -77,11 +80,12 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
             double const mt = micros * 1e-6;
             double const rt = now_rt - now_mt + mt;
-
+            static std::regex const tab{"\\\\x09"};
             fmt::print(
-                "{} ({:.3f}) {} {}\n",
+                "{} {} {}\n",
                 (mt < now_mt - 43200 ? format_realtime : abbrev_realtime)(rt),
-                mt, levels[tag % 8], record + prefix
+                levels[tag % 8],
+                std::regex_replace(record + prefix, tab, "»   ")
             );
         }
 

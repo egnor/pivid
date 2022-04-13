@@ -16,11 +16,17 @@ auto const& runner_logger() {
     return logger;
 }
 
-bool matches_mode(ScriptScreen const& screen, DisplayMode const& mode) {
+bool matches_display(std::string const& name, DisplayScreen const& disp) {
+    return name == disp.connector || (name == "*" && disp.display_detected);
+}
+
+bool matches_mode(ScriptScreen const& scr, DisplayMode const& mode) {
+    if (scr.display_mode.x < 0 || scr.display_mode.y < 0 || scr.display_hz < 0)
+        return (mode.nominal_hz == 0);
     return (
-        (!screen.display_mode.x || screen.display_mode.x == mode.size.x) &&
-        (!screen.display_mode.y || screen.display_mode.y == mode.size.y) &&
-        (!screen.display_hz || screen.display_hz == mode.nominal_hz)
+        (!scr.display_mode.x || scr.display_mode.x == mode.size.x) &&
+        (!scr.display_mode.y || scr.display_mode.y == mode.size.y) &&
+        (!scr.display_hz || scr.display_hz == mode.nominal_hz)
     );
 }
 
@@ -33,9 +39,11 @@ class ScriptRunnerDef : public ScriptRunner {
         DEBUG(logger, "UPDATE {}", abbrev_realtime(now));
 
         std::vector<DisplayScreen> display_screens;
-        for (auto const& [key, screen] : script.screens) {
+        for (auto const& [key, scr] : script.screens) {
             auto *output = &outputs[key];
-            if (output->player && matches_mode(screen, output->mode)) {
+            output->defined = true;
+
+            if (output->player && matches_mode(scr, output->mode)) {
                 DEBUG(logger, "  [{}] {}", output->name, debug(output->mode));
             } else {
                 if (display_screens.empty())
@@ -45,17 +53,14 @@ class ScriptRunnerDef : public ScriptRunner {
                 uint32_t display_id = 0;
                 DisplayMode display_mode = {};
                 for (auto const& display : display_screens) {
-                    if (
-                        display.connector == key ||
-                        (display.display_detected && key == "*")
-                    ) {
+                    if (matches_display(key, display)) {
                         display_name = display.connector;
                         display_id = display.id;
-                        if (matches_mode(screen, display.active_mode)) {
+                        if (matches_mode(scr, display.active_mode)) {
                             display_mode = display.active_mode;
                         } else {
                             for (auto const& mode : display.modes) {
-                                if (matches_mode(screen, mode)) {
+                                if (matches_mode(scr, mode)) {
                                     display_mode = mode;
                                     break;
                                 }
@@ -70,33 +75,34 @@ class ScriptRunnerDef : public ScriptRunner {
                     continue;
                 }
 
-                if (!display_mode.nominal_hz) {
+                if (!matches_mode(scr, display_mode)) {
                     logger->error(
                         "Mode not found: {} {}x{} {}Hz", display_name,
-                        screen.display_mode.x, screen.display_mode.y,
-                        screen.display_hz
+                        scr.display_mode.x, scr.display_mode.y, scr.display_hz
                     );
                     continue;
                 }
 
-                DEBUG(
-                    logger, "  [{}] (new!) {}",
-                    display_name, debug(display_mode)
-                );
+                DEBUG(logger, "  [{}] + {}", display_name, debug(display_mode));
                 output->name = display_name;
                 output->mode = display_mode;
                 output->player.reset();
                 output->player = context.player_f(display_id, display_mode);
             }
 
+            if (!output->mode.nominal_hz) {
+                output->player->set_timeline({}, signal);
+                continue;
+            }
+
             ASSERT(output->mode.actual_hz() > 0);
-            double const script_hz = screen.update_hz;
+            double const script_hz = scr.update_hz;
             double const hz = script_hz ? script_hz : output->mode.actual_hz();
             double const next_output_time = std::ceil(now * hz) / hz;
 
             FramePlayer::Timeline timeline;
-            for (size_t li = 0; li < screen.layers.size(); ++li) {
-                auto const& layer = screen.layers[li];
+            for (size_t li = 0; li < scr.layers.size(); ++li) {
+                auto const& layer = scr.layers[li];
                 auto* input = &inputs[layer.media.file];
                 DEBUG(logger, "    \"{}\"", layer.media.file);
 
@@ -169,7 +175,6 @@ class ScriptRunnerDef : public ScriptRunner {
             }
 
             output->player->set_timeline(std::move(timeline), signal);
-            output->active = true;
         }
 
         for (const auto& standby : script.standbys) {
@@ -216,12 +221,12 @@ class ScriptRunnerDef : public ScriptRunner {
 
         auto output_it = outputs.begin();
         while (output_it != outputs.end()) {
-            if (!output_it->second.active) {
+            if (!output_it->second.defined) {
                 DEBUG(logger, "  [{}] stopping", output_it->second.name);
                 output_it = outputs.erase(output_it);
             } else {
                 status.screen_mode[output_it->first] = output_it->second.mode;
-                output_it->second.active = false;
+                output_it->second.defined = false;
                 ++output_it;
             }
         }
@@ -262,7 +267,7 @@ class ScriptRunnerDef : public ScriptRunner {
         XY<int> size;
         DisplayMode mode;
         std::unique_ptr<FramePlayer> player;
-        bool active = false;
+        bool defined = false;
     };
 
     std::shared_ptr<log::logger> const logger = runner_logger();

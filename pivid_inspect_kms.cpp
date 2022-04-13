@@ -255,7 +255,7 @@ void inspect_device(DisplayDriverListing const& listing) {
         }
         fmt::print("]");
 
-        if (plane.fb_id) fmt::print(" [FB #{}*]", plane.fb_id);
+        if (plane.fb_id) fmt::print(" [FB #{}]", plane.fb_id);
 
         std::vector<uint32_t> prop_ids;
         std::vector<uint64_t> values;
@@ -301,7 +301,7 @@ void inspect_device(DisplayDriverListing const& listing) {
 
         if (crtc.fb_id != 0) {
             fmt::print(
-                "  * CRTC #{:<3} [FB #{}* ({},{})]",
+                "  * CRTC #{:<3} [FB #{} ({},{})]",
                 id, crtc.fb_id, crtc.x, crtc.y
             );
         } else {

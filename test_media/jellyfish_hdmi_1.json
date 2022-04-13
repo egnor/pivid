@@ -1,0 +1,19 @@
+{
+  "time_is_relative": true,
+  "screens": {
+    "HDMI-1": {
+      "display_mode": [1920, 1080],
+      "update_hz": 30,
+      "layers": [
+        {
+          "media": {
+            "file": "test_media/jellyfish-3-mbps-hd-hevc.mkv",
+            "play": {"t": [0.5, 30], "v": 0.1, "rate": 1, "repeat": true},
+            "buffer": 0.3
+          }
+        }
+      ]
+    },
+    "HDMI-2": {"display_hz": -1}
+  }
+}

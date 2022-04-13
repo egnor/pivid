@@ -73,7 +73,7 @@ class FramePlayerDef : public FramePlayer {
         DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
-        logger->info("Launching frame player...");
+        logger->info("Launching frame player (s={})...", screen_id);
         wakeup = sys->make_flag();
         thread = std::thread(
             &FramePlayerDef::player_thread,
@@ -91,7 +91,14 @@ class FramePlayerDef : public FramePlayer {
         DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
-        DEBUG(logger, "Frame player thread running...");
+        DEBUG(logger, "Frame player thread running (s={})...", screen_id);
+        try {
+            driver->update(screen_id, mode, {});  // Set the mode right away.
+        } catch (std::runtime_error const& e) {
+            logger->error("Display setup (screen {}): {}", screen_id, e.what());
+            DEBUG(logger, "Frame player thread giving up (s={})...", screen_id);
+            return;
+        }
 
         double last_update = 0.0;
         std::unique_lock lock{mutex};
@@ -177,7 +184,7 @@ class FramePlayerDef : public FramePlayer {
             );
         }
 
-        DEBUG(logger, "Frame player thread ending...");
+        DEBUG(logger, "Frame player thread ending (s={})...", screen_id);
     }
 
   private:

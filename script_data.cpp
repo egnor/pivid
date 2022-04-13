@@ -19,7 +19,11 @@ template <typename T>
 void from_json(json const& j, XY<T>& xy) {
     if (j.empty()) {
         xy = {};
+    } else if (j.is_object()) {
+        j.at("x").get_to(xy.x);
+        j.at("y").get_to(xy.y);
     } else {
+        CHECK_ARG(j.is_array(), "Bad XY: {}", j.dump());
         j.at(0).get_to(xy.x);
         j.at(1).get_to(xy.y);
     }
@@ -145,6 +149,7 @@ void from_json(json const& j, ScriptScreen& screen) {
     j.value("display_mode", json{}).get_to(screen.display_mode);
     screen.display_hz = j.value("display_hz", screen.display_hz);
     screen.update_hz = j.value("update_hz", screen.update_hz);
+    CHECK_ARG(screen.update_hz >= 0.0, "Bad update_hz: {}", j.dump());
     j.value("layers", json::array()).get_to(screen.layers);
 }
 
