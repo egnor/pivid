@@ -7,14 +7,14 @@
       "layers": [
         {
           "media": {
-            "file": "test_media/jellyfish-3-mbps-hd-hevc.mkv",
+            "file": "jellyfish-3-mbps-hd-hevc.mkv",
             "play": {"t": [0.5, 30], "v": 0.1, "rate": 1, "repeat": true},
             "buffer": 0.3
           }
         },
         {
           "media": {
-            "file": "test_media/big_buck_bunny_excerpt.hevc.mkv",
+            "file": "big_buck_bunny_excerpt.hevc.mkv",
             "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
             "buffer": 0.3
           },
@@ -24,7 +24,7 @@
         },
         {
           "media": {
-            "file": "test_media/kitten.rgba.png",
+            "file": "kitten.rgba.png",
             "play": {"t": [0.5, 1], "v": 0, "repeat": true}
           },
           "to_xy": [
@@ -63,7 +63,7 @@
         },
         {
           "media": {
-            "file": "test_media/totoro.pal8-t.gif",
+            "file": "totoro.pal8-t.gif",
             "play": {"t": [0.5, 1.78], "rate": 1, "repeat": true},
             "buffer": 2.0
           },

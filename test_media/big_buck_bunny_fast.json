@@ -7,7 +7,7 @@
       "layers": [
         {
           "media": {
-            "file": "test_media/big_buck_bunny_excerpt.hevc.mkv",
+            "file": "big_buck_bunny_excerpt.hevc.mkv",
             "play": {"t": [0, 15], "v": [0, 30], "repeat": true},
             "buffer": 0.3
           }

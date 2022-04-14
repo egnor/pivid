@@ -262,8 +262,12 @@ class ScriptRunnerDef : public ScriptRunner {
 
         if (cx.root_dir.empty()) cx.root_dir = "/";
         if (cx.file_base.empty()) cx.file_base = ".";
-        cx.root_dir = cx.sys->realpath(cx.root_dir).ex(cx.root_dir);
-        cx.file_base = cx.sys->realpath(cx.file_base).ex(cx.file_base);
+        cx.root_dir = cx.sys->realpath(cx.root_dir).ex(
+            fmt::format("Root dir ({})", cx.root_dir)
+        );
+        cx.file_base = cx.sys->realpath(cx.file_base).ex(
+            fmt::format("File base ({})", cx.file_base)
+        );
         if (!S_ISDIR(cx.sys->stat(cx.file_base).ex(cx.file_base).st_mode)) {
             auto const slash = cx.file_base.rfind('/');
             if (slash >= 1) cx.file_base.resize(slash);
@@ -299,15 +303,16 @@ class ScriptRunnerDef : public ScriptRunner {
         CHECK_ARG(!spec.empty(), "Empty filename");
         auto it = canonicalize_cache.find(spec);
         if (it == canonicalize_cache.end()) {
-            auto canonical = cx.sys->realpath(
-                spec.starts_with('/') ? cx.root_dir + spec : cx.file_base + spec
-            ).ex(spec);
-
+            auto const lookup = spec.starts_with('/')
+                ? cx.root_dir + spec : cx.file_base + spec;
+            auto canonical = cx.sys->realpath(lookup).ex(
+                fmt::format("Media \"{}\" ({})", spec, lookup)
+            );
             CHECK_ARG(
                 canonical.starts_with(cx.root_dir),
-                "\"{}\" ({}) outside root ({})", spec, canonical, cx.root_dir
+                "Media \"{}\" ({}) outside root ({})",
+                spec, canonical, cx.root_dir
             );
-
             it = canonicalize_cache.insert({spec, std::move(canonical)}).first;
         }
 
