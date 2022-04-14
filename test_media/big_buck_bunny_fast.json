@@ -1,0 +1,18 @@
+{
+  "time_is_relative": true,
+  "screens": {
+    "HDMI-2": {
+      "display_mode": [1920, 1080],
+      "update_hz": 60,
+      "layers": [
+        {
+          "media": {
+            "file": "test_media/big_buck_bunny_excerpt.hevc.mkv",
+            "play": {"t": [0, 15], "v": [0, 30], "repeat": true},
+            "buffer": 0.3
+          }
+        }
+      ]
+    }
+  }
+}

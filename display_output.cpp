@@ -289,7 +289,7 @@ class LoadedImageDef : public LoadedImage {
         auto const logger = display_logger();
         this->fd = std::move(fd);
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fdat).ex("DRM framebuffer");
-        TRACE(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
+        DEBUG(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
         comment = im.source_comment;
     }
 

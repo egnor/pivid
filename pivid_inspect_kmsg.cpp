@@ -1,5 +1,6 @@
 // Command line tool like 'dmesg' but with better timestamps.
 
+#include <cinttypes>
 #include <regex>
 #include <string>
 
@@ -62,7 +63,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             int64_t seq = 0, micros = 0;
             char flag = '\0';
             int const scanned = sscanf(
-                record, "%d,%ld,%ld,%c;%n",
+                record, "%d,%" SCNd64 ",%" SCNd64 ",%c;%n",
                 &tag, &seq, &micros, &flag, &prefix
             );
 
