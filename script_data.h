@@ -41,6 +41,4 @@ struct Script {
 
 void from_json(nlohmann::json const&, Script&);
 
-void fix_script_time(double run_start, Script*);
-
 }  // namespace pivid

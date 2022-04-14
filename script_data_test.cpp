@@ -178,53 +178,51 @@ TEST_CASE("make_time_absolute") {
     CHECK(script.main_loop_hz == Script{}.main_loop_hz);
     CHECK(script.main_buffer == Script{}.main_buffer);
 
-    fix_script_time(10000, &script);
-    CHECK_FALSE(script.time_is_relative);
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens["s0"].layers.size() == 2);
     REQUIRE(script.screens["s1"].layers.size() == 1);
 
     auto const& s0_l0 = script.screens["s0"].layers[0];
     REQUIRE(s0_l0.media.play.segments.size() == 2);
-    CHECK(s0_l0.media.play.segments[0].t.begin == Approx(10001));
-    CHECK(s0_l0.media.play.segments[0].t.end == Approx(10002));
-    CHECK(s0_l0.media.play.segments[1].t.begin == Approx(10002));
-    CHECK(s0_l0.media.play.segments[1].t.end == Approx(10003));
+    CHECK(s0_l0.media.play.segments[0].t.begin == Approx(1));
+    CHECK(s0_l0.media.play.segments[0].t.end == Approx(2));
+    CHECK(s0_l0.media.play.segments[1].t.begin == Approx(2));
+    CHECK(s0_l0.media.play.segments[1].t.end == Approx(3));
 
     REQUIRE(s0_l0.from_xy.x.segments.size() == 1);
     REQUIRE(s0_l0.from_xy.y.segments.size() == 1);
-    CHECK(s0_l0.from_xy.x.segments[0].t.begin == Approx(10003));
-    CHECK(s0_l0.from_xy.y.segments[0].t.end == Approx(10005));
+    CHECK(s0_l0.from_xy.x.segments[0].t.begin == Approx(3));
+    CHECK(s0_l0.from_xy.y.segments[0].t.end == Approx(5));
 
     REQUIRE(s0_l0.from_size.x.segments.size() == 1);
-    CHECK(s0_l0.from_size.x.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l0.from_size.x.segments[0].t.begin == Approx(0));
     CHECK(s0_l0.from_size.x.segments[0].t.end == Approx(1e12));
     CHECK(s0_l0.from_size.x.segments[0].begin_v == Approx(5));
 
     REQUIRE(s0_l0.to_xy.x.segments.size() == 1);
     REQUIRE(s0_l0.to_size.x.segments.size() == 1);
     REQUIRE(s0_l0.opacity.segments.size() == 1);
-    CHECK(s0_l0.to_xy.x.segments[0].t.begin == Approx(10000));
-    CHECK(s0_l0.to_size.x.segments[0].t.begin == Approx(10000));
-    CHECK(s0_l0.opacity.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l0.to_xy.x.segments[0].t.begin == Approx(0));
+    CHECK(s0_l0.to_size.x.segments[0].t.begin == Approx(0));
+    CHECK(s0_l0.opacity.segments[0].t.begin == Approx(0));
 
     auto const& s0_l1 = script.screens["s0"].layers[1];
     REQUIRE(s0_l1.media.play.segments.size() == 1);
-    CHECK(s0_l1.media.play.segments[0].t.begin == Approx(10000));
+    CHECK(s0_l1.media.play.segments[0].t.begin == Approx(0));
     CHECK(s0_l1.media.play.segments[0].begin_v == Approx(10));
 
     auto const& s1_l0 = script.screens["s1"].layers[0];
     REQUIRE(s1_l0.media.play.segments.size() == 1);
-    CHECK(s1_l0.media.play.segments[0].t.begin == Approx(10000));
+    CHECK(s1_l0.media.play.segments[0].t.begin == Approx(0));
     CHECK(s1_l0.media.play.segments[0].begin_v == Approx(11));
 
     REQUIRE(script.standbys.size() == 2);
     REQUIRE(script.standbys[0].play.segments.size() == 1);
-    CHECK(script.standbys[0].play.segments[0].t.begin == Approx(10000));
+    CHECK(script.standbys[0].play.segments[0].t.begin == Approx(0));
     CHECK(script.standbys[0].play.segments[0].begin_v == Approx(12));
 
     REQUIRE(script.standbys[1].play.segments.size() == 1);
-    CHECK(script.standbys[1].play.segments[0].t.begin == Approx(10000));
+    CHECK(script.standbys[1].play.segments[0].t.begin == Approx(0));
     CHECK(script.standbys[1].play.segments[0].begin_v == Approx(13));
 }
 

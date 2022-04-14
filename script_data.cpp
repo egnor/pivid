@@ -164,40 +164,4 @@ void from_json(json const& j, Script& script) {
     CHECK_ARG(script.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
 }
 
-void fix_script_time(double run_start, Script* script) {
-    if (!script->time_is_relative) return;
-
-    auto const fix_time = [run_start](double* t) {
-        if (std::abs(*t) < 1e12) *t += run_start;
-    };
-
-    auto const fix_bezier = [fix_time](BezierSpline* bezier) {
-        for (auto& segment : bezier->segments) {
-            fix_time(&segment.t.begin);
-            fix_time(&segment.t.end);
-        }
-    };
-
-    auto const fix_bezier_xy = [fix_bezier](XY<BezierSpline>* xy) {
-        fix_bezier(&xy->x);
-        fix_bezier(&xy->y);
-    };
-
-    for (auto& screen : script->screens) {
-        for (auto& layer : screen.second.layers) {
-            fix_bezier(&layer.media.play);
-            fix_bezier_xy(&layer.from_xy);
-            fix_bezier_xy(&layer.from_size);
-            fix_bezier_xy(&layer.to_xy);
-            fix_bezier_xy(&layer.to_size);
-            fix_bezier(&layer.opacity);
-        }
-    }
-
-    for (auto& standby : script->standbys)
-        fix_bezier(&standby.play);
-
-    script->time_is_relative = false;
-}
-
 }  // namespace pivid

@@ -28,6 +28,9 @@ struct ScriptContext {
     std::shared_ptr<UnixSystem> sys;
     std::function<std::unique_ptr<FrameLoader>(std::string const&)> loader_f;
     std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;
+    std::string root_dir;
+    std::string file_base;
+    double start_time = 0.0;
 };
 
 std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext);

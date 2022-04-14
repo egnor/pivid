@@ -87,10 +87,6 @@ Script make_script(
             linear_segment({0, 1e12}, {start_arg, 1e12 + start_arg})
         );
     }
-
-    auto const run_start = global_system()->clock();
-    fix_script_time(run_start, &script);
-    main_logger()->info("Play start: {}", format_realtime(run_start));
     return script;
 }
 
@@ -115,14 +111,7 @@ Script load_script(std::string const& script_file) {
         throw_with_nested(std::invalid_argument(je.what()));
     }
 
-    auto script = json.get<Script>();
-    if (script.time_is_relative) {
-        auto const run_start = sys->clock();
-        fix_script_time(run_start, &script);
-        logger->info("Script start: {}", format_realtime(run_start));
-    }
-
-    return script;
+    return json.get<Script>();
 }
 
 bool layer_is_done(ScriptLayer const& layer, ScriptStatus const& status) {
@@ -144,7 +133,7 @@ bool script_is_done(Script const& script, ScriptStatus const& status) {
     return true;
 }
 
-void run_script(std::shared_ptr<DisplayDriver> driver, Script const& script) {
+void run_script(ScriptContext const& context, Script const& script) {
     auto const logger = main_logger();
     auto const sys = global_system();
     auto const waiter = sys->make_flag(CLOCK_MONOTONIC);
@@ -153,8 +142,6 @@ void run_script(std::shared_ptr<DisplayDriver> driver, Script const& script) {
     double const period = 1.0 / script.main_loop_hz;
     double loop_time = 0.0;
 
-    ScriptContext context = {};
-    context.driver = std::move(driver);
     auto const runner = make_script_runner(context);
     for (;;) {
         loop_time = std::max(sys->clock(CLOCK_MONOTONIC), loop_time + period);
@@ -203,16 +190,18 @@ extern "C" int main(int const argc, char const* const* const argv) {
     pivid::set_kernel_debug(debug_kernel);
 
     try {
-        std::shared_ptr const driver = find_driver(dev_arg);
-        if (!script_arg.empty()) {
-            auto const script = load_script(script_arg);
-            run_script(driver, script);
-        } else {
-            auto const script = make_script(
-                media_arg, screen_arg, mode_arg, start_arg
-            );
+        ScriptContext context = {};
+        context.driver = find_driver(dev_arg);
+        context.start_time = global_system()->clock();
+        main_logger()->info("Start: {}", format_realtime(context.start_time));
 
-            run_script(driver, script);
+        if (!script_arg.empty()) {
+            context.file_base = script_arg;
+            run_script(context, load_script(script_arg));
+        } else {
+            context.file_base = global_system()->realpath(".").ex("getcwd");
+            auto scr = make_script(media_arg, screen_arg, mode_arg, start_arg);
+            run_script(context, scr);
         }
     } catch (std::exception const& e) {
         main_logger()->critical("{}", e.what());

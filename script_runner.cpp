@@ -16,8 +16,8 @@ auto const& runner_logger() {
     return logger;
 }
 
-bool matches_display(std::string const& name, DisplayScreen const& disp) {
-    return name == disp.connector || (name == "*" && disp.display_detected);
+bool matches_display(std::string const& conn, DisplayScreen const& disp) {
+    return conn == disp.connector || (conn == "*" && disp.display_detected);
 }
 
 bool matches_mode(ScriptScreen const& scr, DisplayMode const& mode) {
@@ -35,32 +35,33 @@ class ScriptRunnerDef : public ScriptRunner {
     virtual ScriptStatus update(
         Script const& script, std::shared_ptr<SyncFlag> signal
     ) final {
-        auto const now = context.sys->clock();
-        DEBUG(logger, "UPDATE {}", abbrev_realtime(now));
+        auto const now = cx.sys->clock();
+        double const t0 = script.time_is_relative ? cx.start_time : 0.0;
+        DEBUG(logger, "UPDATE {} (t={:.3f}s)", abbrev_realtime(now), now - t0);
 
         std::vector<DisplayScreen> display_screens;
-        for (auto const& [key, scr] : script.screens) {
-            auto *output = &outputs[key];
+        for (auto const& [connector, script_screen] : script.screens) {
+            auto *output = &outputs[connector];
             output->defined = true;
 
-            if (output->player && matches_mode(scr, output->mode)) {
+            if (output->player && matches_mode(script_screen, output->mode)) {
                 DEBUG(logger, "  [{}] {}", output->name, debug(output->mode));
             } else {
                 if (display_screens.empty())
-                    display_screens = context.driver->scan_screens();
+                    display_screens = cx.driver->scan_screens();
 
                 std::string display_name;
                 uint32_t display_id = 0;
                 DisplayMode display_mode = {};
                 for (auto const& display : display_screens) {
-                    if (matches_display(key, display)) {
+                    if (matches_display(connector, display)) {
                         display_name = display.connector;
                         display_id = display.id;
-                        if (matches_mode(scr, display.active_mode)) {
+                        if (matches_mode(script_screen, display.active_mode)) {
                             display_mode = display.active_mode;
                         } else {
                             for (auto const& mode : display.modes) {
-                                if (matches_mode(scr, mode)) {
+                                if (matches_mode(script_screen, mode)) {
                                     display_mode = mode;
                                     break;
                                 }
@@ -71,14 +72,16 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
 
                 if (display_id == 0) {
-                    logger->error("Connector not found: \"{}\"", key);
+                    logger->error("Connector not found: \"{}\"", connector);
                     continue;
                 }
 
-                if (!matches_mode(scr, display_mode)) {
+                if (!matches_mode(script_screen, display_mode)) {
                     logger->error(
                         "Mode not found: {} {}x{} {}Hz", display_name,
-                        scr.display_mode.x, scr.display_mode.y, scr.display_hz
+                        script_screen.display_mode.x,
+                        script_screen.display_mode.y,
+                        script_screen.display_hz
                     );
                     continue;
                 }
@@ -87,7 +90,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 output->name = display_name;
                 output->mode = display_mode;
                 output->player.reset();
-                output->player = context.player_f(display_id, display_mode);
+                output->player = cx.player_f(display_id, display_mode);
             }
 
             if (!output->mode.nominal_hz) {
@@ -96,17 +99,18 @@ class ScriptRunnerDef : public ScriptRunner {
             }
 
             ASSERT(output->mode.actual_hz() > 0);
-            double const script_hz = scr.update_hz;
+            double const script_hz = script_screen.update_hz;
             double const hz = script_hz ? script_hz : output->mode.actual_hz();
             double const next_output_time = std::ceil(now * hz) / hz;
 
             FramePlayer::Timeline timeline;
-            for (size_t li = 0; li < scr.layers.size(); ++li) {
-                auto const& layer = scr.layers[li];
-                auto* input = &inputs[layer.media.file];
-                DEBUG(logger, "    \"{}\"", layer.media.file);
+            for (size_t li = 0; li < script_screen.layers.size(); ++li) {
+                auto const& layer = script_screen.layers[li];
+                auto const& file = canonicalize_file(layer.media.file);
+                auto* input = &inputs[file];
+                DEBUG(logger, "    \"{}\"", file);
 
-                Interval const buffer{now, now + layer.media.buffer};
+                Interval const buffer{now - t0, now - t0 + layer.media.buffer};
                 auto const buffer_range = layer.media.play.range(buffer);
                 TRACE(logger, "      want {}", debug(buffer_range));
                 input->request.insert(buffer_range);
@@ -122,8 +126,9 @@ class ScriptRunnerDef : public ScriptRunner {
                     t < now + script.main_buffer;
                     t += 1.0 / hz
                 ) {
-                    auto const get = [t](BezierSpline const& bez, double def) {
-                        return bez.value(t).value_or(def);
+                    double const rt = t - t0;
+                    auto const get = [rt](BezierSpline const& bez, double def) {
+                        return bez.value(rt).value_or(def);
                     };
 
                     auto const media_t = get(layer.media.play, -1);
@@ -177,12 +182,13 @@ class ScriptRunnerDef : public ScriptRunner {
             output->player->set_timeline(std::move(timeline), signal);
         }
 
-        for (const auto& standby : script.standbys) {
-            auto* input = &inputs[standby.file];
-            TRACE(logger, "  standby \"{}\"", standby.file);
+        for (const auto& script_standby : script.standbys) {
+            auto const& file = canonicalize_file(script_standby.file);
+            auto* input = &inputs[file];
+            TRACE(logger, "  standby \"{}\"", file);
 
-            Interval const buffer{now, now + standby.buffer};
-            auto const buffer_range = standby.play.range(buffer);
+            Interval const buffer{now - t0, now - t0 + script_standby.buffer};
+            auto const buffer_range = script_standby.play.range(buffer);
             TRACE(logger, "    want {}", debug(buffer_range));
             input->request.insert(buffer_range);
         }
@@ -197,7 +203,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 if (input->loader) {
                     DEBUG(logger, "  closing \"{}\"", input_it->first);
                 } else {
-                    TRACE(logger, "  dormant \"{}\"", input_it->first);
+                    TRACE(logger, "  unused \"{}\"", input_it->first);
                 }
                 input_it = inputs.erase(input_it);
             } else {
@@ -205,7 +211,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     TRACE(logger, "  \"{}\"", input_it->first);
                 } else {
                     DEBUG(logger, "  opening \"{}\"", input_it->first);
-                    input->loader = context.loader_f(input_it->first);
+                    input->loader = cx.loader_f(input_it->first);
                 }
 
                 if (input->content && input->content->eof)
@@ -235,24 +241,36 @@ class ScriptRunnerDef : public ScriptRunner {
         return status;
     }
 
-    void init(ScriptContext cx) {
-        CHECK_ARG(cx.driver, "No driver for ScriptRunner");
-        context = std::move(cx);
+    void init(ScriptContext c) {
+        CHECK_ARG(c.driver, "No driver for ScriptRunner");
+        cx = std::move(c);
 
-        if (!context.sys)
-            context.sys = global_system();
+        if (!cx.sys)
+            cx.sys = global_system();
 
-        if (!context.loader_f) {
-            context.loader_f = [this](std::string const& file) {
-                return start_frame_loader(context.driver, file, context.sys);
+        if (!cx.loader_f) {
+            cx.loader_f = [this](std::string const& file) {
+                return start_frame_loader(cx.driver, file, cx.sys);
             };
         }
 
-        if (!context.player_f) {
-            context.player_f = [this](uint32_t id, DisplayMode const& m) {
-                return start_frame_player(context.driver, id, m, context.sys);
+        if (!cx.player_f) {
+            cx.player_f = [this](uint32_t id, DisplayMode const& m) {
+                return start_frame_player(cx.driver, id, m, cx.sys);
             };
         }
+
+        if (cx.root_dir.empty()) cx.root_dir = "/";
+        if (cx.file_base.empty()) cx.file_base = ".";
+        cx.root_dir = cx.sys->realpath(cx.root_dir).ex(cx.root_dir);
+        cx.file_base = cx.sys->realpath(cx.file_base).ex(cx.file_base);
+        if (!S_ISDIR(cx.sys->stat(cx.file_base).ex(cx.file_base).st_mode)) {
+            auto const slash = cx.file_base.rfind('/');
+            if (slash >= 1) cx.file_base.resize(slash);
+        }
+
+        if (!cx.root_dir.ends_with('/')) cx.root_dir += "/";
+        if (!cx.file_base.ends_with('/')) cx.file_base += "/";
     }
 
   private:
@@ -271,17 +289,37 @@ class ScriptRunnerDef : public ScriptRunner {
     };
 
     std::shared_ptr<log::logger> const logger = runner_logger();
-    ScriptContext context = {};
+    ScriptContext cx = {};
 
     std::map<std::string, Input> inputs;
     std::map<std::string, Output> outputs;
+    std::map<std::string, std::string> canonicalize_cache;
+
+    std::string const& canonicalize_file(std::string const& spec) {
+        CHECK_ARG(!spec.empty(), "Empty filename");
+        auto it = canonicalize_cache.find(spec);
+        if (it == canonicalize_cache.end()) {
+            auto canonical = cx.sys->realpath(
+                spec.starts_with('/') ? cx.root_dir + spec : cx.file_base + spec
+            ).ex(spec);
+
+            CHECK_ARG(
+                canonical.starts_with(cx.root_dir),
+                "\"{}\" ({}) outside root ({})", spec, canonical, cx.root_dir
+            );
+
+            it = canonicalize_cache.insert({spec, std::move(canonical)}).first;
+        }
+
+        return it->second;
+    }
 };
 
 }  // anonymous namespace
 
-std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext context) {
+std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext cx) {
     auto runner = std::make_unique<ScriptRunnerDef>();
-    runner->init(std::move(context));
+    runner->init(std::move(cx));
     return runner;
 }
 
