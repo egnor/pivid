@@ -8,6 +8,7 @@
 #include <system_error>
 
 #include <fmt/core.h>
+#include <nlohmann/json.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -155,11 +156,10 @@ ImageBuffer image_from_av_drm(
         buffers.back()->init(av_drm, oi);
     }
 
-    if (av_drm->nb_layers != 1) {
-        throw std::runtime_error(fmt::format(
-            "DRM frame has {} layers (expected 1)", av_drm->nb_layers
-        ));
-    }
+    CHECK_RUNTIME(
+        av_drm->nb_layers == 1,
+        "DRM frame has {} layers (expected 1)", av_drm->nb_layers
+    );
 
     ImageBuffer image = {};
     image.size = size;
@@ -507,6 +507,18 @@ std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
     auto decoder = std::make_unique<MediaDecoderDef>();
     decoder->init(filename);
     return decoder;
+}
+
+void to_json(nlohmann::json& j, MediaFileInfo const& info) {
+    j = {};
+    if (!info.filename.empty()) j["filename"] = info.filename;
+    if (!info.container_type.empty()) j["container_type"] = info.container_type;
+    if (!info.codec_name.empty()) j["codec_name"] = info.codec_name;
+    if (!info.pixel_format.empty()) j["pixel_format"] = info.pixel_format;
+    if (info.size) j["size"] = {info.size->x, info.size->y};
+    if (info.frame_rate) j["frame_rate"] = *info.frame_rate;
+    if (info.bit_rate) j["bit_rate"] = *info.bit_rate;
+    if (info.duration) j["duration"] = *info.duration;
 }
 
 //

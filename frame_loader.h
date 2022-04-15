@@ -15,6 +15,7 @@
 namespace pivid {
 
 // Interface to an asynchronous thread that loads frames from media into GPU.
+// *Internally synchronized* for multithreaded access.
 class FrameLoader {
   public:
     // Currently loaded frames.

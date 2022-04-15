@@ -2,8 +2,6 @@
 
 #include <cmath>
 #include <fstream>
-#include <numeric>
-#include <thread>
 
 #include <CLI/App.hpp>
 #include <CLI/Config.hpp>
@@ -12,14 +10,11 @@
 #include <nlohmann/json.hpp>
 
 extern "C" {
-#include <libavutil/log.h>
+#include <libavutil/log.h>  // For --debug_libav
 }
 
 #include "display_output.h"
-#include "frame_loader.h"
-#include "frame_player.h"
 #include "logging_policy.h"
-#include "media_decoder.h"
 #include "script_data.h"
 #include "script_runner.h"
 
@@ -27,8 +22,8 @@ namespace pivid {
 
 namespace {
 
-std::shared_ptr<log::logger> const& main_logger() {
-    static const auto logger = make_logger("main");
+std::shared_ptr<log::logger> const& play_logger() {
+    static const auto logger = make_logger("pivid_play");
     return logger;
 }
 
@@ -43,7 +38,7 @@ std::unique_ptr<DisplayDriver> find_driver(std::string const& dev_arg) {
     }
     fmt::print("\n");
 
-    if (!found) throw std::runtime_error("No matching device");
+    CHECK_RUNTIME(found, "No DRM device matching \"{}\"", dev_arg);
     return open_display_driver(global_system(), found->dev_file);
 }
 
@@ -59,7 +54,7 @@ void set_kernel_debug(bool enable) {
         fflush(stdout);
         auto const pid = global_system()->spawn(argv[0], argv).ex(argv[0]);
         auto const ex = global_system()->wait(P_PID, pid, WEXITED).ex(argv[0]);
-        if (ex.si_status) throw(std::runtime_error("Kernel debug chmod error"));
+        CHECK_RUNTIME(!ex.si_status, "Kernel debug chmod error");
     }
 
     auto const fd = global_system()->open(debug_file, O_WRONLY).ex(debug_file);
@@ -79,10 +74,10 @@ Script make_script(
     screen->display_mode = mode_size;
 
     if (media_arg.empty()) {
-        main_logger()->warn("No media to play");
+        play_logger()->warn("No media to play");
     } else {
         const double start = global_system()->clock();
-        main_logger()->info("Start: {}", abbrev_realtime(start));
+        play_logger()->info("Start: {}", abbrev_realtime(start));
 
         ScriptLayer* layer = &screen->layers.emplace_back();
         layer->media.file = media_arg;
@@ -108,9 +103,8 @@ void fix_time(double start, XY<BezierSpline>* fix) {
 }
 
 Script load_script(std::string const& script_file) {
-    auto const logger = main_logger();
+    auto const logger = play_logger();
     auto const sys = global_system();
-
     logger->info("Loading script: {}", script_file);
 
     std::ifstream ifs;
@@ -145,12 +139,11 @@ Script load_script(std::string const& script_file) {
     for (auto& standby : script.standbys) {
         fix_time(start, &standby.play);
     }
-
-    return json.get<Script>();
+    return script;
 }
 
 void run_script(ScriptContext const& context, Script const& script) {
-    auto const logger = main_logger();
+    auto const logger = play_logger();
     auto const sys = global_system();
     auto const waiter = sys->make_flag(CLOCK_MONOTONIC);
 
@@ -202,7 +195,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     bool debug_kernel = false;
 
     CLI::App app("Decode and show a media file");
-    app.add_option("--dev", dev_arg, "DRM driver /dev file or hardware path");
+    app.add_option("--dev", dev_arg, "DRM driver description substring");
     app.add_option("--log", log_arg, "Log level/configuration");
     app.add_option("--mode_x", mode_arg.x, "Video pixels per line");
     app.add_option("--mode_y", mode_arg.y, "Video scan lines");
@@ -219,7 +212,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
     configure_logging(log_arg);
     if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
-    pivid::set_kernel_debug(debug_kernel);
+    set_kernel_debug(debug_kernel);
 
     try {
         ScriptContext context = {};
@@ -234,7 +227,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
             run_script(context, scr);
         }
     } catch (std::exception const& e) {
-        main_logger()->critical("{}", e.what());
+        play_logger()->critical("{}", e.what());
         return 1;
     }
 

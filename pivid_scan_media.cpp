@@ -39,7 +39,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     CLI11_PARSE(app, argc, argv);
 
     configure_logging(log_arg);
-    auto const logger = make_logger("main");
+    auto const logger = make_logger("pivid_scan_media");
 
     int errors = 0;
     for (auto const& filename : media_arg) {

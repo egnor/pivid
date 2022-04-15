@@ -19,12 +19,12 @@ extern "C" int main(int const argc, char const* const* const argv) {
     CLI11_PARSE(app, argc, argv);
 
     configure_logging(log_arg);
-    auto const logger = make_logger("main");
+    auto const logger = make_logger("pivid_scan_displays");
 
     try {
         std::shared_ptr sys = global_system();
         for (auto const& listing : list_display_drivers(sys)) {
-            fmt::print("## {}\n", debug(listing));
+            fmt::print("=== {}\n", debug(listing));
             auto driver = open_display_driver(sys, listing.dev_file);
             for (auto const& screen : driver->scan_screens()) {
                 fmt::print(

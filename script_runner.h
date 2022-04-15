@@ -13,9 +13,7 @@ namespace pivid {
 class ScriptRunner {
   public:
     virtual ~ScriptRunner() = default;
-
     virtual void update(Script const&) = 0;
-
     virtual MediaFileInfo const& file_info(std::string const&) = 0;
 };
 

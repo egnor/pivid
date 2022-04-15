@@ -1,5 +1,6 @@
 #include "script_runner.h"
 
+#include <mutex>
 #include <optional>
 
 #include "display_output.h"
@@ -33,6 +34,7 @@ bool matches_mode(ScriptScreen const& scr, DisplayMode const& mode) {
 class ScriptRunnerDef : public ScriptRunner {
   public:
     virtual void update(Script const& script) final {
+        std::unique_lock lock{mutex};
         auto const now = cx.sys->clock();
         DEBUG(logger, "UPDATE {} (t={:.3f}s)", abbrev_realtime(now), now);
 
@@ -51,21 +53,19 @@ class ScriptRunnerDef : public ScriptRunner {
                 uint32_t display_id = 0;
                 DisplayMode display_mode = {};
                 for (auto const& display : display_screens) {
-                    if (matches_display(connector, display)) {
-                        display_name = display.connector;
-                        display_id = display.id;
-                        if (matches_mode(script_screen, display.active_mode)) {
-                            display_mode = display.active_mode;
-                        } else {
-                            for (auto const& mode : display.modes) {
-                                if (matches_mode(script_screen, mode)) {
-                                    display_mode = mode;
-                                    break;
-                                }
-                            }
-                        }
+                    if (!matches_display(connector, display)) continue;
+                    display_name = display.connector;
+                    display_id = display.id;
+
+                    for (auto const& mode : display.modes) {
+                        if (!matches_mode(script_screen, mode)) continue;
+                        display_mode = (
+                            mode.size == display.active_mode.size &&
+                            mode.nominal_hz == display.active_mode.nominal_hz
+                        ) ? display.active_mode : mode;
                         break;
                     }
+                    break;
                 }
 
                 if (display_id == 0) {
@@ -103,7 +103,7 @@ class ScriptRunnerDef : public ScriptRunner {
             FramePlayer::Timeline timeline;
             for (size_t li = 0; li < script_screen.layers.size(); ++li) {
                 auto const& layer = script_screen.layers[li];
-                auto const& file = find_file(layer.media.file);
+                auto const& file = find_file(lock, layer.media.file);
                 auto* input = &inputs[file];
                 DEBUG(logger, "    \"{}\"", file);
 
@@ -130,7 +130,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     auto const media_t = get(layer.media.play, -1);
                     if (media_t < 0) {
                         TRACE(
-                            logger, "      {:+.3f}s m={:.3f}s before start!",
+                            logger, "      {:+.3f}s m{:.3f}s before start!",
                             t - now, media_t
                         );
                         continue;
@@ -138,7 +138,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
                     if (!input->content->have.contains(media_t)) {
                         TRACE(
-                            logger, "      {:+.3f}s m={:.3f}s not loaded!",
+                            logger, "      {:+.3f}s m{:.3f}s not loaded!",
                             t - now, media_t
                         );
                         continue;
@@ -147,7 +147,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     auto frame_it = input->content->frames.upper_bound(media_t);
                     if (frame_it == input->content->frames.begin()) {
                         TRACE(
-                            logger, "      {:+.3f}s m={:.3f}s no frame!",
+                            logger, "      {:+.3f}s m{:.3f}s no frame!",
                             t - now, media_t
                         );
                         continue;
@@ -167,7 +167,7 @@ class ScriptRunnerDef : public ScriptRunner {
                     out->to_size.y = get(layer.to_size.y, image_size.y);
                     out->opacity = get(layer.opacity, 1);
                     TRACE(
-                        logger, "        {:+.3f}s m{:.3f} f{:.3f} {}",
+                        logger, "      {:+.3f}s m{:.3f} f{:.3f} {}",
                         t - now, media_t, frame_t, debug(*out)
                     );
 
@@ -179,7 +179,7 @@ class ScriptRunnerDef : public ScriptRunner {
         }
 
         for (const auto& script_standby : script.standbys) {
-            auto const& file = find_file(script_standby.file);
+            auto const& file = find_file(lock, script_standby.file);
             auto* input = &inputs[file];
             TRACE(logger, "  standby \"{}\"", file);
 
@@ -215,14 +215,12 @@ class ScriptRunnerDef : public ScriptRunner {
             }
         }
 
-        auto output_it = outputs.begin();
-        while (output_it != outputs.end()) {
-            if (!output_it->second.defined) {
-                DEBUG(logger, "  [{}] stopping", output_it->second.name);
-                output_it = outputs.erase(output_it);
+        for (auto& [conn, output] : outputs) {
+            if (!output.defined) {
+                DEBUG(logger, "  [{}] unspecified, blanking", output.name);
+                output.player->set_timeline({});
             } else {
-                output_it->second.defined = false;
-                ++output_it;
+                output.defined = false;
             }
         }
 
@@ -230,20 +228,28 @@ class ScriptRunnerDef : public ScriptRunner {
     }
 
     MediaFileInfo const& file_info(std::string const& spec) final {
-        auto const file = find_file(spec);
+        std::unique_lock lock{mutex};
+        auto const file = find_file(lock, spec);
         auto cache_it = info_cache.find(file);
-        if (cache_it == info_cache.end()) {
-            Input* input = &inputs[file];
-            if (!input->loader) {
-                TRACE(logger, "Opening \"{}\" for info", file);
-                input->loader = cx.loader_f(file);
-            }
+        if (cache_it != info_cache.end()) {
+            TRACE(logger, "FILE INFO {}", debug(cache_it->second));
+        } else {
+            auto loader = inputs[file].loader;
 
-            auto info = input->loader->file_info();
+            lock.unlock();
+            if (!loader) {
+                TRACE(logger, "Opening \"{}\" for info", file);
+                loader = cx.loader_f(file);
+            }
+            auto info = loader->file_info();
+            DEBUG(logger, "FILE INFO {}", debug(info));
+            lock.lock();  // Object state may have changed!
+
+            auto* input = &inputs[file];
+            if (!input->loader) input->loader = loader;
             cache_it = info_cache.insert({file, std::move(info)}).first;
         }
 
-        TRACE(logger, "FILE INFO {}", debug(cache_it->second));
         return cache_it->second;
     }
 
@@ -285,7 +291,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
   private:
     struct Input {
-        std::unique_ptr<FrameLoader> loader;
+        std::shared_ptr<FrameLoader> loader;
         IntervalSet request;
         std::optional<FrameLoader::Content> content;
     };
@@ -298,20 +304,25 @@ class ScriptRunnerDef : public ScriptRunner {
         bool defined = false;
     };
 
+    // Constant from start to ~
     std::shared_ptr<log::logger> const logger = runner_logger();
     ScriptContext cx = {};
 
+    // Guarded by mutex
+    std::mutex mutable mutex;
     std::map<std::string, Input> inputs;
     std::map<std::string, Output> outputs;
     std::map<std::string, std::string> path_cache;
     std::map<std::string, MediaFileInfo> info_cache;
 
-    std::string const& find_file(std::string const& spec) {
+    std::string const& find_file(
+        std::unique_lock<std::mutex> const&, std::string const& spec
+    ) {
         CHECK_ARG(!spec.empty(), "Empty filename");
         auto cache_it = path_cache.find(spec);
         if (cache_it == path_cache.end()) {
             auto const lookup = spec.starts_with('/')
-                ? cx.root_dir + spec : cx.file_base + spec;
+                ? cx.root_dir + spec.substr(1) : cx.file_base + spec;
             auto realpath = cx.sys->realpath(lookup).ex(
                 fmt::format("Media \"{}\" ({})", spec, lookup)
             );
