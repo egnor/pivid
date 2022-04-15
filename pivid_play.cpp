@@ -69,25 +69,42 @@ void set_kernel_debug(bool enable) {
 }
 
 Script make_script(
-    std::string const& media_file,
+    std::string const& media_arg,
     std::string const& screen_arg,
     XY<int> mode_size,
-    double start_arg
+    double seek_arg
 ) {
     Script script;
-    script.time_is_relative = true;
-
     auto *screen = &script.screens.try_emplace(screen_arg).first->second;
     screen->display_mode = mode_size;
 
-    if (!media_file.empty()) {
+    if (media_arg.empty()) {
+        main_logger()->warn("No media to play");
+    } else {
+        const double start = global_system()->clock();
+        main_logger()->info("Start: {}", abbrev_realtime(start));
+
         ScriptLayer* layer = &screen->layers.emplace_back();
-        layer->media.file = media_file;
+        layer->media.file = media_arg;
         layer->media.play.segments.push_back(
-            linear_segment({0, 1e12}, {start_arg, 1e12 + start_arg})
+            linear_segment({start, start + 1e12}, {seek_arg, seek_arg + 1e12})
         );
     }
+
     return script;
+}
+
+void fix_time(double start, BezierSpline* fix) {
+    // Assume small values are relative.
+    for (auto& seg : fix->segments) {
+        if (seg.t.begin < 1e7) seg.t.begin += start;
+        if (seg.t.end < 1e7) seg.t.end += start;
+    }
+}
+
+void fix_time(double start, XY<BezierSpline>* fix) {
+    fix_time(start, &fix->x);
+    fix_time(start, &fix->y);
 }
 
 Script load_script(std::string const& script_file) {
@@ -111,26 +128,25 @@ Script load_script(std::string const& script_file) {
         throw_with_nested(std::invalid_argument(je.what()));
     }
 
-    return json.get<Script>();
-}
+    auto const start = global_system()->clock();
+    logger->info("Start: {}", abbrev_realtime(start));
 
-bool layer_is_done(ScriptLayer const& layer, ScriptStatus const& status) {
-    Interval const future{status.update_time, 1e12};
-    auto const bounds = layer.media.play.range(future).bounds();
-    if (bounds.empty() || bounds.end <= 0) return true;
-    auto const media_it = status.media_eof.find(layer.media.file);
-    if (media_it == status.media_eof.end()) return false;
-    return (bounds.begin >= media_it->second);
-}
-
-bool script_is_done(Script const& script, ScriptStatus const& status) {
-    for (auto const& [connector, screen] : script.screens) {
-        for (auto const& layer : screen.layers) {
-            if (!layer_is_done(layer, status))
-                return false;
+    auto script = json.get<Script>();
+    for (auto& [conn, screen] : script.screens) {
+        for (auto& layer : screen.layers) {
+            fix_time(start, &layer.media.play);
+            fix_time(start, &layer.from_xy);
+            fix_time(start, &layer.from_size);
+            fix_time(start, &layer.to_xy);
+            fix_time(start, &layer.to_size);
+            fix_time(start, &layer.opacity);
         }
     }
-    return true;
+    for (auto& standby : script.standbys) {
+        fix_time(start, &standby.play);
+    }
+
+    return json.get<Script>();
 }
 
 void run_script(ScriptContext const& context, Script const& script) {
@@ -146,9 +162,25 @@ void run_script(ScriptContext const& context, Script const& script) {
     for (;;) {
         loop_time = std::max(sys->clock(CLOCK_MONOTONIC), loop_time + period);
         waiter->sleep_until(loop_time);
+        runner->update(script);
 
-        auto const status = runner->update(script);
-        if (script_is_done(script, status)) {
+        bool done = true;
+        const double now = sys->clock();
+        for (auto const& [conn, screen] : script.screens) {
+            for (auto const& layer : screen.layers) {
+                auto const range = layer.media.play.range({now, now + 1e12});
+                auto const& info = runner->file_info(layer.media.file);
+                if (info.duration && range.bounds().begin < *info.duration) {
+                    TRACE(
+                        logger, "{:.3f} / {:.3f}s: {}",
+                        range.bounds().begin, *info.duration, layer.media.file
+                    );
+                    done = false;
+                }
+            }
+        }
+
+        if (done) {
             logger->info("All media done playing");
             break;
         }
@@ -165,7 +197,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string media_arg;
     std::string script_arg;
     XY<int> mode_arg = {0, 0};
-    double start_arg = -0.2;
+    double seek_arg = -0.2;
     bool debug_libav = false;
     bool debug_kernel = false;
 
@@ -175,7 +207,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--mode_x", mode_arg.x, "Video pixels per line");
     app.add_option("--mode_y", mode_arg.y, "Video scan lines");
     app.add_option("--screen", screen_arg, "Video output connector");
-    app.add_option("--start", start_arg, "Seconds into media to start");
+    app.add_option("--seek", seek_arg, "Seconds into media to start");
     app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
 
@@ -192,15 +224,13 @@ extern "C" int main(int const argc, char const* const* const argv) {
     try {
         ScriptContext context = {};
         context.driver = find_driver(dev_arg);
-        context.start_time = global_system()->clock();
-        main_logger()->info("Start: {}", format_realtime(context.start_time));
 
         if (!script_arg.empty()) {
             context.file_base = script_arg;
             run_script(context, load_script(script_arg));
         } else {
             context.file_base = global_system()->realpath(".").ex("getcwd");
-            auto scr = make_script(media_arg, screen_arg, mode_arg, start_arg);
+            auto scr = make_script(media_arg, screen_arg, mode_arg, seek_arg);
             run_script(context, scr);
         }
     } catch (std::exception const& e) {

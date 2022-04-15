@@ -105,6 +105,14 @@ class FrameLoaderDef : public FrameLoader {
         return out;
     }
 
+    virtual MediaFileInfo file_info() const final {
+        // TODO: Share decoders with loader_thread somehow?
+        auto const decoder = opener(filename);
+        MediaFileInfo const info = decoder->file_info();
+        TRACE(logger, "FILE INFO {}", debug(info));
+        return info;
+    }
+
     void start(
         std::shared_ptr<DisplayDriver> display,
         std::string const& filename,
@@ -350,15 +358,14 @@ class FrameLoaderDef : public FrameLoader {
     std::string filename;
     std::shared_ptr<UnixSystem> sys;
     std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
+    std::thread thread;
     std::unique_ptr<SyncFlag> wakeup;
 
+    // Guarded by mutex
     std::mutex mutable mutex;
-    std::thread thread;
-
+    bool shutdown = false;
     IntervalSet wanted;
     std::shared_ptr<SyncFlag> notify;
-
-    bool shutdown = false;
     Content out = {};
 };
 

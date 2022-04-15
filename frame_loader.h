@@ -36,6 +36,9 @@ class FrameLoader {
 
     // Returns the frames loaded so far.
     virtual Content content() const = 0;
+
+    // Returns static metadata for the media file.
+    virtual MediaFileInfo file_info() const = 0;
 };
 
 // Creates a frame loader instance for a given media file and GPU device.

@@ -1,5 +1,4 @@
 {
-  "time_is_relative": true,
   "screens": {
     "*": {
       "display_mode": [1920, 1080],

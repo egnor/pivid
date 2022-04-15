@@ -15,7 +15,6 @@ TEST_CASE("from_json (empty)") {
 
     CHECK(script.screens.empty());
     CHECK(script.standbys.empty());
-    CHECK_FALSE(script.time_is_relative);
 }
 
 TEST_CASE("from_json") {
@@ -63,7 +62,6 @@ TEST_CASE("from_json") {
     Script script;
     from_json(j, script);
 
-    CHECK_FALSE(script.time_is_relative);
     CHECK(script.main_loop_hz == Approx(10.5));
     CHECK(script.main_buffer == Approx(0.5));
 
@@ -152,7 +150,6 @@ TEST_CASE("from_json") {
 
 TEST_CASE("make_time_absolute") {
     auto const j = R"**({
-      "time_is_relative": true,
       "screens": {
         "s0": {
           "layers": [
@@ -174,7 +171,6 @@ TEST_CASE("make_time_absolute") {
 
     Script script;
     from_json(j, script);
-    CHECK(script.time_is_relative);
     CHECK(script.main_loop_hz == Script{}.main_loop_hz);
     CHECK(script.main_buffer == Script{}.main_buffer);
 

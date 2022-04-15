@@ -593,7 +593,7 @@ std::string debug(MediaFileInfo const& i) {
     );
 
     if (i.size) out += fmt::format(" {}x{}", i.size->x, i.size->y);
-    if (i.frame_rate) out += fmt::format(" @{:.2f}fps", *i.frame_rate);
+    if (i.frame_rate) out += fmt::format(" {:.2f}fps", *i.frame_rate);
     if (i.duration) out += fmt::format(" {:.3f}s", *i.duration);
     if (i.bit_rate) out += fmt::format(" {:.3f}Mbps", *i.bit_rate * 1e-6);
     return out;

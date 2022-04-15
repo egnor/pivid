@@ -32,12 +32,9 @@ bool matches_mode(ScriptScreen const& scr, DisplayMode const& mode) {
 
 class ScriptRunnerDef : public ScriptRunner {
   public:
-    virtual ScriptStatus update(
-        Script const& script, std::shared_ptr<SyncFlag> signal
-    ) final {
+    virtual void update(Script const& script) final {
         auto const now = cx.sys->clock();
-        double const t0 = script.time_is_relative ? cx.start_time : 0.0;
-        DEBUG(logger, "UPDATE {} (t={:.3f}s)", abbrev_realtime(now), now - t0);
+        DEBUG(logger, "UPDATE {} (t={:.3f}s)", abbrev_realtime(now), now);
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, script_screen] : script.screens) {
@@ -94,7 +91,7 @@ class ScriptRunnerDef : public ScriptRunner {
             }
 
             if (!output->mode.nominal_hz) {
-                output->player->set_timeline({}, signal);
+                output->player->set_timeline({});
                 continue;
             }
 
@@ -106,11 +103,11 @@ class ScriptRunnerDef : public ScriptRunner {
             FramePlayer::Timeline timeline;
             for (size_t li = 0; li < script_screen.layers.size(); ++li) {
                 auto const& layer = script_screen.layers[li];
-                auto const& file = canonicalize_file(layer.media.file);
+                auto const& file = find_file(layer.media.file);
                 auto* input = &inputs[file];
                 DEBUG(logger, "    \"{}\"", file);
 
-                Interval const buffer{now - t0, now - t0 + layer.media.buffer};
+                Interval const buffer{now, now + layer.media.buffer};
                 auto const buffer_range = layer.media.play.range(buffer);
                 TRACE(logger, "      want {}", debug(buffer_range));
                 input->request.insert(buffer_range);
@@ -126,9 +123,8 @@ class ScriptRunnerDef : public ScriptRunner {
                     t < now + script.main_buffer;
                     t += 1.0 / hz
                 ) {
-                    double const rt = t - t0;
-                    auto const get = [rt](BezierSpline const& bez, double def) {
-                        return bez.value(rt).value_or(def);
+                    auto const get = [t](BezierSpline const& bez, double def) {
+                        return bez.value(t).value_or(def);
                     };
 
                     auto const media_t = get(layer.media.play, -1);
@@ -179,22 +175,19 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
             }
 
-            output->player->set_timeline(std::move(timeline), signal);
+            output->player->set_timeline(std::move(timeline));
         }
 
         for (const auto& script_standby : script.standbys) {
-            auto const& file = canonicalize_file(script_standby.file);
+            auto const& file = find_file(script_standby.file);
             auto* input = &inputs[file];
             TRACE(logger, "  standby \"{}\"", file);
 
-            Interval const buffer{now - t0, now - t0 + script_standby.buffer};
+            Interval const buffer{now, now + script_standby.buffer};
             auto const buffer_range = script_standby.play.range(buffer);
             TRACE(logger, "    want {}", debug(buffer_range));
             input->request.insert(buffer_range);
         }
-
-        ScriptStatus status;
-        status.update_time = now;
 
         auto input_it = inputs.begin();
         while (input_it != inputs.end()) {
@@ -214,11 +207,8 @@ class ScriptRunnerDef : public ScriptRunner {
                     input->loader = cx.loader_f(input_it->first);
                 }
 
-                if (input->content && input->content->eof)
-                    status.media_eof[input_it->first] = *input->content->eof;
-
                 TRACE(logger, "    request {}", debug(input->request));
-                input->loader->set_request(input->request, signal);
+                input->loader->set_request(input->request);
                 input->request = {};
                 input->content = {};
                 ++input_it;
@@ -231,14 +221,30 @@ class ScriptRunnerDef : public ScriptRunner {
                 DEBUG(logger, "  [{}] stopping", output_it->second.name);
                 output_it = outputs.erase(output_it);
             } else {
-                status.screen_mode[output_it->first] = output_it->second.mode;
                 output_it->second.defined = false;
                 ++output_it;
             }
         }
 
         TRACE(logger, "  update done");
-        return status;
+    }
+
+    MediaFileInfo const& file_info(std::string const& spec) final {
+        auto const file = find_file(spec);
+        auto cache_it = info_cache.find(file);
+        if (cache_it == info_cache.end()) {
+            Input* input = &inputs[file];
+            if (!input->loader) {
+                TRACE(logger, "Opening \"{}\" for info", file);
+                input->loader = cx.loader_f(file);
+            }
+
+            auto info = input->loader->file_info();
+            cache_it = info_cache.insert({file, std::move(info)}).first;
+        }
+
+        TRACE(logger, "FILE INFO {}", debug(cache_it->second));
+        return cache_it->second;
     }
 
     void init(ScriptContext c) {
@@ -297,26 +303,27 @@ class ScriptRunnerDef : public ScriptRunner {
 
     std::map<std::string, Input> inputs;
     std::map<std::string, Output> outputs;
-    std::map<std::string, std::string> canonicalize_cache;
+    std::map<std::string, std::string> path_cache;
+    std::map<std::string, MediaFileInfo> info_cache;
 
-    std::string const& canonicalize_file(std::string const& spec) {
+    std::string const& find_file(std::string const& spec) {
         CHECK_ARG(!spec.empty(), "Empty filename");
-        auto it = canonicalize_cache.find(spec);
-        if (it == canonicalize_cache.end()) {
+        auto cache_it = path_cache.find(spec);
+        if (cache_it == path_cache.end()) {
             auto const lookup = spec.starts_with('/')
                 ? cx.root_dir + spec : cx.file_base + spec;
-            auto canonical = cx.sys->realpath(lookup).ex(
+            auto realpath = cx.sys->realpath(lookup).ex(
                 fmt::format("Media \"{}\" ({})", spec, lookup)
             );
             CHECK_ARG(
-                canonical.starts_with(cx.root_dir),
+                realpath.starts_with(cx.root_dir),
                 "Media \"{}\" ({}) outside root ({})",
-                spec, canonical, cx.root_dir
+                spec, realpath, cx.root_dir
             );
-            it = canonicalize_cache.insert({spec, std::move(canonical)}).first;
+            cache_it = path_cache.insert({spec, std::move(realpath)}).first;
         }
 
-        return it->second;
+        return cache_it->second;
     }
 };
 

@@ -158,7 +158,6 @@ void from_json(json const& j, Script& script) {
     CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
     j.value("screens", json::object()).get_to(script.screens);
     j.value("standbys", json::array()).get_to(script.standbys);
-    script.time_is_relative = j.value("time_is_relative", false);
     script.main_loop_hz = j.value("main_loop_hz", script.main_loop_hz);
     script.main_buffer = j.value("main_buffer", script.main_buffer);
     CHECK_ARG(script.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());

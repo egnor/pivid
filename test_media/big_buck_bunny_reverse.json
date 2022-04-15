@@ -1,5 +1,4 @@
 {
-  "time_is_relative": true,
   "screens": {
     "HDMI-1": {
       "display_mode": [1920, 1080],

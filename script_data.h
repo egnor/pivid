@@ -34,7 +34,6 @@ struct ScriptScreen {
 struct Script {
     std::map<std::string, ScriptScreen> screens;
     std::vector<ScriptMedia> standbys;
-    bool time_is_relative = false;
     double main_loop_hz = 15.0;
     double main_buffer = 0.2;
 };

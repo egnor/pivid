@@ -41,14 +41,15 @@ extern "C" int main(int const argc, char const* const* const argv) {
     configure_logging(log_arg);
     auto const logger = make_logger("main");
 
+    int errors = 0;
     for (auto const& filename : media_arg) {
         try {
             TRACE(logger, "Opening media: {}", filename);
             auto const decoder = open_media_decoder(filename);
-            fmt::print("## {}\n", debug(decoder->file_info()));
+            fmt::print("{}\n", debug(decoder->file_info()));
 
             if (seek_arg) {
-                fmt::print("Seeking to {:.3f}s...\n", seek_arg);
+                fmt::print("  Seeking to {:.3f}s...\n", seek_arg);
                 decoder->seek_before(seek_arg);
             }
 
@@ -57,12 +58,12 @@ extern "C" int main(int const argc, char const* const* const argv) {
                 for (;;) {
                     auto media_frame = decoder->next_frame();
                     if (!media_frame) {
-                        fmt::print("EOF\n");
+                        fmt::print("  EOF\n");
                         break;
                     }
 
                     media_frame->image.source_comment.clear();  // Redundant
-                    fmt::print("{}\n", debug(*media_frame));
+                    fmt::print("  {}\n", debug(*media_frame));
 
                     if (!frames_dir_arg.empty()) {
                         DEBUG(logger, "Encoding TIFF...");
@@ -75,7 +76,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
                             media_frame->time.begin
                         );
 
-                        fmt::print("  {}\n", path);
+                        fmt::print("    {}\n", path);
                         std::ofstream ofs;
                         ofs.exceptions(~std::ofstream::goodbit);
                         ofs.open(path, std::ios::binary);
@@ -83,7 +84,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
                     }
 
                     if (stop_arg && media_frame->time.end >= stop_arg) {
-                        fmt::print("Reached --stop={:.3f}s\n", stop_arg);
+                        fmt::print("  Stop ({:.3f}s)\n", stop_arg);
                         break;
                     }
                     TRACE(logger, "Getting next frame...");
@@ -91,12 +92,13 @@ extern "C" int main(int const argc, char const* const* const argv) {
             }
         } catch (std::exception const& e) {
             logger->critical("{}", e.what());
-            return 1;
+            ++errors;
         }
-        fmt::print("\n");
+
+        if (list_frames_arg || !frames_dir_arg.empty()) fmt::print("\n");
     }
 
-    return 0;
+    return errors;
 }
 
 }  // namespace pivid
