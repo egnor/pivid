@@ -1,4 +1,5 @@
 {
+  "zero_time": "now",
   "screens": {
     "HDMI-2": {
       "display_mode": [1920, 1080],

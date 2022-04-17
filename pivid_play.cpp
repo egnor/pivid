@@ -85,23 +85,10 @@ Script make_script(
     return script;
 }
 
-void fix_time(double start, BezierSpline* fix) {
-    // Assume small values are relative.
-    for (auto& seg : fix->segments) {
-        if (seg.t.begin < 1e7) seg.t.begin += start;
-        if (seg.t.end < 1e7) seg.t.end += start;
-    }
-}
-
-void fix_time(double start, XY<BezierSpline>* fix) {
-    fix_time(start, &fix->x);
-    fix_time(start, &fix->y);
-}
-
 Script load_script(std::string const& script_file) {
     auto const logger = play_logger();
     auto const sys = global_system();
-    logger->info("Loading script: {}", script_file);
+    logger->info("Script: {}", script_file);
 
     std::ifstream ifs;
     ifs.exceptions(~std::ifstream::goodbit);
@@ -111,31 +98,14 @@ Script load_script(std::string const& script_file) {
         (std::istreambuf_iterator<char>())
     );
 
-    nlohmann::json json;
-    try {
-        json = nlohmann::json::parse(text);
-    } catch (nlohmann::json::parse_error const& je) {
-        throw_with_nested(std::invalid_argument(je.what()));
+    nlohmann::json script_j = nlohmann::json::parse(text);
+    if (script_j.value("zero_time", nlohmann::json{}) == "now") {
+        auto const start = global_system()->clock();
+        logger->info("Zero time: {}", abbrev_realtime(start));
+        script_j["zero_time"] = start;
     }
 
-    auto const start = global_system()->clock();
-    logger->info("Start: {}", abbrev_realtime(start));
-
-    auto script = json.get<Script>();
-    for (auto& [conn, screen] : script.screens) {
-        for (auto& layer : screen.layers) {
-            fix_time(start, &layer.media.play);
-            fix_time(start, &layer.from_xy);
-            fix_time(start, &layer.from_size);
-            fix_time(start, &layer.to_xy);
-            fix_time(start, &layer.to_size);
-            fix_time(start, &layer.opacity);
-        }
-    }
-    for (auto& standby : script.standbys) {
-        fix_time(start, &standby.play);
-    }
-    return script;
+    return script_j.get<Script>();
 }
 
 void run_script(ScriptContext const& context, Script const& script) {

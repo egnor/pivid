@@ -37,6 +37,7 @@ struct Script {
     std::vector<ScriptMedia> standbys;
     double main_loop_hz = 15.0;
     double main_buffer = 0.2;
+    double zero_time = 0.0;
 };
 
 void from_json(nlohmann::json const&, Script&);

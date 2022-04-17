@@ -162,6 +162,7 @@ void from_json(json const& j, Script& script) {
     j.value("standbys", json::array()).get_to(script.standbys);
     script.main_loop_hz = j.value("main_loop_hz", script.main_loop_hz);
     script.main_buffer = j.value("main_buffer", script.main_buffer);
+    script.zero_time = j.value("zero_time", script.zero_time);
     CHECK_ARG(script.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
 }
 

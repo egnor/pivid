@@ -36,7 +36,8 @@ class ScriptRunnerDef : public ScriptRunner {
     virtual void update(Script const& script) final {
         std::unique_lock lock{mutex};
         auto const now = cx.sys->clock();
-        DEBUG(logger, "UPDATE {} (t={:.3f}s)", abbrev_realtime(now), now);
+        auto const rel_now = now - script.zero_time;
+        DEBUG(logger, "UPDATE {} ({:.3f}s)", abbrev_realtime(now), rel_now);
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, script_screen] : script.screens) {
@@ -111,7 +112,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 auto* input = &inputs[file];
                 DEBUG(logger, "    \"{}\"", file);
 
-                IntervalSet want = buffer_wanted(script_layer.media, now);
+                IntervalSet want = buffer_wanted(script_layer.media, rel_now);
                 TRACE(logger, "      want {}", debug(want));
                 input->request.insert(want);
 
@@ -122,7 +123,8 @@ class ScriptRunnerDef : public ScriptRunner {
                 TRACE(logger, "      have {}", debug(input->content->have));
 
                 for (auto& [t, t_layers] : timeline) {
-                    auto const media_t = script_layer.media.play.value(t);
+                    auto const rt = t - script.zero_time;
+                    auto const media_t = script_layer.media.play.value(rt);
                     if (!media_t) {
                         TRACE(logger, "      {:+.3f}s undefined time", t - now);
                         continue;
@@ -151,8 +153,8 @@ class ScriptRunnerDef : public ScriptRunner {
                         continue;
                     }
 
-                    auto const bez = [t](BezierSpline const& z, double def) {
-                        return z.value(t).value_or(def);
+                    auto const bez = [rt](BezierSpline const& z, double def) {
+                        return z.value(rt).value_or(def);
                     };
 
                     --fit;
@@ -185,7 +187,7 @@ class ScriptRunnerDef : public ScriptRunner {
             auto* input = &inputs[file];
             TRACE(logger, "  standby \"{}\"", file);
 
-            IntervalSet want = buffer_wanted(script_standby, now);
+            IntervalSet want = buffer_wanted(script_standby, rel_now);
             TRACE(logger, "    want {}", debug(want));
             input->request.insert(want);
         }
@@ -338,18 +340,18 @@ class ScriptRunnerDef : public ScriptRunner {
         return cache_it->second;
     }
 
-    IntervalSet buffer_wanted(ScriptMedia const& script_media, double now) {
+    IntervalSet buffer_wanted(ScriptMedia const& script_media, double rel_now) {
         IntervalSet want;
         if (script_media.playtime_buffer > 0.0) {
-            Interval const pt{now, now + script_media.playtime_buffer};
+            Interval const pt{rel_now, rel_now + script_media.playtime_buffer};
             want = script_media.play.range(pt);
         }
 
         if (script_media.mediatime_buffer < 0.0) {
-            auto const mt = script_media.play.value(now);
+            auto const mt = script_media.play.value(rel_now);
             if (mt) want.insert({*mt + script_media.mediatime_buffer, *mt});
         } else if (script_media.mediatime_buffer > 0.0) {
-            auto const mt = script_media.play.value(now);
+            auto const mt = script_media.play.value(rel_now);
             if (mt) want.insert({*mt, *mt + script_media.mediatime_buffer});
         }
 

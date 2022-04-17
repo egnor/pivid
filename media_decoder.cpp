@@ -69,27 +69,39 @@ auto const& libav_logger() {
     return logger;
 }
 
-void av_log_callback(void*, int level, char const* format, va_list args) {
+void av_log_callback(void* obj, int level, char const* format, va_list args) {
     const auto logger = libav_logger();
-    std::string_view prefix;
+    std::string pre;
+
+    auto pp = (AVClass const**) obj;
+    if (pp && *pp) {
+        auto const parent_offset = (*pp)->parent_log_context_offset;
+        if (parent_offset) {
+            auto qq = *(AVClass const***) (((uint8_t*) pp) + parent_offset);
+            if (qq && *qq)
+                pre += fmt::format("{}[{}] ", (*qq)->item_name(qq), (void*) qq);
+        }
+        pre += fmt::format("{}[{}] ", (*pp)->item_name(obj), obj);
+    }
+
     char buffer[8192];
     if (vsnprintf(buffer, sizeof(buffer), format, args) < 0) {
-        logger->error("Bad libav log: {}\"{}\"", prefix, format);
+        logger->error("Bad libav log: {}\"{}\"", pre, format);
     } else {
-        std::string_view message{buffer};
-        while (!message.empty() && isspace(message.back()))
-            message.remove_suffix(1);
+        std::string_view text{buffer};
+        while (!text.empty() && isspace(text.back()))
+            text.remove_suffix(1);
         switch (level) {
-            case AV_LOG_PANIC: logger->critical("{}{}", prefix, message); break;
-            case AV_LOG_FATAL: logger->critical("{}{}", prefix, message); break;
-            case AV_LOG_ERROR: logger->error("{}{}", prefix, message); break;
-            case AV_LOG_WARNING: logger->warn("{}{}", prefix, message); break;
-            case AV_LOG_INFO: logger->info("{}{}", prefix, message); break;
-            case AV_LOG_VERBOSE: logger->debug("{}{}", prefix, message); break;
-            case AV_LOG_DEBUG: logger->debug("{}{}", prefix, message); break;
-            case AV_LOG_TRACE: logger->trace("{}{}", prefix, message); break;
-            case AV_LOG_QUIET: logger->trace("{}{}", prefix, message); break;
-            default: logger->error("?{}? {}{}", level, prefix, message); break;
+            case AV_LOG_PANIC: logger->critical("{}{}", pre, text); break;
+            case AV_LOG_FATAL: logger->critical("{}{}", pre, text); break;
+            case AV_LOG_ERROR: logger->error("{}{}", pre, text); break;
+            case AV_LOG_WARNING: logger->warn("{}{}", pre, text); break;
+            case AV_LOG_INFO: logger->info("{}{}", pre, text); break;
+            case AV_LOG_VERBOSE: logger->debug("{}{}", pre, text); break;
+            case AV_LOG_DEBUG: logger->debug("{}{}", pre, text); break;
+            case AV_LOG_TRACE: logger->trace("{}{}", pre, text); break;
+            case AV_LOG_QUIET: logger->trace("{}{}", pre, text); break;
+            default: logger->error("?{}? {}{}", level, pre, text); break;
         }
     }
 }
