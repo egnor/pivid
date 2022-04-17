@@ -24,7 +24,7 @@ class FrameLoaderDef : public FrameLoader {
     virtual ~FrameLoaderDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            DEBUG(logger, "STOP \"{}\"", filename);
+            TRACE(logger, "Stopping \"{}\" reader", filename);
             shutdown = true;
             lock.unlock();
             wakeup->set();
@@ -124,13 +124,13 @@ class FrameLoaderDef : public FrameLoader {
         this->opener = std::move(opener);
         this->wakeup = sys->make_flag();
         this->sys = std::move(sys);
-        DEBUG(logger, "START \"{}\"", filename);
+        DEBUG(logger, "Launching reader \"{}\"", filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
 
     void loader_thread() {
         std::unique_lock lock{mutex};
-        TRACE(logger, "starting \"{}\"", filename);
+        TRACE(logger, "Starting \"{}\" reader", filename);
 
         std::map<double, Decoder> decoders;
         while (!shutdown) {
@@ -164,7 +164,7 @@ class FrameLoaderDef : public FrameLoader {
                 auto const wi = wanted.overlap_begin(li->begin);
                 ASSERT(wi != wanted.end());
                 TRACE(
-                    logger, "  w={} l={}: d@{:.3f}",
+                    logger, "  w={} l={}: use d@{:.3f}",
                     debug(*wi), debug(*li), di->first
                 );
 
@@ -234,7 +234,7 @@ class FrameLoaderDef : public FrameLoader {
 
             // If there's no work, wait for a change in input.
             if (assigned.empty()) {
-                DEBUG(logger, "  waiting (nothing to load)");
+                DEBUG(logger, "  waiting with {}", debug(out.have));
                 lock.unlock();
                 wakeup->sleep();
                 lock.lock();
@@ -268,7 +268,7 @@ class FrameLoaderDef : public FrameLoader {
                         0.050, 2 * node.mapped().backtrack
                     );
                     if (node.key() < seek_cutoff || node.key() >= load.end) {
-                        TRACE(
+                        DEBUG(
                             logger, "  seek {:.3f}s => {:.3f}s",
                             node.key(), load.begin
                         );
@@ -283,7 +283,8 @@ class FrameLoaderDef : public FrameLoader {
                     }
 
                     frame = node.mapped().decoder->next_frame();
-                    if (frame) loaded = display->load_image(frame->image);
+                    if (frame && frame->time.begin >= node.key())
+                        loaded = display->load_image(frame->image);
                 } catch (std::runtime_error const& e) {
                     logger->error("{}", e.what());
                     error = std::current_exception();
@@ -320,9 +321,14 @@ class FrameLoaderDef : public FrameLoader {
                     auto const begin = std::min(node.key(), frame->time.begin);
                     auto const wi = wanted.overlap_begin(begin);
                     if (wi == wanted.overlap_end(frame->time.end)) {
-                        TRACE(logger, "    frame old, discarded");
+                        TRACE(logger, "    unwanted frame ignored");
+                    } else if (!loaded) {
+                        TRACE(
+                            logger, "    frame lands in {} but wasn't loaded",
+                            debug(*wi)
+                        );
                     } else {
-                        TRACE(logger, "    frame overlaps {}", debug(*wi));
+                        TRACE(logger, "    frame lands in {}", debug(*wi));
                         out.have.insert({begin, frame->time.end});
                         out.frames[frame->time.begin] = std::move(loaded);
                         ++changes;
@@ -335,13 +341,11 @@ class FrameLoaderDef : public FrameLoader {
                 decoders.insert(std::move(node));
             }
 
-            if (changes) {
-                TRACE(logger, "  now have {} ({}ch)", debug(out.have), changes);
-                if (notify) notify->set();
-            }
+            DEBUG(logger, "  looping with {} ({}ch)", debug(out.have), changes);
+            if (changes && notify) notify->set();
         }
 
-        DEBUG(logger, "stopped \"{}\"", filename);
+        DEBUG(logger, "Stopped \"{}\" reader", filename);
     }
 
   private:

@@ -9,10 +9,6 @@
 #include <fmt/core.h>
 #include <nlohmann/json.hpp>
 
-extern "C" {
-#include <libavutil/log.h>  // For --debug_libav
-}
-
 #include "display_output.h"
 #include "logging_policy.h"
 #include "script_data.h"
@@ -149,12 +145,12 @@ void run_script(ScriptContext const& context, Script const& script) {
 
     ASSERT(script.main_loop_hz > 0);
     double const period = 1.0 / script.main_loop_hz;
-    double loop_time = 0.0;
+    double loop_mono = 0.0;
 
     auto const runner = make_script_runner(context);
     for (;;) {
-        loop_time = std::max(sys->clock(CLOCK_MONOTONIC), loop_time + period);
-        waiter->sleep_until(loop_time);
+        loop_mono = std::max(sys->clock(CLOCK_MONOTONIC), loop_mono + period);
+        waiter->sleep_until(loop_mono);
         runner->update(script);
 
         bool done = true;
@@ -191,7 +187,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
     std::string script_arg;
     XY<int> mode_arg = {0, 0};
     double seek_arg = -0.2;
-    bool debug_libav = false;
     bool debug_kernel = false;
 
     CLI::App app("Decode and show a media file");
@@ -201,7 +196,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
     app.add_option("--mode_y", mode_arg.y, "Video scan lines");
     app.add_option("--screen", screen_arg, "Video output connector");
     app.add_option("--seek", seek_arg, "Seconds into media to start");
-    app.add_flag("--debug_libav", debug_libav, "Enable libav* debug logs");
     app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
 
     auto input = app.add_option_group("Input")->require_option(0, 1);
@@ -211,7 +205,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
     CLI11_PARSE(app, argc, argv);
 
     configure_logging(log_arg);
-    if (debug_libav) av_log_set_level(AV_LOG_DEBUG);
     set_kernel_debug(debug_kernel);
 
     try {

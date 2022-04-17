@@ -49,7 +49,8 @@ TEST_CASE("from_json") {
       "standbys": [
         {
           "file": "standby",
-          "buffer": 0.5,
+          "playtime_buffer": 0.5,
+          "mediatime_buffer": -0.3,
           "play": {
             "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30.5Z"],
             "v": [0, 10, 90, 100],
@@ -81,7 +82,8 @@ TEST_CASE("from_json") {
     CHECK(screen.update_hz == Approx(15.5));
     REQUIRE(screen.layers.size() == 2);
     CHECK(screen.layers[0].media.file == "empty_layer");
-    CHECK(screen.layers[0].media.buffer == 0.2);
+    CHECK(screen.layers[0].media.playtime_buffer == 0.2);
+    CHECK(screen.layers[0].media.mediatime_buffer == 0.0);
     CHECK(screen.layers[0].media.play.segments.size() == 1);  // Default
     CHECK(screen.layers[0].media.play.segments[0].t.begin == 0);
     CHECK(screen.layers[0].media.play.segments[0].t.end == 1e12);
@@ -136,7 +138,8 @@ TEST_CASE("from_json") {
     REQUIRE(script.standbys.size() == 1);
     auto const& standby = script.standbys[0];
     CHECK(standby.file == "standby");
-    CHECK(standby.buffer == 0.5);
+    CHECK(standby.playtime_buffer == 0.5);
+    CHECK(standby.mediatime_buffer == -0.3);
 
     REQUIRE(standby.play.segments.size() == 1);
     CHECK(standby.play.segments[0].t.begin == 1583064000);

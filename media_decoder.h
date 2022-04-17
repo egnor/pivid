@@ -7,8 +7,6 @@
 #include <string>
 #include <vector>
 
-#include <nlohmann/json_fwd.hpp>
-
 #include "image_buffer.h"
 #include "interval.h"
 #include "unix_system.h"
@@ -58,9 +56,6 @@ class MediaDecoder {
 
 // Opens a media (video/image) file and returns a decoder to access it.
 std::unique_ptr<MediaDecoder> open_media_decoder(std::string const& filename);
-
-// Encodes media info as JSON.
-void to_json(nlohmann::json&, MediaFileInfo const&);
 
 // Encodes a TIFF blob (suitable for writing to a file) for debugging images.
 std::vector<uint8_t> debug_tiff(ImageBuffer const&);

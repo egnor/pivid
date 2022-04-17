@@ -126,11 +126,13 @@ void from_json(json const& j, BezierSpline& bezier) {
     CHECK_ARG(bezier.repeat >= 0, "Bad Bezier repeat period: {}", j.dump());
 }
 
-void from_json(json const& j, ScriptMedia& media) {
+void from_json(json const& j, ScriptMedia& m) {
     CHECK_ARG(j.count("file"), "No \"file\" in JSON media: {}", j.dump());
-    j.at("file").get_to(media.file);
-    j.value("play", json(0)).get_to(media.play);
-    media.buffer = j.value("buffer", media.buffer);
+    j.at("file").get_to(m.file);
+    j.value("play", json(0)).get_to(m.play);
+    m.playtime_buffer = j.value("playtime_buffer", m.playtime_buffer);
+    CHECK_ARG(m.playtime_buffer >= 0.0, "Bad playtime_buffer: {}", j.dump());
+    m.mediatime_buffer = j.value("mediatime_buffer", m.mediatime_buffer);
 }
 
 void from_json(json const& j, ScriptLayer& layer) {

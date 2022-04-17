@@ -572,9 +572,19 @@ class DisplayDriverDef : public DisplayDriver {
                         "No DRM plane: {}", conn->name
                     );
 
-                    if ((*plane_iter)->type.init_value != wanted_type) continue;
-                    if ((*plane_iter)->used_by_crtc == crtc) break;
-                    if (!(*plane_iter)->used_by_crtc) break;
+                    auto const* plane = (*plane_iter);
+                    auto const type = plane->type.init_value;
+                    auto const* used = plane->used_by_crtc;
+                    if (type == wanted_type && (used == crtc || !used))
+                        break;
+
+                    // Disable any plane no longer used by this CRTC
+                    if (used == crtc) {
+                        DEBUG(logger, "  pl{}: disable (skipped)", plane->id);
+                        auto* plane_props = &props[plane->id];
+                        (*plane_props)[&plane->CRTC_ID] = 0;
+                        (*plane_props)[&plane->FB_ID] = 0;
+                    }
                 }
 
                 auto* plane = *plane_iter++;
@@ -583,7 +593,6 @@ class DisplayDriverDef : public DisplayDriver {
                 next.images.push_back(layer.image);
 
                 DEBUG(logger, "  pl{}: {}", plane->id, debug(layer));
-
                 auto* plane_props = &props[plane->id];
                 (*plane_props)[&plane->CRTC_ID] = crtc->id;
                 (*plane_props)[&plane->FB_ID] = fb_id;
@@ -601,6 +610,17 @@ class DisplayDriverDef : public DisplayDriver {
                     (*plane_props)[&plane->alpha] = layer.opacity * 65535.0;
                 } else {
                     CHECK_RUNTIME(layer.opacity >= 1.0, "Alpha unsupported");
+                }
+            }
+
+            // Disable any other planes no longer used by this CRTC
+            for (; plane_iter != crtc->usable_planes.end(); ++plane_iter) {
+                auto const* plane = (*plane_iter);
+                if (plane->used_by_crtc == crtc) {
+                    DEBUG(logger, "  pl{}: disable (leftover)", plane->id);
+                    auto* plane_props = &props[plane->id];
+                    (*plane_props)[&plane->CRTC_ID] = 0;
+                    (*plane_props)[&plane->FB_ID] = 0;
                 }
             }
         }
@@ -662,10 +682,7 @@ class DisplayDriverDef : public DisplayDriver {
         }
 
         ret.ex("DRM atomic update");
-        DEBUG(
-            logger, "  {} u{} committed!",
-            conn->name, atomic.user_data
-        );
+        DEBUG(logger, "  {} u{} committed!", conn->name, atomic.user_data);
 
         conn->using_crtc = crtc;
         if (crtc) {

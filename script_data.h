@@ -14,7 +14,8 @@ namespace pivid {
 struct ScriptMedia {
     std::string file;
     BezierSpline play;
-    double buffer = 0.2;
+    double playtime_buffer = 0.2;
+    double mediatime_buffer = 0.0;
 };
 
 struct ScriptLayer {

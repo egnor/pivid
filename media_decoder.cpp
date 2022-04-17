@@ -5,10 +5,10 @@
 
 #include <cctype>
 #include <map>
+#include <mutex>
 #include <system_error>
 
 #include <fmt/core.h>
-#include <nlohmann/json.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -16,6 +16,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
 #include <libavutil/hwcontext_drm.h>
+#include <libavutil/log.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/rational.h>
@@ -63,10 +64,13 @@ T* check_alloc(T* item) {
     throw std::bad_alloc();
 }
 
-void av_log_callback(void* avcl, int level, char const* format, va_list args) {
+auto const& libav_logger() {
     static const auto logger = make_logger("libav");
-    (void) avcl;
+    return logger;
+}
 
+void av_log_callback(void*, int level, char const* format, va_list args) {
+    const auto logger = libav_logger();
     std::string_view prefix;
     char buffer[8192];
     if (vsnprintf(buffer, sizeof(buffer), format, args) < 0) {
@@ -77,17 +81,30 @@ void av_log_callback(void* avcl, int level, char const* format, va_list args) {
             message.remove_suffix(1);
         switch (level) {
             case AV_LOG_PANIC: logger->critical("{}{}", prefix, message); break;
-            case AV_LOG_FATAL: logger->error("{}{}", prefix, message); break;
-            case AV_LOG_ERROR: logger->warn("{}{}", prefix, message); break;
+            case AV_LOG_FATAL: logger->critical("{}{}", prefix, message); break;
+            case AV_LOG_ERROR: logger->error("{}{}", prefix, message); break;
             case AV_LOG_WARNING: logger->warn("{}{}", prefix, message); break;
-            case AV_LOG_INFO: logger->debug("{}{}", prefix, message); break;
+            case AV_LOG_INFO: logger->info("{}{}", prefix, message); break;
             case AV_LOG_VERBOSE: logger->debug("{}{}", prefix, message); break;
-            case AV_LOG_DEBUG: logger->trace("{}{}", prefix, message); break;
+            case AV_LOG_DEBUG: logger->debug("{}{}", prefix, message); break;
             case AV_LOG_TRACE: logger->trace("{}{}", prefix, message); break;
             case AV_LOG_QUIET: logger->trace("{}{}", prefix, message); break;
             default: logger->error("?{}? {}{}", level, prefix, message); break;
         }
     }
+}
+
+void ensure_av_logging() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        auto const logger = libav_logger();
+        av_log_set_callback(av_log_callback);
+        if (logger->should_log(log_level::trace)) {
+            av_log_set_level(AV_LOG_TRACE);
+        } else if (logger->should_log(log_level::debug)) {
+            av_log_set_level(AV_LOG_DEBUG);
+        }
+    });
 }
 
 //
@@ -503,22 +520,10 @@ class MediaDecoderDef : public MediaDecoder {
 }  // anonymous namespace
 
 std::unique_ptr<MediaDecoder> open_media_decoder(const std::string& filename) {
-    av_log_set_callback(av_log_callback);
+    ensure_av_logging();
     auto decoder = std::make_unique<MediaDecoderDef>();
     decoder->init(filename);
     return decoder;
-}
-
-void to_json(nlohmann::json& j, MediaFileInfo const& info) {
-    j = {};
-    if (!info.filename.empty()) j["filename"] = info.filename;
-    if (!info.container_type.empty()) j["container_type"] = info.container_type;
-    if (!info.codec_name.empty()) j["codec_name"] = info.codec_name;
-    if (!info.pixel_format.empty()) j["pixel_format"] = info.pixel_format;
-    if (info.size) j["size"] = {info.size->x, info.size->y};
-    if (info.frame_rate) j["frame_rate"] = *info.frame_rate;
-    if (info.bit_rate) j["bit_rate"] = *info.bit_rate;
-    if (info.duration) j["duration"] = *info.duration;
 }
 
 //
@@ -526,7 +531,7 @@ void to_json(nlohmann::json& j, MediaFileInfo const& info) {
 //
 
 std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
-    av_log_set_callback(av_log_callback);
+    ensure_av_logging();
     media_logger()->trace("Encoding TIFF ({})...", debug(im));
     AVCodec const* tiff_codec = avcodec_find_encoder(AV_CODEC_ID_TIFF);
     if (!tiff_codec) throw std::runtime_error("No TIFF encoder found");

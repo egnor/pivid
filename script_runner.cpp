@@ -98,19 +98,22 @@ class ScriptRunnerDef : public ScriptRunner {
             ASSERT(output->mode.actual_hz() > 0);
             double const script_hz = script_screen.update_hz;
             double const hz = script_hz ? script_hz : output->mode.actual_hz();
-            double const next_output_time = std::ceil(now * hz) / hz;
+            double const begin_t = std::ceil(now * hz) / hz;
+            double const end_t = now + script.main_buffer;
 
             FramePlayer::Timeline timeline;
+            for (double t = begin_t; t < end_t; t += 1.0 / hz)
+                timeline[t];  // Create empty timeline element
+
             for (size_t li = 0; li < script_screen.layers.size(); ++li) {
-                auto const& layer = script_screen.layers[li];
-                auto const& file = find_file(lock, layer.media.file);
+                auto const& script_layer = script_screen.layers[li];
+                auto const& file = find_file(lock, script_layer.media.file);
                 auto* input = &inputs[file];
                 DEBUG(logger, "    \"{}\"", file);
 
-                Interval const buffer{now, now + layer.media.buffer};
-                auto const buffer_range = layer.media.play.range(buffer);
-                TRACE(logger, "      want {}", debug(buffer_range));
-                input->request.insert(buffer_range);
+                IntervalSet want = buffer_wanted(script_layer.media, now);
+                TRACE(logger, "      want {}", debug(want));
+                input->request.insert(want);
 
                 if (!input->content) {
                     if (!input->loader) continue;
@@ -118,60 +121,59 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
                 TRACE(logger, "      have {}", debug(input->content->have));
 
-                for (
-                    double t = next_output_time;
-                    t < now + script.main_buffer;
-                    t += 1.0 / hz
-                ) {
-                    auto const get = [t](BezierSpline const& bez, double def) {
-                        return bez.value(t).value_or(def);
-                    };
-
-                    auto const media_t = get(layer.media.play, -1);
-                    if (media_t < 0) {
+                for (auto& [t, t_layers] : timeline) {
+                    auto const media_t = script_layer.media.play.value(t);
+                    if (!media_t) {
+                        TRACE(logger, "      {:+.3f}s undefined time", t - now);
+                        continue;
+                    } else if (*media_t < 0) {
                         TRACE(
                             logger, "      {:+.3f}s m{:.3f}s before start!",
-                            t - now, media_t
+                            t - now, *media_t
                         );
                         continue;
                     }
 
-                    if (!input->content->have.contains(media_t)) {
+                    if (!input->content->have.contains(*media_t)) {
                         TRACE(
                             logger, "      {:+.3f}s m{:.3f}s not loaded!",
-                            t - now, media_t
+                            t - now, *media_t
                         );
                         continue;
                     }
 
-                    auto frame_it = input->content->frames.upper_bound(media_t);
-                    if (frame_it == input->content->frames.begin()) {
+                    auto fit = input->content->frames.upper_bound(*media_t);
+                    if (fit == input->content->frames.begin()) {
                         TRACE(
                             logger, "      {:+.3f}s m{:.3f}s no frame!",
-                            t - now, media_t
+                            t - now, *media_t
                         );
                         continue;
                     }
 
-                    --frame_it;
-                    auto const frame_t = frame_it->first;
-                    auto const image_size = frame_it->second->size();
-                    auto* out = &timeline[t].emplace_back();
-                    out->from_xy.x = get(layer.from_xy.x, 0);
-                    out->from_xy.y = get(layer.from_xy.y, 0);
-                    out->from_size.x = get(layer.from_size.x, image_size.x);
-                    out->from_size.y = get(layer.from_size.y, image_size.y);
-                    out->to_xy.x = get(layer.to_xy.x, 0);
-                    out->to_xy.y = get(layer.to_xy.y, 0);
-                    out->to_size.x = get(layer.to_size.x, image_size.x);
-                    out->to_size.y = get(layer.to_size.y, image_size.y);
-                    out->opacity = get(layer.opacity, 1);
+                    auto const bez = [t](BezierSpline const& z, double def) {
+                        return z.value(t).value_or(def);
+                    };
+
+                    --fit;
+                    auto const frame_t = fit->first;
+                    auto const size = fit->second->size();
+                    auto* out = &t_layers.emplace_back();
+                    out->from_xy.x = bez(script_layer.from_xy.x, 0);
+                    out->from_xy.y = bez(script_layer.from_xy.y, 0);
+                    out->from_size.x = bez(script_layer.from_size.x, size.x);
+                    out->from_size.y = bez(script_layer.from_size.y, size.y);
+                    out->to_xy.x = bez(script_layer.to_xy.x, 0);
+                    out->to_xy.y = bez(script_layer.to_xy.y, 0);
+                    out->to_size.x = bez(script_layer.to_size.x, size.x);
+                    out->to_size.y = bez(script_layer.to_size.y, size.y);
+                    out->opacity = bez(script_layer.opacity, 1);
                     TRACE(
                         logger, "      {:+.3f}s m{:.3f} f{:.3f} {}",
-                        t - now, media_t, frame_t, debug(*out)
+                        t - now, *media_t, frame_t, debug(*out)
                     );
 
-                    out->image = frame_it->second;  // Not in TRACE above
+                    out->image = fit->second;  // Not in TRACE above
                 }
             }
 
@@ -183,10 +185,9 @@ class ScriptRunnerDef : public ScriptRunner {
             auto* input = &inputs[file];
             TRACE(logger, "  standby \"{}\"", file);
 
-            Interval const buffer{now, now + script_standby.buffer};
-            auto const buffer_range = script_standby.play.range(buffer);
-            TRACE(logger, "    want {}", debug(buffer_range));
-            input->request.insert(buffer_range);
+            IntervalSet want = buffer_wanted(script_standby, now);
+            TRACE(logger, "    want {}", debug(want));
+            input->request.insert(want);
         }
 
         auto input_it = inputs.begin();
@@ -196,12 +197,12 @@ class ScriptRunnerDef : public ScriptRunner {
                 if (input->loader) {
                     DEBUG(logger, "  closing \"{}\"", input_it->first);
                 } else {
-                    TRACE(logger, "  unused \"{}\"", input_it->first);
+                    TRACE(logger, "  abandon \"{}\"", input_it->first);
                 }
                 input_it = inputs.erase(input_it);
             } else {
                 if (input->loader) {
-                    TRACE(logger, "  \"{}\"", input_it->first);
+                    TRACE(logger, "  refresh \"{}\"", input_it->first);
                 } else {
                     DEBUG(logger, "  opening \"{}\"", input_it->first);
                     input->loader = cx.loader_f(input_it->first);
@@ -304,7 +305,7 @@ class ScriptRunnerDef : public ScriptRunner {
         bool defined = false;
     };
 
-    // Constant from start to ~
+    // Constant from init to ~
     std::shared_ptr<log::logger> const logger = runner_logger();
     ScriptContext cx = {};
 
@@ -335,6 +336,24 @@ class ScriptRunnerDef : public ScriptRunner {
         }
 
         return cache_it->second;
+    }
+
+    IntervalSet buffer_wanted(ScriptMedia const& script_media, double now) {
+        IntervalSet want;
+        if (script_media.playtime_buffer > 0.0) {
+            Interval const pt{now, now + script_media.playtime_buffer};
+            want = script_media.play.range(pt);
+        }
+
+        if (script_media.mediatime_buffer < 0.0) {
+            auto const mt = script_media.play.value(now);
+            if (mt) want.insert({*mt + script_media.mediatime_buffer, *mt});
+        } else if (script_media.mediatime_buffer > 0.0) {
+            auto const mt = script_media.play.value(now);
+            if (mt) want.insert({*mt, *mt + script_media.mediatime_buffer});
+        }
+
+        return want;
     }
 };
 

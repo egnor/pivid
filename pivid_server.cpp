@@ -1,6 +1,8 @@
 // HTTP server for video control.
 
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <system_error>
 
 #include <CLI/App.hpp>
@@ -14,8 +16,39 @@
 #include "logging_policy.h"
 #include "script_data.h"
 #include "script_runner.h"
+#include "unix_system.h"
 
 namespace pivid {
+
+static void to_json(nlohmann::json& j, MediaFileInfo const& info) {
+    j = {};
+    if (!info.filename.empty()) j["filename"] = info.filename;
+    if (!info.container_type.empty()) j["container_type"] = info.container_type;
+    if (!info.codec_name.empty()) j["codec_name"] = info.codec_name;
+    if (!info.pixel_format.empty()) j["pixel_format"] = info.pixel_format;
+    if (info.size) j["size"] = {info.size->x, info.size->y};
+    if (info.frame_rate) j["frame_rate"] = *info.frame_rate;
+    if (info.bit_rate) j["bit_rate"] = *info.bit_rate;
+    if (info.duration) j["duration"] = *info.duration;
+}
+
+static void to_json(nlohmann::json& j, DisplayMode const& mode) {
+    if (!mode.nominal_hz) {
+        j = nullptr;
+    } else {
+        j["size"] = {mode.size.x, mode.size.y};
+        j["nominal_hz"] = mode.nominal_hz;
+        j["actual_hz"] = mode.actual_hz();
+        if (mode.doubling != XY<int>{})
+            j["doubling"] = {mode.doubling.x, mode.doubling.y};
+    }
+}
+
+static void to_json(nlohmann::json& j, DisplayScreen const& screen) {
+    j["detected"] = screen.display_detected;
+    j["active_mode"] = screen.active_mode;
+    j["modes"] = nlohmann::json(screen.modes);
+}
 
 namespace {
 
@@ -25,6 +58,8 @@ std::shared_ptr<log::logger> const& server_logger() {
 }
 
 struct ServerContext {
+    std::shared_ptr<UnixSystem> sys;
+    std::shared_ptr<DisplayDriver> driver;
     std::unique_ptr<ScriptRunner> runner;
     bool trust_network = false;
     int port = 31415;
@@ -32,20 +67,33 @@ struct ServerContext {
 
 class Server {
   public:
+    ~Server() {
+        std::unique_lock lock{mutex};
+        if (thread.joinable()) {
+            DEBUG(logger, "Stopping update thread");
+            shutdown = true;
+            wakeup->set();
+            thread.join();
+        }
+    }
+
     void run(ServerContext&& context) {
         using namespace std::placeholders;
         cx = std::move(context);
 
-        http.Get("/info(/.*)", std::bind(&Server::on_info, this, _1, _2));
+        http.Get("/media(/.*)", [&](auto const& q, auto& s) {on_media(q, s);});
+        http.Get("/screens", [&](auto const& q, auto& s) {on_screens(q, s);});
+        http.Get("/quit", [&](auto const& q, auto& s) {on_quit(q, s);});
+        http.Post("/play", [&](auto const& q, auto& s) {on_play(q, s);});
 
-        http.Get("/quitquitquit", std::bind(&Server::on_quit, this, _1, _2));
-
-        http.set_logger(std::bind(&Server::log_hook, this, _1, _2));
-
+        http.set_logger([&](auto const& q, auto const& s) {log_hook(q, s);});
         http.set_exception_handler(
-            std::bind(&Server::error_hook, this, _1, _2, _3)
+            [&](auto const& q, auto& s, auto& e) {error_hook(q, s, e);}
         );
 
+        DEBUG(logger, "Launching update thread");
+        wakeup = cx.sys->make_flag();
+        thread = std::thread(&Server::update_thread, this);
         if (cx.trust_network) {
             logger->info("Listening to WHOLE NETWORK on port {}", cx.port);
             http.listen("0.0.0.0", cx.port);
@@ -53,20 +101,68 @@ class Server {
             logger->info("Listening to localhost on port {}", cx.port);
             http.listen("localhost", cx.port);
         }
-        logger->info("Server stopped!");
+        logger->info("Stopped listening");
+    }
+
+    void update_thread() {
+        std::unique_lock lock{mutex};
+        TRACE(logger, "Starting update thread");
+
+        double last_mono = 0.0;
+        while (!shutdown) {
+            if (!script) {
+                TRACE(logger, "UPDATE (wait for script)");
+                lock.unlock();
+                wakeup->sleep();
+                lock.lock();
+                continue;
+            }
+
+            ASSERT(script->main_loop_hz > 0.0);
+            double const period = 1.0 / script->main_loop_hz;
+            double const mono = cx.sys->clock(CLOCK_MONOTONIC);
+            if (mono < last_mono + period) {
+                TRACE(
+                    logger, "UPDATE (sleep {:.3f}s)",
+                    last_mono + period - mono
+                );
+                lock.unlock();
+                wakeup->sleep_until(last_mono + period);
+                lock.lock();
+                continue;
+            }
+
+            DEBUG(logger, "UPDATE (m{:.3f}s)", mono);
+            last_mono = std::max(last_mono + period, mono - period);
+            auto const copy = script;
+            lock.unlock();
+            cx.runner->update(*copy);
+            lock.lock();
+        }
+
+        TRACE(logger, "Update thread stopped");
     }
 
   private:
+    // Constant during run
     std::shared_ptr<log::logger> const logger = server_logger();
     ServerContext cx;
     httplib::Server http;
+    std::thread thread;
+    std::shared_ptr<SyncFlag> wakeup;
 
-    void on_info(httplib::Request const& req, httplib::Response& res) {
+    // Guarded by mutex
+    std::mutex mutable mutex;
+    bool shutdown = false;
+    std::shared_ptr<Script const> script;
+
+    void on_media(httplib::Request const& req, httplib::Response& res) {
         nlohmann::json j = {{"req", req.path}};
 
         try {
-            auto const info = cx.runner->file_info(req.matches[1]);
-            to_json(j["info"], info);
+            DEBUG(logger, "INFO \"{}\"", std::string(req.matches[1]));
+            auto const media_info = cx.runner->file_info(req.matches[1]);
+            j["media"] = media_info;
             j["ok"] = true;
         } catch (std::system_error const& exc) {
             if (exc.code() == std::errc::no_such_file_or_directory) {
@@ -80,11 +176,36 @@ class Server {
         res.set_content(j.dump(), "application/json");
     }
 
-    void on_quit(httplib::Request const& req, httplib::Response& res) {
+    void on_play(httplib::Request const& req, httplib::Response& res) {
+        auto new_script = std::make_unique<Script>();
+        from_json(nlohmann::json::parse(req.body), *new_script);
+
+        std::unique_lock lock{mutex};
+        DEBUG(logger, "PLAY script ({}b)", req.body.size());
+        script = std::move(new_script);
+        wakeup->set();
+
         nlohmann::json const j = {{"req", req.path}, {"ok", true}};
         res.set_content(j.dump(), "application/json");
-        logger->debug("Stopping HTTP server...");
+    }
+
+    void on_screens(httplib::Request const&, httplib::Response& res) {
+        nlohmann::json j;
+        for (auto const& screen : cx.driver->scan_screens())
+            to_json(j[screen.connector], screen);
+
+        res.set_content(j.dump(), "application/json");
+    }
+
+    void on_quit(httplib::Request const& req, httplib::Response& res) {
+        std::unique_lock lock{mutex};
+        DEBUG(logger, "STOP");
         http.stop();
+        shutdown = true;
+        wakeup->set();
+
+        nlohmann::json const j = {{"req", req.path}, {"ok", true}};
+        res.set_content(j.dump(), "application/json");
     }
 
     void log_hook(httplib::Request const& req, httplib::Response const& res) {
@@ -128,17 +249,18 @@ extern "C" int main(int const argc, char const* const* const argv) {
     configure_logging(log_arg);
 
     try {
-        auto const sys = global_system();
-        for (auto const& dev : list_display_drivers(global_system())) {
+        server_cx.sys = global_system();
+        for (auto const& dev : list_display_drivers(server_cx.sys)) {
             auto const text = debug(dev);
-            if (text.find(dev_arg) != std::string::npos) {
-                script_cx.driver = open_display_driver(sys, dev.dev_file);
-                break;
-            }
+            if (text.find(dev_arg) == std::string::npos) continue;
+            server_cx.driver = open_display_driver(server_cx.sys, dev.dev_file);
+            break;
         }
 
-        CHECK_RUNTIME(script_cx.driver, "No DRM device for \"{}\"", dev_arg);
+        CHECK_RUNTIME(server_cx.driver, "No DRM device for \"{}\"", dev_arg);
         server_logger()->info("Media root: {}", script_cx.root_dir);
+        script_cx.sys = server_cx.sys;
+        script_cx.driver = server_cx.driver;
         script_cx.file_base = script_cx.root_dir;
         server_cx.runner = make_script_runner(std::move(script_cx));
 
