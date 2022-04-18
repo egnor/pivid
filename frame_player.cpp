@@ -127,10 +127,18 @@ class FramePlayerDef : public FramePlayer {
             }
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
-                logger->warn(
-                    "Skip (s={}) sch={} ({:.3f}s old)",
-                    screen_id, abbrev_realtime(s->first), now - s->first
-                );
+                if (!s->second.empty()) {
+                    logger->warn(
+                        "Skip (s={}) layers={} sch={} ({:.3f}s old)",
+                        screen_id, s->second.size(),
+                        abbrev_realtime(s->first), now - s->first
+                    );
+                } else {
+                    TRACE(
+                        logger, "Skip (s={}) *empty* sch={} ({:.3f}s old)",
+                        screen_id, abbrev_realtime(s->first), now - s->first
+                    );
+                }
                 shown = s->first;
             }
 
@@ -179,8 +187,8 @@ class FramePlayerDef : public FramePlayer {
 
             auto const lag = now - shown;
             DEBUG(
-                logger, "Frame (s={}) sch={} ({:.3f}s old)",
-                screen_id, abbrev_realtime(shown), lag
+                logger, "Frame (s={}) layers={} sch={} ({:.3f}s old)",
+                screen_id, show->second.size(), abbrev_realtime(shown), lag
             );
         }
 

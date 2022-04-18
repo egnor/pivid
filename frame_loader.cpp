@@ -24,7 +24,7 @@ class FrameLoaderDef : public FrameLoader {
     virtual ~FrameLoaderDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            TRACE(logger, "Stopping \"{}\" reader", filename);
+            TRACE(logger, "Stopping \"{}\" reader", cx.filename);
             shutdown = true;
             lock.unlock();
             wakeup->set();
@@ -40,9 +40,9 @@ class FrameLoaderDef : public FrameLoader {
         this->notify = std::move(notify);
 
         if (wanted == this->wanted) {
-            TRACE(logger, "REQ (same) \"{}\"", filename);
+            TRACE(logger, "REQ (same) \"{}\"", cx.filename);
         } else {
-            DEBUG(logger, "REQ \"{}\"", filename);
+            DEBUG(logger, "REQ \"{}\"", cx.filename);
             DEBUG(logger, "  [req] want {}", debug(wanted));
 
             // Remove no-longer-wanted frames & have-regions
@@ -107,35 +107,31 @@ class FrameLoaderDef : public FrameLoader {
 
     virtual MediaFileInfo file_info() const final {
         // TODO: Share decoders with loader_thread somehow?
-        auto const decoder = opener(filename);
+        auto const decoder = cx.decoder_f(cx.filename);
         MediaFileInfo const info = decoder->file_info();
         TRACE(logger, "FILE INFO {}", debug(info));
         return info;
     }
 
-    void start(
-        std::shared_ptr<DisplayDriver> display,
-        std::string const& filename,
-        std::shared_ptr<UnixSystem> sys,
-        std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener
-    ) {
-        this->display = std::move(display);
-        this->filename = filename;
-        this->opener = std::move(opener);
-        this->wakeup = sys->make_flag();
-        this->sys = std::move(sys);
-        DEBUG(logger, "Launching reader \"{}\"", filename);
+    void start(FrameLoaderContext context) {
+        cx = std::move(context);
+        CHECK_ARG(cx.driver, "No driver for FrameLoader");
+        CHECK_ARG(!cx.filename.empty(), "Empty filename for FrameLoader");
+        if (!cx.sys) cx.sys = global_system();
+        if (!cx.decoder_f) cx.decoder_f = open_media_decoder;
+        this->wakeup = cx.sys->make_flag();
+        DEBUG(logger, "Launching reader \"{}\"", cx.filename);
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
 
     void loader_thread() {
         std::unique_lock lock{mutex};
-        TRACE(logger, "Starting \"{}\" reader", filename);
+        TRACE(logger, "Starting \"{}\" reader", cx.filename);
 
         std::map<double, Decoder> decoders;
         while (!shutdown) {
-            auto const now = sys->clock();
-            DEBUG(logger, "LOAD {} \"{}\"", abbrev_realtime(now), filename);
+            auto const now = cx.sys->clock();
+            DEBUG(logger, "LOAD {} \"{}\"", abbrev_realtime(now), cx.filename);
 
             auto to_load = wanted;
             to_load.erase({to_load.bounds().begin, 0});
@@ -209,19 +205,16 @@ class FrameLoaderDef : public FrameLoader {
             while (di != decoders.end()) {
                 di->second.use_time = std::min(di->second.use_time, now);
                 double const age = now - di->second.use_time;
-
-                // TODO make a configurable age cutoff
-                double const age_cutoff = 1.0;
-                if (age > age_cutoff) {
+                if (age > cx.decoder_idle_time) {
                     DEBUG(
                         logger, "  drop d@{:.3f} ({:.3f}s old > {:.3f}s)",
-                        di->first, age, age_cutoff
+                        di->first, age, cx.decoder_idle_time
                     );
                     di = decoders.erase(di);
                 } else {
                     TRACE(
                         logger, "  keep d@{:.3f} ({:.3f}s old <= {:.3f}s)",
-                        di->first, age, age_cutoff
+                        di->first, age, cx.decoder_idle_time
                     );
                     ++di;
                 }
@@ -259,13 +252,13 @@ class FrameLoaderDef : public FrameLoader {
                     node.mapped().use_time = now;
                     if (!node.mapped().decoder) {
                         TRACE(logger, "  open new decoder");
-                        node.mapped().decoder = opener(filename);
+                        node.mapped().decoder = cx.decoder_f(cx.filename);
                         node.key() = 0.0;
                     }
 
                     // Heuristic threshold for forward-seek vs. read-forward
                     const auto seek_cutoff = load.begin - std::max(
-                        0.050, 2 * node.mapped().backtrack
+                        cx.seek_scan_time, 2 * node.mapped().backtrack
                     );
                     if (node.key() < seek_cutoff || node.key() >= load.end) {
                         DEBUG(
@@ -284,7 +277,7 @@ class FrameLoaderDef : public FrameLoader {
 
                     frame = node.mapped().decoder->next_frame();
                     if (frame && frame->time.begin >= node.key())
-                        loaded = display->load_image(frame->image);
+                        loaded = cx.driver->load_image(frame->image);
                 } catch (std::runtime_error const& e) {
                     logger->error("{}", e.what());
                     error = std::current_exception();
@@ -345,7 +338,7 @@ class FrameLoaderDef : public FrameLoader {
             if (changes && notify) notify->set();
         }
 
-        DEBUG(logger, "Stopped \"{}\" reader", filename);
+        DEBUG(logger, "Stopped \"{}\" reader", cx.filename);
     }
 
   private:
@@ -358,10 +351,7 @@ class FrameLoaderDef : public FrameLoader {
 
     // Constant from start to ~
     std::shared_ptr<log::logger> logger = loader_logger();
-    std::shared_ptr<DisplayDriver> display;
-    std::string filename;
-    std::shared_ptr<UnixSystem> sys;
-    std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener;
+    FrameLoaderContext cx;
     std::thread thread;
     std::unique_ptr<SyncFlag> wakeup;
 
@@ -375,16 +365,9 @@ class FrameLoaderDef : public FrameLoader {
 
 }  // anonymous namespace
 
-std::unique_ptr<FrameLoader> start_frame_loader(
-    std::shared_ptr<DisplayDriver> display,
-    std::string const& filename,
-    std::shared_ptr<UnixSystem> sys,
-    std::function<std::unique_ptr<MediaDecoder>(std::string const&)> opener
-) {
+std::unique_ptr<FrameLoader> start_frame_loader(FrameLoaderContext context) {
     auto loader = std::make_unique<FrameLoaderDef>();
-    loader->start(
-        std::move(display), filename, std::move(sys), std::move(opener)
-    );
+    loader->start(std::move(context));
     return loader;
 }
 

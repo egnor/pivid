@@ -20,11 +20,13 @@ class ScriptRunner {
 struct ScriptContext {
     std::shared_ptr<DisplayDriver> driver;
     std::shared_ptr<UnixSystem> sys;
-    std::function<std::unique_ptr<FrameLoader>(std::string const&)> loader_f;
-    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;
     std::shared_ptr<SyncFlag> notify;
     std::string root_dir;
     std::string file_base;
+    double default_zero_time = 0.0;
+    FrameLoaderContext loader_cx;
+    std::function<std::unique_ptr<FrameLoader>(FrameLoaderContext)> loader_f;
+    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;
 };
 
 std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext);

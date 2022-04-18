@@ -1,5 +1,4 @@
 {
-  "zero_time": "now",
   "screens": {
     "HDMI-2": {
       "display_mode": [1920, 1080],
@@ -8,7 +7,7 @@
         {
           "media": {
             "file": "big_buck_bunny_excerpt.hevc.mkv",
-            "play": {"t": [0, 15], "v": [0, 30], "repeat": true},
+            "play": {"t": [0.5, 15.5], "v": [0, 30], "repeat": true},
             "buffer": 0.3
           }
         }

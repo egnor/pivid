@@ -35,11 +35,11 @@ struct ScriptScreen {
 struct Script {
     std::map<std::string, ScriptScreen> screens;
     std::vector<ScriptMedia> standbys;
+    std::optional<double> zero_time;
     double main_loop_hz = 15.0;
-    double main_buffer = 0.2;
-    double zero_time = 0.0;
+    double main_buffer_time = 0.2;
 };
 
-void from_json(nlohmann::json const&, Script&);
+Script parse_script(std::string_view);
 
 }  // namespace pivid

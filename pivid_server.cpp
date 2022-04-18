@@ -177,8 +177,7 @@ class Server {
     }
 
     void on_play(httplib::Request const& req, httplib::Response& res) {
-        auto new_script = std::make_unique<Script>();
-        from_json(nlohmann::json::parse(req.body), *new_script);
+        auto new_script = std::make_shared<Script>(parse_script(req.body));
 
         std::unique_lock lock{mutex};
         DEBUG(logger, "PLAY script ({}b)", req.body.size());
@@ -247,6 +246,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
     );
     CLI11_PARSE(app, argc, argv);
     configure_logging(log_arg);
+    auto const logger = server_logger();
 
     try {
         server_cx.sys = global_system();
@@ -256,18 +256,21 @@ extern "C" int main(int const argc, char const* const* const argv) {
             server_cx.driver = open_display_driver(server_cx.sys, dev.dev_file);
             break;
         }
-
         CHECK_RUNTIME(server_cx.driver, "No DRM device for \"{}\"", dev_arg);
-        server_logger()->info("Media root: {}", script_cx.root_dir);
+
         script_cx.sys = server_cx.sys;
         script_cx.driver = server_cx.driver;
         script_cx.file_base = script_cx.root_dir;
+        script_cx.default_zero_time = server_cx.sys->clock();
+
+        logger->info("Media root: {}", script_cx.root_dir);
+        logger->info("Start: {}", format_realtime(script_cx.default_zero_time));
         server_cx.runner = make_script_runner(std::move(script_cx));
 
         Server server;
         server.run(std::move(server_cx));
     } catch (std::exception const& e) {
-        server_logger()->critical("{}", e.what());
+        logger->critical("{}", e.what());
         return 1;
     }
 

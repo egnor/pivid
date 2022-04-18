@@ -88,7 +88,6 @@ Script make_script(
 Script load_script(std::string const& script_file) {
     auto const logger = play_logger();
     auto const sys = global_system();
-    logger->info("Script: {}", script_file);
 
     std::ifstream ifs;
     ifs.exceptions(~std::ifstream::goodbit);
@@ -98,14 +97,7 @@ Script load_script(std::string const& script_file) {
         (std::istreambuf_iterator<char>())
     );
 
-    nlohmann::json script_j = nlohmann::json::parse(text);
-    if (script_j.value("zero_time", nlohmann::json{}) == "now") {
-        auto const start = global_system()->clock();
-        logger->info("Zero time: {}", abbrev_realtime(start));
-        script_j["zero_time"] = start;
-    }
-
-    return script_j.get<Script>();
+    return parse_script(text);
 }
 
 void run_script(ScriptContext const& context, Script const& script) {
@@ -176,21 +168,27 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
     configure_logging(log_arg);
     set_kernel_debug(debug_kernel);
+    auto const logger = play_logger();
 
     try {
         ScriptContext context = {};
-        context.driver = find_driver(dev_arg);
 
+        Script script;
         if (!script_arg.empty()) {
+            logger->info("Script: {}", script_arg);
             context.file_base = script_arg;
-            run_script(context, load_script(script_arg));
+            script = load_script(script_arg);
         } else {
             context.file_base = global_system()->realpath(".").ex("getcwd");
-            auto scr = make_script(media_arg, screen_arg, mode_arg, seek_arg);
-            run_script(context, scr);
+            script = make_script(media_arg, screen_arg, mode_arg, seek_arg);
         }
+
+        context.driver = find_driver(dev_arg);
+        context.default_zero_time = global_system()->clock();
+        logger->info("Start: {}", format_realtime(context.default_zero_time));
+        run_script(context, script);
     } catch (std::exception const& e) {
-        play_logger()->critical("{}", e.what());
+        logger->critical("{}", e.what());
         return 1;
     }
 

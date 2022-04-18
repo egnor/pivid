@@ -10,17 +10,15 @@ using json = nlohmann::json;
 namespace pivid {
 
 TEST_CASE("from_json (empty)") {
-    Script script;
-    from_json(json::object(), script);
-
+    Script script = parse_script("{}");
     CHECK(script.screens.empty());
     CHECK(script.standbys.empty());
 }
 
 TEST_CASE("from_json") {
-    auto const j = R"**({
+    auto const text = R"**({
       "main_loop_hz": 10.5,
-      "main_buffer": 0.5,
+      "main_buffer_time": 0.5,
       "screens": {
         "empty_screen": {},
         "full_screen": {
@@ -58,13 +56,11 @@ TEST_CASE("from_json") {
           }
         }
       ]
-    })**"_json;
+    })**";
 
-    Script script;
-    from_json(j, script);
-
+    Script script = parse_script(text);
     CHECK(script.main_loop_hz == Approx(10.5));
-    CHECK(script.main_buffer == Approx(0.5));
+    CHECK(script.main_buffer_time == Approx(0.5));
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);
@@ -152,7 +148,7 @@ TEST_CASE("from_json") {
 }
 
 TEST_CASE("make_time_absolute") {
-    auto const j = R"**({
+    auto const text = R"**({
       "screens": {
         "s0": {
           "layers": [
@@ -170,12 +166,11 @@ TEST_CASE("make_time_absolute") {
         "s1": {"layers": [{"media": {"file": "f2", "play": 11}}]}
       },
       "standbys": [{"file": "f3", "play": 12}, {"file": "f4", "play": 13}]
-    })**"_json;
+    })**";
 
-    Script script;
-    from_json(j, script);
+    Script script = parse_script(text);
     CHECK(script.main_loop_hz == Script{}.main_loop_hz);
-    CHECK(script.main_buffer == Script{}.main_buffer);
+    CHECK(script.main_buffer_time == Script{}.main_buffer_time);
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens["s0"].layers.size() == 2);

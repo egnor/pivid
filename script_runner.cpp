@@ -36,8 +36,8 @@ class ScriptRunnerDef : public ScriptRunner {
     virtual void update(Script const& script) final {
         std::unique_lock lock{mutex};
         auto const now = cx.sys->clock();
-        auto const rel_now = now - script.zero_time;
-        DEBUG(logger, "UPDATE {} ({:.3f}s)", abbrev_realtime(now), rel_now);
+        auto const t0 = script.zero_time.value_or(cx.default_zero_time);
+        DEBUG(logger, "UPDATE {} ({:.3f}s)", abbrev_realtime(now), now - t0);
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, script_screen] : script.screens) {
@@ -100,7 +100,7 @@ class ScriptRunnerDef : public ScriptRunner {
             double const script_hz = script_screen.update_hz;
             double const hz = script_hz ? script_hz : output->mode.actual_hz();
             double const begin_t = std::ceil(now * hz) / hz;
-            double const end_t = now + script.main_buffer;
+            double const end_t = now + script.main_buffer_time;
 
             FramePlayer::Timeline timeline;
             for (double t = begin_t; t < end_t; t += 1.0 / hz)
@@ -112,7 +112,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 auto* input = &inputs[file];
                 DEBUG(logger, "    \"{}\"", file);
 
-                IntervalSet want = buffer_wanted(script_layer.media, rel_now);
+                IntervalSet want = buffer_wanted(script_layer.media, now - t0);
                 TRACE(logger, "      want {}", debug(want));
                 input->request.insert(want);
 
@@ -123,10 +123,9 @@ class ScriptRunnerDef : public ScriptRunner {
                 TRACE(logger, "      have {}", debug(input->content->have));
 
                 for (auto& [t, t_layers] : timeline) {
-                    auto const rt = t - script.zero_time;
-                    auto const media_t = script_layer.media.play.value(rt);
+                    auto const media_t = script_layer.media.play.value(t - t0);
                     if (!media_t) {
-                        TRACE(logger, "      {:+.3f}s undefined time", t - now);
+                        TRACE(logger, "      {:+.3f}s not active", t - now);
                         continue;
                     } else if (*media_t < 0) {
                         TRACE(
@@ -147,14 +146,14 @@ class ScriptRunnerDef : public ScriptRunner {
                     auto fit = input->content->frames.upper_bound(*media_t);
                     if (fit == input->content->frames.begin()) {
                         TRACE(
-                            logger, "      {:+.3f}s m{:.3f}s no frame!",
+                            logger, "      {:+.3f}s m{:.3f}s empty media",
                             t - now, *media_t
                         );
                         continue;
                     }
 
-                    auto const bez = [rt](BezierSpline const& z, double def) {
-                        return z.value(rt).value_or(def);
+                    auto const bez = [&](BezierSpline const& z, double def) {
+                        return z.value(t - t0).value_or(def);
                     };
 
                     --fit;
@@ -187,7 +186,7 @@ class ScriptRunnerDef : public ScriptRunner {
             auto* input = &inputs[file];
             TRACE(logger, "  standby \"{}\"", file);
 
-            IntervalSet want = buffer_wanted(script_standby, rel_now);
+            IntervalSet want = buffer_wanted(script_standby, now - t0);
             TRACE(logger, "    want {}", debug(want));
             input->request.insert(want);
         }
@@ -199,7 +198,7 @@ class ScriptRunnerDef : public ScriptRunner {
                 if (input->loader) {
                     DEBUG(logger, "  closing \"{}\"", input_it->first);
                 } else {
-                    TRACE(logger, "  abandon \"{}\"", input_it->first);
+                    TRACE(logger, "  unused \"{}\"", input_it->first);
                 }
                 input_it = inputs.erase(input_it);
             } else {
@@ -207,7 +206,9 @@ class ScriptRunnerDef : public ScriptRunner {
                     TRACE(logger, "  refresh \"{}\"", input_it->first);
                 } else {
                     DEBUG(logger, "  opening \"{}\"", input_it->first);
-                    input->loader = cx.loader_f(input_it->first);
+                    auto loader_cx = cx.loader_cx;
+                    loader_cx.filename = input_it->first;
+                    input->loader = cx.loader_f(std::move(loader_cx));
                 }
 
                 TRACE(logger, "    request {}", debug(input->request));
@@ -242,11 +243,14 @@ class ScriptRunnerDef : public ScriptRunner {
             lock.unlock();
             if (!loader) {
                 TRACE(logger, "Opening \"{}\" for info", file);
-                loader = cx.loader_f(file);
+                auto loader_cx = cx.loader_cx;
+                loader_cx.filename = file;
+                loader = cx.loader_f(std::move(loader_cx));
             }
+
             auto info = loader->file_info();
             DEBUG(logger, "FILE INFO {}", debug(info));
-            lock.lock();  // Object state may have changed!
+            lock.lock();  // State may have changed!
 
             auto* input = &inputs[file];
             if (!input->loader) input->loader = loader;
@@ -257,23 +261,9 @@ class ScriptRunnerDef : public ScriptRunner {
     }
 
     void init(ScriptContext c) {
-        CHECK_ARG(c.driver, "No driver for ScriptRunner");
         cx = std::move(c);
-
-        if (!cx.sys)
-            cx.sys = global_system();
-
-        if (!cx.loader_f) {
-            cx.loader_f = [this](std::string const& file) {
-                return start_frame_loader(cx.driver, file, cx.sys);
-            };
-        }
-
-        if (!cx.player_f) {
-            cx.player_f = [this](uint32_t id, DisplayMode const& m) {
-                return start_frame_player(cx.driver, id, m, cx.sys);
-            };
-        }
+        if (!cx.sys) cx.sys = global_system();
+        CHECK_ARG(cx.driver, "No driver for ScriptRunner");
 
         if (cx.root_dir.empty()) cx.root_dir = "/";
         if (cx.file_base.empty()) cx.file_base = ".";
@@ -287,9 +277,21 @@ class ScriptRunnerDef : public ScriptRunner {
             auto const slash = cx.file_base.rfind('/');
             if (slash >= 1) cx.file_base.resize(slash);
         }
-
         if (!cx.root_dir.ends_with('/')) cx.root_dir += "/";
         if (!cx.file_base.ends_with('/')) cx.file_base += "/";
+
+        if (!cx.loader_cx.sys) cx.loader_cx.sys = cx.sys;
+        if (!cx.loader_cx.driver) cx.loader_cx.driver = cx.driver;
+        if (!cx.loader_cx.decoder_f)
+            cx.loader_cx.decoder_f = open_media_decoder;
+        if (!cx.loader_f)
+            cx.loader_f = start_frame_loader;
+
+        if (!cx.player_f) {
+            cx.player_f = [this](uint32_t id, DisplayMode const& m) {
+                return start_frame_player(cx.driver, id, m, cx.sys);
+            };
+        }
     }
 
   private:

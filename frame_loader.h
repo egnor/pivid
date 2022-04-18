@@ -42,13 +42,17 @@ class FrameLoader {
     virtual MediaFileInfo file_info() const = 0;
 };
 
+struct FrameLoaderContext {
+    std::shared_ptr<UnixSystem> sys;
+    std::shared_ptr<DisplayDriver> driver;
+    std::string filename;
+    double decoder_idle_time = 1.0;
+    double seek_scan_time = 1.0;
+
+    std::function<std::unique_ptr<MediaDecoder>(std::string const&)> decoder_f;
+};
+
 // Creates a frame loader instance for a given media file and GPU device.
-std::unique_ptr<FrameLoader> start_frame_loader(
-    std::shared_ptr<DisplayDriver>,
-    std::string const& filename,
-    std::shared_ptr<UnixSystem> system = global_system(),
-    std::function<std::unique_ptr<MediaDecoder>(std::string const&)> =
-        open_media_decoder
-);
+std::unique_ptr<FrameLoader> start_frame_loader(FrameLoaderContext);
 
 }  // namespace pivid

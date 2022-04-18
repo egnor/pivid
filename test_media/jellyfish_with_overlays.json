@@ -1,5 +1,4 @@
 {
-  "zero_time": "now",
   "screens": {
     "*": {
       "display_mode": [1920, 1080],

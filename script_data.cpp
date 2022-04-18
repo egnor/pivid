@@ -16,7 +16,7 @@ using json = nlohmann::json;
 namespace pivid {
 
 template <typename T>
-void from_json(json const& j, XY<T>& xy) {
+static void from_json(json const& j, XY<T>& xy) {
     if (j.empty()) {
         xy = {};
     } else if (j.is_object()) {
@@ -35,7 +35,7 @@ static double parse_json_time(json const& j) {
     return parse_realtime(j);
 }
 
-void from_json(json const& j, BezierSegment& seg) {
+static void from_json(json const& j, BezierSegment& seg) {
     if (j.is_number()) {
         seg.t = {0, 1e12};
         seg.begin_v = seg.p1_v = seg.p2_v = seg.end_v = j.get<double>();
@@ -93,7 +93,7 @@ void from_json(json const& j, BezierSegment& seg) {
     }
 }
 
-void from_json(json const& j, BezierSpline& bezier) {
+static void from_json(json const& j, BezierSpline& bezier) {
     if (j.is_object() && j.count("segments")) {
         j.at("segments").get_to(bezier.segments);
     } else if (j.is_array() && !j.at(0).is_number()) {
@@ -126,7 +126,7 @@ void from_json(json const& j, BezierSpline& bezier) {
     CHECK_ARG(bezier.repeat >= 0, "Bad Bezier repeat period: {}", j.dump());
 }
 
-void from_json(json const& j, ScriptMedia& m) {
+static void from_json(json const& j, ScriptMedia& m) {
     CHECK_ARG(j.count("file"), "No \"file\" in JSON media: {}", j.dump());
     j.at("file").get_to(m.file);
     j.value("play", json(0)).get_to(m.play);
@@ -135,7 +135,7 @@ void from_json(json const& j, ScriptMedia& m) {
     m.mediatime_buffer = j.value("mediatime_buffer", m.mediatime_buffer);
 }
 
-void from_json(json const& j, ScriptLayer& layer) {
+static void from_json(json const& j, ScriptLayer& layer) {
     CHECK_ARG(j.is_object(), "Bad JSON layer: {}", j.dump());
     CHECK_ARG(j.count("media"), "No \"media\" in JSON layer: {}", j.dump());
     j.at("media").get_to(layer.media);
@@ -146,7 +146,7 @@ void from_json(json const& j, ScriptLayer& layer) {
     j.value("opacity", json{}).get_to(layer.opacity);
 }
 
-void from_json(json const& j, ScriptScreen& screen) {
+static void from_json(json const& j, ScriptScreen& screen) {
     CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
     j.value("display_mode", json{}).get_to(screen.display_mode);
     screen.display_hz = j.value("display_hz", screen.display_hz);
@@ -155,15 +155,24 @@ void from_json(json const& j, ScriptScreen& screen) {
     j.value("layers", json::array()).get_to(screen.layers);
 }
 
-void from_json(json const& j, Script& script) {
-    script = {};
+static void from_json(json const& j, Script& s) {
+    s = {};
     CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
-    j.value("screens", json::object()).get_to(script.screens);
-    j.value("standbys", json::array()).get_to(script.standbys);
-    script.main_loop_hz = j.value("main_loop_hz", script.main_loop_hz);
-    script.main_buffer = j.value("main_buffer", script.main_buffer);
-    script.zero_time = j.value("zero_time", script.zero_time);
-    CHECK_ARG(script.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
+    j.value("screens", json::object()).get_to(s.screens);
+    j.value("standbys", json::array()).get_to(s.standbys);
+    if (j.count("zero_time"))
+        s.zero_time = j.at("zero_time").get<double>();
+    s.main_loop_hz = j.value("main_loop_hz", s.main_loop_hz);
+    s.main_buffer_time = j.value("main_buffer_time", s.main_buffer_time);
+    CHECK_ARG(s.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
+}
+
+Script parse_script(std::string_view text) {
+    try {
+        return nlohmann::json::parse(text).get<Script>();
+    } catch (nlohmann::json::exception const& e) {
+        std::throw_with_nested(std::invalid_argument(e.what()));
+    }
 }
 
 }  // namespace pivid
