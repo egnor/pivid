@@ -62,7 +62,7 @@ Use `--help` to see usage (and/or read the source).
 * [libav](https://libav.org/) - video processing libraries [ffmpeg](https://ffmpeg.org/), including encoding and decoding
 * [rpi-ffmpeg](https://github.com/jc-kynesim/rpi-ffmpeg/tree/release/4.3/rpi_main) - branch of ffmpeg and libav with Raspberry Pi hardware support (via V4L2)
 * [kernel.org: Video for Linux API](https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/v4l2.html) - kernel/user interface
-* libav hardware buffer allocation:
+* libav hardware buffer pool allocation:
     * registered AVCodec -> `v4l2_m2m_dec.c`: `v4l2_decode_init` (with `num_capture_buffers` option)
     * -> `v4l2_m2m.c`: `ff_v4l2_m2m_codec_init` -> `v4l2_configure_contexts` (copies to `num_buffers`)
     * -> `v4l2_context.c`: `ff_v4l2_context_init` -> `create_buffers` (uses `num_buffers`)
@@ -71,9 +71,13 @@ Use `--help` to see usage (and/or read the source).
 * libav V4L2 buffer reference (bufref) deallocation:
     * user -> `frame.c`: `av_frame_free` -> `av_frame_unref` -> `av_buffer_unref(&frame->buf[i])` (for all i)
     * -> `v4l2_buffers.c`: `v4l2_free_bufref` (via `buf[0]`) -> `ff_v4l2_buffer_enqueue` (`VIDIOC_QBUF` ioctl)
-* libav V4L2 actual buffer (buffer) deallocation:
+* libav V4L2 buffer unreferencing:
     * all bufrefs AND context gone -> `v4l2_buffer_buffer_free` (see `ff_v4l2_buffer_initialize`)
     * -> `munmap` memory mappings, `close` exported DRM fd', `free` the actual structure
+* libav V4L2 buffer pool deallocation:
+    * registered AVCodec -> `v4l2_m2m_dec.c`: `v4l2_decode_close`
+    * -> `v4l2_m2m.c`: `ff_v4l2_m2m_codec_end` -> (via unref) `v4l2_m2m_destroy_context`
+    * -> `v4l2_context.c`: `ff_v4l2_context_release` -> `v4l2_release_buffers` (`VIDIOC_REQBUFS` ioctl)
 
 ### Misc links
 * [One Dimensional Cubic Bezier Curve](http://www.demofox.org/bezcubic1d.html) - interactive explorer for 1-D cubic Beziers
