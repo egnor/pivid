@@ -23,7 +23,6 @@ struct ScriptContext {
     std::shared_ptr<SyncFlag> notify;
     std::string root_dir;
     std::string file_base;
-    double default_zero_time = 0.0;
     FrameLoaderContext loader_cx;
     std::function<std::unique_ptr<FrameLoader>(FrameLoaderContext)> loader_f;
     std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;

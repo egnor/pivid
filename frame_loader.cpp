@@ -32,77 +32,76 @@ class FrameLoaderDef : public FrameLoader {
         }
     }
 
-    virtual void set_request(
-        IntervalSet const& wanted,
-        std::shared_ptr<SyncFlag> notify
-    ) final {
+    virtual void set_request(FrameRequest request) final {
         std::unique_lock lock{mutex};
-        this->notify = std::move(notify);
-
-        if (wanted == this->wanted) {
+        if (request.wanted == req.wanted) {
             TRACE(logger, "REQ (same) \"{}\"", cx.filename);
-        } else {
-            DEBUG(logger, "REQ \"{}\"", cx.filename);
-            DEBUG(logger, "  [req] want {}", debug(wanted));
-
-            // Remove no-longer-wanted frames & have-regions
-            auto to_erase = out.have;
-            for (auto const& want : wanted) {
-                // Keep up to one frame before/after, so every instant of each
-                // wanted interval has a frame, and so skipahead loads are OK
-                auto keep = want;
-
-                auto const begin_have = out.have.overlap_begin(want.begin);
-                if (begin_have != out.have.overlap_end(want.begin)) {
-                    ASSERT(begin_have->begin <= want.begin);
-                    keep.begin = begin_have->begin;
-                    auto begin_frame = out.frames.upper_bound(want.begin);
-                    if (begin_frame != out.frames.begin()) {
-                        --begin_frame;
-                        ASSERT(begin_frame->first <= want.begin);
-                        keep.begin = std::max(keep.begin, begin_frame->first);
-                    }
-                }
-
-                auto const end_have = out.have.overlap_begin(want.end);
-                if (end_have != out.have.overlap_end(want.end)) {
-                    ASSERT(end_have->end >= want.end);
-                    keep.end = end_have->end;
-                    auto end_frame = out.frames.lower_bound(want.end);
-                    if (end_frame != out.frames.end()) {
-                        ++end_frame;
-                        if (end_frame != out.frames.end()) {
-                            ASSERT(end_frame->first >= want.end);
-                            keep.end = std::min(keep.end, end_frame->first);
-                        }
-                    }
-                }
-
-                to_erase.erase(keep);
-            }
-
-            if (!to_erase.empty()) {
-                int nframe = 0;
-                for (auto const& erase : to_erase) {
-                    out.have.erase(erase);
-                    auto const fbegin = out.frames.lower_bound(erase.begin);
-                    auto const fend = out.frames.lower_bound(erase.end);
-                    nframe += std::distance(fbegin, fend);
-                    out.frames.erase(fbegin, fend);
-                }
-                TRACE(logger, "  [req] del {} ({}fr)", debug(to_erase), nframe);
-                TRACE(logger, "  [req] have {}", debug(out.have));
-            }
-
-            this->wanted = wanted;
-            lock.unlock();
-            wakeup->set();
+            req = std::move(request);  // Capture options, skip notify
+            return;
         }
+
+        DEBUG(logger, "REQ \"{}\"", cx.filename);
+        DEBUG(logger, "  [req] want {}", debug(req.wanted));
+
+        // Remove no-longer-wanted frames & have-regions
+        auto to_erase = loaded.coverage;
+        for (auto const& want : req.wanted) {
+            // Keep up to one frame before/after, so every instant of each
+            // wanted interval has a frame, and so skipahead loads are OK
+            auto keep = want;
+
+            auto const begin_have = loaded.coverage.overlap_begin(want.begin);
+            if (begin_have != loaded.coverage.overlap_end(want.begin)) {
+                ASSERT(begin_have->begin <= want.begin);
+                keep.begin = begin_have->begin;
+                auto begin_frame = loaded.frames.upper_bound(want.begin);
+                if (begin_frame != loaded.frames.begin()) {
+                    --begin_frame;
+                    ASSERT(begin_frame->first <= want.begin);
+                    keep.begin = std::max(keep.begin, begin_frame->first);
+                }
+            }
+
+            auto const end_have = loaded.coverage.overlap_begin(want.end);
+            if (end_have != loaded.coverage.overlap_end(want.end)) {
+                ASSERT(end_have->end >= want.end);
+                keep.end = end_have->end;
+                auto end_frame = loaded.frames.lower_bound(want.end);
+                if (end_frame != loaded.frames.end()) {
+                    ++end_frame;
+                    if (end_frame != loaded.frames.end()) {
+                        ASSERT(end_frame->first >= want.end);
+                        keep.end = std::min(keep.end, end_frame->first);
+                    }
+                }
+            }
+
+            to_erase.erase(keep);
+        }
+
+        if (!to_erase.empty()) {
+            int nframe = 0;
+            for (auto const& erase : to_erase) {
+                loaded.coverage.erase(erase);
+                auto const fbegin = loaded.frames.lower_bound(erase.begin);
+                auto const fend = loaded.frames.lower_bound(erase.end);
+                nframe += std::distance(fbegin, fend);
+                loaded.frames.erase(fbegin, fend);
+            }
+            TRACE(logger, "  [req] del {} ({}fr)", debug(to_erase), nframe);
+            TRACE(
+                logger, "  [req] have {} ({}fr)",
+                debug(loaded.coverage), loaded.frames.size()
+            );
+        }
+
+        lock.unlock();
+        wakeup->set();
     }
 
-    virtual Content content() const final {
+    virtual LoadedFrames frames() const final {
         std::scoped_lock lock{mutex};
-        return out;
+        return loaded;
     }
 
     virtual MediaFileInfo file_info() const final {
@@ -133,13 +132,16 @@ class FrameLoaderDef : public FrameLoader {
             auto const now = cx.sys->clock();
             DEBUG(logger, "LOAD {} \"{}\"", abbrev_realtime(now), cx.filename);
 
-            auto to_load = wanted;
+            auto to_load = req.wanted;
             to_load.erase({to_load.bounds().begin, 0});
-            to_load.erase(out.have);
-            if (out.eof) to_load.erase({*out.eof, to_load.bounds().end});
+            to_load.erase(loaded.coverage);
+            if (loaded.eof) to_load.erase({*loaded.eof, to_load.bounds().end});
 
-            TRACE(logger, "  have {}", debug(out.have));
-            TRACE(logger, "  want {}", debug(wanted));
+            TRACE(
+                logger, "  have {} ({}fr)",
+                debug(loaded.coverage), loaded.frames.size()
+            );
+            TRACE(logger, "  want {}", debug(req.wanted));
             TRACE(logger, "  load {}", debug(to_load));
 
             //
@@ -157,8 +159,8 @@ class FrameLoaderDef : public FrameLoader {
                     continue;
                 }
 
-                auto const wi = wanted.overlap_begin(li->begin);
-                ASSERT(wi != wanted.end());
+                auto const wi = req.wanted.overlap_begin(li->begin);
+                ASSERT(wi != req.wanted.end());
                 TRACE(
                     logger, "  w={} l={}: use d@{:.3f}",
                     debug(*wi), debug(*li), di->first
@@ -177,8 +179,8 @@ class FrameLoaderDef : public FrameLoader {
                     if (di != decoders.begin()) --di;
                 }
 
-                auto const wi = wanted.overlap_begin(li->begin);
-                ASSERT(wi != wanted.end());
+                auto const wi = req.wanted.overlap_begin(li->begin);
+                ASSERT(wi != req.wanted.end());
                 TRACE(
                     logger, "  w={} l={}: recyc d@{:.3f}",
                     debug(*wi), debug(*li), di->first
@@ -192,8 +194,8 @@ class FrameLoaderDef : public FrameLoader {
             // Pass 3: request decoder creation for remaining needs
             li = to_load.begin();
             while (li != to_load.end()) {
-                auto const wi = wanted.overlap_begin(li->begin);
-                ASSERT(wi != wanted.end());
+                auto const wi = req.wanted.overlap_begin(li->begin);
+                ASSERT(wi != req.wanted.end());
                 DEBUG(logger, "  w={} l={}: new!", debug(*wi), debug(*li));
 
                 assigned[li->begin].assignment = *li;
@@ -205,16 +207,16 @@ class FrameLoaderDef : public FrameLoader {
             while (di != decoders.end()) {
                 di->second.use_time = std::min(di->second.use_time, now);
                 double const age = now - di->second.use_time;
-                if (age > cx.decoder_idle_time) {
+                if (age > req.decoder_idle_time) {
                     DEBUG(
                         logger, "  drop d@{:.3f} ({:.3f}s old > {:.3f}s)",
-                        di->first, age, cx.decoder_idle_time
+                        di->first, age, req.decoder_idle_time
                     );
                     di = decoders.erase(di);
                 } else {
                     TRACE(
                         logger, "  keep d@{:.3f} ({:.3f}s old <= {:.3f}s)",
-                        di->first, age, cx.decoder_idle_time
+                        di->first, age, req.decoder_idle_time
                     );
                     ++di;
                 }
@@ -227,7 +229,10 @@ class FrameLoaderDef : public FrameLoader {
 
             // If there's no work, wait for a change in input.
             if (assigned.empty()) {
-                DEBUG(logger, "  waiting with {}", debug(out.have));
+                DEBUG(
+                    logger, "  waiting with {} ({}fr)",
+                    debug(loaded.coverage), loaded.frames.size()
+                );
                 lock.unlock();
                 wakeup->sleep();
                 lock.lock();
@@ -238,13 +243,13 @@ class FrameLoaderDef : public FrameLoader {
             while (!assigned.empty()) {
                 auto node = assigned.extract(assigned.begin());
                 auto const& load = node.mapped().assignment;
-                if (!wanted.contains(load.begin)) {
+                if (!req.wanted.contains(load.begin)) {
                     TRACE(logger, "  obsolete load {}", debug(load));
                     continue;
                 }
 
                 std::optional<MediaFrame> frame;
-                std::unique_ptr<LoadedImage> loaded;
+                std::unique_ptr<LoadedImage> image;
                 std::exception_ptr error;
                 lock.unlock();
 
@@ -258,7 +263,7 @@ class FrameLoaderDef : public FrameLoader {
 
                     // Heuristic threshold for forward-seek vs. read-forward
                     const auto seek_cutoff = load.begin - std::max(
-                        cx.seek_scan_time, 2 * node.mapped().backtrack
+                        req.seek_scan_time, 2 * node.mapped().backtrack
                     );
                     if (node.key() < seek_cutoff || node.key() >= load.end) {
                         DEBUG(
@@ -277,7 +282,7 @@ class FrameLoaderDef : public FrameLoader {
 
                     frame = node.mapped().decoder->next_frame();
                     if (frame && frame->time.begin >= node.key())
-                        loaded = cx.driver->load_image(frame->image);
+                        image = cx.driver->load_image(frame->image);
                 } catch (std::runtime_error const& e) {
                     logger->error("{}", e.what());
                     error = std::current_exception();
@@ -286,22 +291,22 @@ class FrameLoaderDef : public FrameLoader {
 
                 lock.lock();
                 if (error) {
-                    out.error = error;
+                    loaded.error = error;
                     ++changes;
                 }
 
                 if (!frame) {
                     double const eof = node.key();
-                    if (!out.eof) {
+                    if (!loaded.eof) {
                         DEBUG(logger, "  EOF {:.3f}s (new)", eof);
-                        out.eof = eof;
+                        loaded.eof = eof;
                         ++changes;
-                    } else if (eof < *out.eof) {
-                        DEBUG(logger, "  EOF {:.3f}s < old={}", eof, *out.eof);
-                        out.eof = eof;
+                    } else if (eof < *loaded.eof) {
+                        DEBUG(logger, "  EOF {:.3f}s < {}", eof, *loaded.eof);
+                        loaded.eof = eof;
                         ++changes;
                     } else {
-                        TRACE(logger, "  EOF {:.3f}s >= old={}", eof, *out.eof);
+                        TRACE(logger, "  EOF {:.3f}s >= {}", eof, *loaded.eof);
                     }
                 } else {
                     DEBUG(logger, "  d@{:.3f}: {}", node.key(), debug(*frame));
@@ -312,18 +317,18 @@ class FrameLoaderDef : public FrameLoader {
                     }
 
                     auto const begin = std::min(node.key(), frame->time.begin);
-                    auto const wi = wanted.overlap_begin(begin);
-                    if (wi == wanted.overlap_end(frame->time.end)) {
+                    auto const wi = req.wanted.overlap_begin(begin);
+                    if (wi == req.wanted.overlap_end(frame->time.end)) {
                         TRACE(logger, "    unwanted frame ignored");
-                    } else if (!loaded) {
+                    } else if (!image) {
                         TRACE(
                             logger, "    frame lands in {} but wasn't loaded",
                             debug(*wi)
                         );
                     } else {
                         TRACE(logger, "    frame lands in {}", debug(*wi));
-                        out.have.insert({begin, frame->time.end});
-                        out.frames[frame->time.begin] = std::move(loaded);
+                        loaded.coverage.insert({begin, frame->time.end});
+                        loaded.frames[frame->time.begin] = std::move(image);
                         ++changes;
                     }
 
@@ -334,8 +339,11 @@ class FrameLoaderDef : public FrameLoader {
                 decoders.insert(std::move(node));
             }
 
-            DEBUG(logger, "  looping with {} ({}ch)", debug(out.have), changes);
-            if (changes && notify) notify->set();
+            DEBUG(
+                logger, "  looping with {} ({}fr, {}ch)",
+                debug(loaded.coverage), loaded.frames.size(), changes
+            );
+            if (changes && req.notify) req.notify->set();
         }
 
         DEBUG(logger, "Stopped \"{}\" reader", cx.filename);
@@ -358,9 +366,8 @@ class FrameLoaderDef : public FrameLoader {
     // Guarded by mutex
     std::mutex mutable mutex;
     bool shutdown = false;
-    IntervalSet wanted;
-    std::shared_ptr<SyncFlag> notify;
-    Content out = {};
+    FrameRequest req = {};
+    LoadedFrames loaded = {};
 };
 
 }  // anonymous namespace

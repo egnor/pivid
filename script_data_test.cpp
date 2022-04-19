@@ -10,15 +10,17 @@ using json = nlohmann::json;
 namespace pivid {
 
 TEST_CASE("from_json (empty)") {
-    Script script = parse_script("{}");
+    Script script = parse_script("{}", 123.45);
+    CHECK(script.media.empty());
     CHECK(script.screens.empty());
-    CHECK(script.standbys.empty());
+    CHECK(script.zero_time == 123.45);
 }
 
 TEST_CASE("from_json") {
     auto const text = R"**({
       "main_loop_hz": 10.5,
       "main_buffer_time": 0.5,
+      "zero_time"; 12345.678,
       "screens": {
         "empty_screen": {},
         "full_screen": {
@@ -26,9 +28,10 @@ TEST_CASE("from_json") {
           "display_hz": 30,
           "update_hz": 15.5,
           "layers": [
-            {"media": {"file": "empty_layer"}},
+            {"media": "empty_layer"},
             {
-              "media": {"file": "full_layer", "play": {"t": 1, "rate": 2}},
+              "media": "full_layer",
+              "play": {"t": 1, "rate": 2},
               "from_xy": [100, 200],
               "from_size": [300, 400],
               "to_xy": [500, 600],
@@ -44,23 +47,67 @@ TEST_CASE("from_json") {
           ]
         }
       },
-      "standbys": [
-        {
-          "file": "standby",
-          "playtime_buffer": 0.5,
-          "mediatime_buffer": -0.3,
-          "play": {
-            "t": ["2020-03-01T12:00:00Z", "2020-03-01T12:01:30.5Z"],
-            "v": [0, 10, 90, 100],
-            "repeat": 7200
-          }
-        }
-      ]
+      "media": {
+        "media1": {
+          "preload": 1.1,
+          "decoder_idle_time": 1.5,
+          "seek_scan_time": 2.5
+        },
+        "media2": {
+          "preload": [
+            [2.1, 2.2],
+            [{"t": [1, 5], "v": [2.3, 2.4]}, 2.5]
+          ]
+        },
+        "media3": {"preload": [3.1, 3.2]}
+      }
     })**";
 
-    Script script = parse_script(text);
+    Script script = parse_script(text, 876.54321);
     CHECK(script.main_loop_hz == Approx(10.5));
     CHECK(script.main_buffer_time == Approx(0.5));
+    CHECK(script.zero_time == 12345.678);
+
+    REQUIRE(script.media.size() == 3);
+    REQUIRE(script.media.count("media1") == 1);
+    auto const& media1 = script.media["media1"];
+    REQUIRE(media1.preload.size() == 1);
+    REQUIRE(media1.preload[0].begin.segments.size() == 1);
+    REQUIRE(media1.preload[0].end.segments.size() == 1);
+    CHECK(media1.preload[0].begin.segments[0].t.begin == 0);
+    CHECK(media1.preload[0].begin.segments[0].t.end == 1e12);
+    CHECK(media1.preload[0].begin.segments[0].begin_v == 0);
+    CHECK(media1.preload[0].begin.segments[0].end_v == 0);
+    CHECK(media1.preload[0].end.segments[0].t.begin == 0);
+    CHECK(media1.preload[0].end.segments[0].t.end == 1e12);
+    CHECK(media1.preload[0].end.segments[0].begin_v == 1.1);
+    CHECK(media1.preload[0].end.segments[0].end_v == 1.1);
+    CHECK(media1.decoder_idle_time == 1.5);
+    CHECK(media1.seek_scan_time == 2.5);
+
+    REQUIRE(script.media.count("media2") == 1);
+    auto const& media2 = script.media["media2"];
+    REQUIRE(media2.preload.size() == 2);
+    REQUIRE(media2.preload[0].begin.segments.size() == 1);
+    REQUIRE(media2.preload[0].end.segments.size() == 1);
+    REQUIRE(media2.preload[1].begin.segments.size() == 1);
+    REQUIRE(media2.preload[1].end.segments.size() == 1);
+    CHECK(media2.preload[0].begin.segments[0].begin_v == 2.1);
+    CHECK(media2.preload[0].end.segments[0].begin_v == 2.2);
+    CHECK(media2.preload[1].begin.segments[0].t.begin == 1);
+    CHECK(media2.preload[1].begin.segments[0].t.end == 5);
+    CHECK(media2.preload[1].begin.segments[0].begin_v == 2.3);
+    CHECK(media2.preload[1].begin.segments[0].end_v == 2.4);
+    CHECK(media2.preload[1].end.segments[0].begin_v == 2.5);
+    CHECK(media2.preload[1].end.segments[0].end_v == 2.5);
+
+    REQUIRE(script.media.count("media3") == 1);
+    auto const& media3 = script.media["media3"];
+    REQUIRE(media3.preload.size() == 1);
+    REQUIRE(media3.preload[0].begin.segments.size() == 1);
+    REQUIRE(media3.preload[0].end.segments.size() == 1);
+    CHECK(media3.preload[0].begin.segments[0].begin_v == 3.1);
+    CHECK(media3.preload[0].end.segments[0].begin_v == 3.2);
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);
@@ -77,24 +124,23 @@ TEST_CASE("from_json") {
     CHECK(screen.display_hz == 30);
     CHECK(screen.update_hz == Approx(15.5));
     REQUIRE(screen.layers.size() == 2);
-    CHECK(screen.layers[0].media.file == "empty_layer");
-    CHECK(screen.layers[0].media.playtime_buffer == 0.2);
-    CHECK(screen.layers[0].media.mediatime_buffer == 0.0);
-    CHECK(screen.layers[0].media.play.segments.size() == 1);  // Default
-    CHECK(screen.layers[0].media.play.segments[0].t.begin == 0);
-    CHECK(screen.layers[0].media.play.segments[0].t.end == 1e12);
-    CHECK(screen.layers[0].media.play.segments[0].begin_v == 0);
-    CHECK(screen.layers[0].media.play.segments[0].end_v == 0);
+    CHECK(screen.layers[0].media == "empty_layer");
+    CHECK(screen.layers[0].play.segments.size() == 1);  // Default
+    CHECK(screen.layers[0].play.segments[0].t.begin == 0);
+    CHECK(screen.layers[0].play.segments[0].t.end == 1e12);
+    CHECK(screen.layers[0].play.segments[0].begin_v == 0);
+    CHECK(screen.layers[0].play.segments[0].end_v == 0);
+    CHECK(screen.layers[0].buffer == 0.2);
 
-    CHECK(screen.layers[1].media.file == "full_layer");
-    REQUIRE(screen.layers[1].media.play.segments.size() == 1);
-    CHECK(screen.layers[1].media.play.repeat == 0.0);
-    CHECK(screen.layers[1].media.play.segments[0].t.begin == 1);
-    CHECK(screen.layers[1].media.play.segments[0].t.end == 1e12);
-    CHECK(screen.layers[1].media.play.segments[0].begin_v == 0);
-    CHECK(screen.layers[1].media.play.segments[0].p1_v == Approx(2e12 / 3));
-    CHECK(screen.layers[1].media.play.segments[0].p2_v == Approx(2e12 * 2 / 3));
-    CHECK(screen.layers[1].media.play.segments[0].end_v == 2 * (1e12 - 1));
+    CHECK(screen.layers[1].media == "full_layer");
+    REQUIRE(screen.layers[1].play.segments.size() == 1);
+    CHECK(screen.layers[1].play.repeat == 0.0);
+    CHECK(screen.layers[1].play.segments[0].t.begin == 1);
+    CHECK(screen.layers[1].play.segments[0].t.end == 1e12);
+    CHECK(screen.layers[1].play.segments[0].begin_v == 0);
+    CHECK(screen.layers[1].play.segments[0].p1_v == Approx(2e12 / 3));
+    CHECK(screen.layers[1].play.segments[0].p2_v == Approx(2e12 * 2 / 3));
+    CHECK(screen.layers[1].play.segments[0].end_v == 2 * (1e12 - 1));
 
     REQUIRE(screen.layers[1].from_xy.x.segments.size() == 1);
     REQUIRE(screen.layers[1].from_xy.y.segments.size() == 1);
@@ -130,94 +176,6 @@ TEST_CASE("from_json") {
     CHECK(screen.layers[1].opacity.segments[1].p1_v == Approx(2.0 / 3));
     CHECK(screen.layers[1].opacity.segments[1].p2_v == Approx(1.0 / 3));
     CHECK(screen.layers[1].opacity.segments[1].end_v == 0);
-
-    REQUIRE(script.standbys.size() == 1);
-    auto const& standby = script.standbys[0];
-    CHECK(standby.file == "standby");
-    CHECK(standby.playtime_buffer == 0.5);
-    CHECK(standby.mediatime_buffer == -0.3);
-
-    REQUIRE(standby.play.segments.size() == 1);
-    CHECK(standby.play.segments[0].t.begin == 1583064000);
-    CHECK(standby.play.segments[0].t.end == Approx(1583064000 + 90.5));
-    CHECK(standby.play.segments[0].begin_v == 0);
-    CHECK(standby.play.segments[0].p1_v == 10);
-    CHECK(standby.play.segments[0].p2_v == 90);
-    CHECK(standby.play.segments[0].end_v == 100);
-    CHECK(standby.play.repeat == 7200.0);
-}
-
-TEST_CASE("make_time_absolute") {
-    auto const text = R"**({
-      "screens": {
-        "s0": {
-          "layers": [
-            {
-              "media": {"file": "f0", "play": [{"t": [1, 2]}, {"t": [2, 3]}]},
-              "from_xy": [{"t": [3, 4]}, {"t": [4, 5]}],
-              "from_size": [5, 6],
-              "to_xy": [6, 7],
-              "to_size": [7, 8],
-              "opacity": 9
-            },
-            {"media": {"file": "f1", "play": 10}}
-          ]
-        },
-        "s1": {"layers": [{"media": {"file": "f2", "play": 11}}]}
-      },
-      "standbys": [{"file": "f3", "play": 12}, {"file": "f4", "play": 13}]
-    })**";
-
-    Script script = parse_script(text);
-    CHECK(script.main_loop_hz == Script{}.main_loop_hz);
-    CHECK(script.main_buffer_time == Script{}.main_buffer_time);
-
-    REQUIRE(script.screens.size() == 2);
-    REQUIRE(script.screens["s0"].layers.size() == 2);
-    REQUIRE(script.screens["s1"].layers.size() == 1);
-
-    auto const& s0_l0 = script.screens["s0"].layers[0];
-    REQUIRE(s0_l0.media.play.segments.size() == 2);
-    CHECK(s0_l0.media.play.segments[0].t.begin == Approx(1));
-    CHECK(s0_l0.media.play.segments[0].t.end == Approx(2));
-    CHECK(s0_l0.media.play.segments[1].t.begin == Approx(2));
-    CHECK(s0_l0.media.play.segments[1].t.end == Approx(3));
-
-    REQUIRE(s0_l0.from_xy.x.segments.size() == 1);
-    REQUIRE(s0_l0.from_xy.y.segments.size() == 1);
-    CHECK(s0_l0.from_xy.x.segments[0].t.begin == Approx(3));
-    CHECK(s0_l0.from_xy.y.segments[0].t.end == Approx(5));
-
-    REQUIRE(s0_l0.from_size.x.segments.size() == 1);
-    CHECK(s0_l0.from_size.x.segments[0].t.begin == Approx(0));
-    CHECK(s0_l0.from_size.x.segments[0].t.end == Approx(1e12));
-    CHECK(s0_l0.from_size.x.segments[0].begin_v == Approx(5));
-
-    REQUIRE(s0_l0.to_xy.x.segments.size() == 1);
-    REQUIRE(s0_l0.to_size.x.segments.size() == 1);
-    REQUIRE(s0_l0.opacity.segments.size() == 1);
-    CHECK(s0_l0.to_xy.x.segments[0].t.begin == Approx(0));
-    CHECK(s0_l0.to_size.x.segments[0].t.begin == Approx(0));
-    CHECK(s0_l0.opacity.segments[0].t.begin == Approx(0));
-
-    auto const& s0_l1 = script.screens["s0"].layers[1];
-    REQUIRE(s0_l1.media.play.segments.size() == 1);
-    CHECK(s0_l1.media.play.segments[0].t.begin == Approx(0));
-    CHECK(s0_l1.media.play.segments[0].begin_v == Approx(10));
-
-    auto const& s1_l0 = script.screens["s1"].layers[0];
-    REQUIRE(s1_l0.media.play.segments.size() == 1);
-    CHECK(s1_l0.media.play.segments[0].t.begin == Approx(0));
-    CHECK(s1_l0.media.play.segments[0].begin_v == Approx(11));
-
-    REQUIRE(script.standbys.size() == 2);
-    REQUIRE(script.standbys[0].play.segments.size() == 1);
-    CHECK(script.standbys[0].play.segments[0].t.begin == Approx(0));
-    CHECK(script.standbys[0].play.segments[0].begin_v == Approx(12));
-
-    REQUIRE(script.standbys[1].play.segments.size() == 1);
-    CHECK(script.standbys[1].play.segments[0].t.begin == Approx(0));
-    CHECK(script.standbys[1].play.segments[0].begin_v == Approx(13));
 }
 
 }  // namespace pivid

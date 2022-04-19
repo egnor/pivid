@@ -5,11 +5,9 @@
       "update_hz": 12.5,
       "layers": [
         {
-          "media": {
-            "file": "totoro.pal8-t.gif",
-            "play": {"t": [0.2, 1.48], "rate": 1, "repeat": true},
-            "buffer": 2.0
-          }
+          "media": "totoro.pal8-t.gif",
+          "play": {"t": [0.2, 1.48], "rate": 1, "repeat": true},
+          "buffer": 2.0
         }
       ]
     }

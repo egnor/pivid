@@ -5,11 +5,9 @@
       "update_hz": 24,
       "layers": [
         {
-          "media": {
-            "file": "big_buck_bunny_excerpt.hevc.mkv",
-            "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
-            "buffer": 0.3
-          }
+          "media": "big_buck_bunny_excerpt.hevc.mkv",
+          "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
+          "buffer": 0.3
         }
       ]
     },
@@ -18,11 +16,9 @@
       "update_hz": 24,
       "layers": [
         {
-          "media": {
-            "file": "big_buck_bunny_excerpt.hevc.mkv",
-            "play": {"t": [0.5, 30], "v": [0.5, 30], "repeat": true},
-            "buffer": 0.3
-          }
+          "media": "big_buck_bunny_excerpt.hevc.mkv",
+          "play": {"t": [0.5, 30], "v": [0.5, 30], "repeat": true},
+          "buffer": 0.3
         }
       ]
     }

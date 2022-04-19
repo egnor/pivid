@@ -36,12 +36,37 @@ class ScriptRunnerDef : public ScriptRunner {
     virtual void update(Script const& script) final {
         std::unique_lock lock{mutex};
         auto const now = cx.sys->clock();
-        auto const t0 = script.zero_time.value_or(cx.default_zero_time);
-        DEBUG(logger, "UPDATE {} ({:.3f}s)", abbrev_realtime(now), now - t0);
+        auto const t0 = script.zero_time;
+        DEBUG(logger, "UPDATE {} (t0+{:.3f}s)", abbrev_realtime(now), now - t0);
+        for (const auto& [media, script_media] : script.media) {
+            auto const& file = find_file(lock, media);
+            auto* input = &input_media[file];
+            TRACE(logger, "  media \"{}\"", file);
+
+            input->req.decoder_idle_time = script_media.decoder_idle_time;
+            input->req.seek_scan_time = script_media.seek_scan_time;
+            TRACE(
+                logger, "    idle={:.3f}s scan={:.3f}s",
+                input->req.decoder_idle_time,
+                input->req.seek_scan_time
+            );
+
+            for (auto const& preload : script_media.preload) {
+                auto const begin = preload.begin.value(now - t0);
+                auto const end = preload.end.value(now - t0);
+                if (begin && end) {
+                    Interval want{*begin, *end};
+                    TRACE(logger, "    preload {}", debug(want));
+                    input->req.wanted.insert(want);
+                } else {
+                    TRACE(logger, "    preload inactive");
+                }
+            }
+        }
 
         std::vector<DisplayScreen> display_screens;
         for (auto const& [connector, script_screen] : script.screens) {
-            auto *output = &outputs[connector];
+            auto *output = &output_screens[connector];
             output->defined = true;
 
             if (output->player && matches_mode(script_screen, output->mode)) {
@@ -108,24 +133,26 @@ class ScriptRunnerDef : public ScriptRunner {
 
             for (size_t li = 0; li < script_screen.layers.size(); ++li) {
                 auto const& script_layer = script_screen.layers[li];
-                auto const& file = find_file(lock, script_layer.media.file);
-                auto* input = &inputs[file];
+                auto const& file = find_file(lock, script_layer.media);
+                auto* input = &input_media[file];
                 DEBUG(logger, "    \"{}\"", file);
 
-                IntervalSet want = buffer_wanted(script_layer.media, now - t0);
+                auto const rt = now - t0;
+                Interval const buffer_t{rt, rt + script_layer.buffer};
+                IntervalSet const want = script_layer.play.range(buffer_t);
                 TRACE(logger, "      want {}", debug(want));
-                input->request.insert(want);
+                input->req.wanted.insert(want);
 
-                if (!input->content) {
+                if (!input->frames) {
                     if (!input->loader) continue;
-                    input->content = input->loader->content();
+                    input->frames = input->loader->frames();
                 }
-                TRACE(logger, "      have {}", debug(input->content->have));
+                TRACE(logger, "      have {}", debug(input->frames->coverage));
 
                 for (auto& [t, t_layers] : timeline) {
-                    auto const media_t = script_layer.media.play.value(t - t0);
+                    auto const media_t = script_layer.play.value(t - t0);
                     if (!media_t) {
-                        TRACE(logger, "      {:+.3f}s not active", t - now);
+                        TRACE(logger, "      {:+.3f}s inactive", t - now);
                         continue;
                     } else if (*media_t < 0) {
                         TRACE(
@@ -135,7 +162,7 @@ class ScriptRunnerDef : public ScriptRunner {
                         continue;
                     }
 
-                    if (!input->content->have.contains(*media_t)) {
+                    if (!input->frames->coverage.contains(*media_t)) {
                         TRACE(
                             logger, "      {:+.3f}s m{:.3f}s not loaded!",
                             t - now, *media_t
@@ -143,8 +170,8 @@ class ScriptRunnerDef : public ScriptRunner {
                         continue;
                     }
 
-                    auto fit = input->content->frames.upper_bound(*media_t);
-                    if (fit == input->content->frames.begin()) {
+                    auto fit = input->frames->frames.upper_bound(*media_t);
+                    if (fit == input->frames->frames.begin()) {
                         TRACE(
                             logger, "      {:+.3f}s m{:.3f}s empty media",
                             t - now, *media_t
@@ -181,26 +208,16 @@ class ScriptRunnerDef : public ScriptRunner {
             output->player->set_timeline(std::move(timeline));
         }
 
-        for (const auto& script_standby : script.standbys) {
-            auto const& file = find_file(lock, script_standby.file);
-            auto* input = &inputs[file];
-            TRACE(logger, "  standby \"{}\"", file);
-
-            IntervalSet want = buffer_wanted(script_standby, now - t0);
-            TRACE(logger, "    want {}", debug(want));
-            input->request.insert(want);
-        }
-
-        auto input_it = inputs.begin();
-        while (input_it != inputs.end()) {
+        auto input_it = input_media.begin();
+        while (input_it != input_media.end()) {
             auto *input = &input_it->second;
-            if (input->request.empty()) {
+            if (input->req.wanted.empty()) {
                 if (input->loader) {
                     DEBUG(logger, "  closing \"{}\"", input_it->first);
                 } else {
                     TRACE(logger, "  unused \"{}\"", input_it->first);
                 }
-                input_it = inputs.erase(input_it);
+                input_it = input_media.erase(input_it);
             } else {
                 if (input->loader) {
                     TRACE(logger, "  refresh \"{}\"", input_it->first);
@@ -211,15 +228,15 @@ class ScriptRunnerDef : public ScriptRunner {
                     input->loader = cx.loader_f(std::move(loader_cx));
                 }
 
-                TRACE(logger, "    request {}", debug(input->request));
-                input->loader->set_request(input->request);
-                input->request = {};
-                input->content = {};
+                TRACE(logger, "    request {}", debug(input->req.wanted));
+                input->loader->set_request(std::move(input->req));
+                input->req = {};
+                input->frames = {};
                 ++input_it;
             }
         }
 
-        for (auto& [conn, output] : outputs) {
+        for (auto& [conn, output] : output_screens) {
             if (!output.defined) {
                 DEBUG(logger, "  [{}] unspecified, blanking", output.name);
                 output.player->set_timeline({});
@@ -238,7 +255,7 @@ class ScriptRunnerDef : public ScriptRunner {
         if (cache_it != info_cache.end()) {
             TRACE(logger, "FILE INFO {}", debug(cache_it->second));
         } else {
-            auto loader = inputs[file].loader;
+            auto loader = input_media[file].loader;
 
             lock.unlock();
             if (!loader) {
@@ -252,7 +269,7 @@ class ScriptRunnerDef : public ScriptRunner {
             DEBUG(logger, "FILE INFO {}", debug(info));
             lock.lock();  // State may have changed!
 
-            auto* input = &inputs[file];
+            auto* input = &input_media[file];
             if (!input->loader) input->loader = loader;
             cache_it = info_cache.insert({file, std::move(info)}).first;
         }
@@ -295,13 +312,13 @@ class ScriptRunnerDef : public ScriptRunner {
     }
 
   private:
-    struct Input {
+    struct InputMedia {
         std::shared_ptr<FrameLoader> loader;
-        IntervalSet request;
-        std::optional<FrameLoader::Content> content;
+        std::optional<LoadedFrames> frames;
+        FrameRequest req;
     };
 
-    struct Output {
+    struct OutputScreen {
         std::string name;
         XY<int> size;
         DisplayMode mode;
@@ -315,8 +332,8 @@ class ScriptRunnerDef : public ScriptRunner {
 
     // Guarded by mutex
     std::mutex mutable mutex;
-    std::map<std::string, Input> inputs;
-    std::map<std::string, Output> outputs;
+    std::map<std::string, InputMedia> input_media;
+    std::map<std::string, OutputScreen> output_screens;
     std::map<std::string, std::string> path_cache;
     std::map<std::string, MediaFileInfo> info_cache;
 
@@ -340,24 +357,6 @@ class ScriptRunnerDef : public ScriptRunner {
         }
 
         return cache_it->second;
-    }
-
-    IntervalSet buffer_wanted(ScriptMedia const& script_media, double rel_now) {
-        IntervalSet want;
-        if (script_media.playtime_buffer > 0.0) {
-            Interval const pt{rel_now, rel_now + script_media.playtime_buffer};
-            want = script_media.play.range(pt);
-        }
-
-        if (script_media.mediatime_buffer < 0.0) {
-            auto const mt = script_media.play.value(rel_now);
-            if (mt) want.insert({*mt + script_media.mediatime_buffer, *mt});
-        } else if (script_media.mediatime_buffer > 0.0) {
-            auto const mt = script_media.play.value(rel_now);
-            if (mt) want.insert({*mt, *mt + script_media.mediatime_buffer});
-        }
-
-        return want;
     }
 };
 

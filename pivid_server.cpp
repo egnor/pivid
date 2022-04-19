@@ -61,6 +61,7 @@ struct ServerContext {
     std::shared_ptr<UnixSystem> sys;
     std::shared_ptr<DisplayDriver> driver;
     std::unique_ptr<ScriptRunner> runner;
+    double default_zero_time = 0.0;
     bool trust_network = false;
     int port = 31415;
 };
@@ -72,7 +73,7 @@ class Server {
         if (thread.joinable()) {
             DEBUG(logger, "Stopping update thread");
             shutdown = true;
-            wakeup->set();
+            wakeup_mono->set();
             thread.join();
         }
     }
@@ -92,7 +93,7 @@ class Server {
         );
 
         DEBUG(logger, "Launching update thread");
-        wakeup = cx.sys->make_flag();
+        wakeup_mono = cx.sys->make_flag(CLOCK_MONOTONIC);
         thread = std::thread(&Server::update_thread, this);
         if (cx.trust_network) {
             logger->info("Listening to WHOLE NETWORK on port {}", cx.port);
@@ -113,7 +114,7 @@ class Server {
             if (!script) {
                 TRACE(logger, "UPDATE (wait for script)");
                 lock.unlock();
-                wakeup->sleep();
+                wakeup_mono->sleep();
                 lock.lock();
                 continue;
             }
@@ -127,12 +128,12 @@ class Server {
                     last_mono + period - mono
                 );
                 lock.unlock();
-                wakeup->sleep_until(last_mono + period);
+                wakeup_mono->sleep_until(last_mono + period);
                 lock.lock();
                 continue;
             }
 
-            DEBUG(logger, "UPDATE (m{:.3f}s)", mono);
+            DEBUG(logger, "UPDATE (mono={:.3f}s)", mono);
             last_mono = std::max(last_mono + period, mono - period);
             auto const copy = script;
             lock.unlock();
@@ -149,7 +150,7 @@ class Server {
     ServerContext cx;
     httplib::Server http;
     std::thread thread;
-    std::shared_ptr<SyncFlag> wakeup;
+    std::shared_ptr<SyncFlag> wakeup_mono;
 
     // Guarded by mutex
     std::mutex mutable mutex;
@@ -177,12 +178,25 @@ class Server {
     }
 
     void on_play(httplib::Request const& req, httplib::Response& res) {
-        auto new_script = std::make_shared<Script>(parse_script(req.body));
+        auto new_script = std::make_shared<Script>(
+            parse_script(req.body, cx.default_zero_time)
+        );
+
+        int layer_count = 0;
+        for (auto const& [name, screen] : new_script->screens)
+            layer_count += screen.layers.size();
+
+        DEBUG(
+            logger, "PLAY scr={} lay={} med={} t0={}",
+            new_script->screens.size(), layer_count, new_script->media.size(),
+            format_realtime(new_script->zero_time)
+        );
+
+        TRACE(logger, "  Script: {}", req.body);
 
         std::unique_lock lock{mutex};
-        DEBUG(logger, "PLAY script ({}b)", req.body.size());
         script = std::move(new_script);
-        wakeup->set();
+        wakeup_mono->set();
 
         nlohmann::json const j = {{"req", req.path}, {"ok", true}};
         res.set_content(j.dump(), "application/json");
@@ -201,7 +215,7 @@ class Server {
         DEBUG(logger, "STOP");
         http.stop();
         shutdown = true;
-        wakeup->set();
+        wakeup_mono->set();
 
         nlohmann::json const j = {{"req", req.path}, {"ok", true}};
         res.set_content(j.dump(), "application/json");
@@ -261,10 +275,10 @@ extern "C" int main(int const argc, char const* const* const argv) {
         script_cx.sys = server_cx.sys;
         script_cx.driver = server_cx.driver;
         script_cx.file_base = script_cx.root_dir;
-        script_cx.default_zero_time = server_cx.sys->clock();
+        server_cx.default_zero_time = server_cx.sys->clock();
 
         logger->info("Media root: {}", script_cx.root_dir);
-        logger->info("Start: {}", format_realtime(script_cx.default_zero_time));
+        logger->info("Start: {}", format_realtime(server_cx.default_zero_time));
         server_cx.runner = make_script_runner(std::move(script_cx));
 
         Server server;

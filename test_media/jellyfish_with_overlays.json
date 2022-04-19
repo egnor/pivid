@@ -5,27 +5,21 @@
       "update_hz": 30,
       "layers": [
         {
-          "media": {
-            "file": "jellyfish-3-mbps-hd-hevc.mkv",
-            "play": {"t": [0.5, 30], "v": 0.1, "rate": 1, "repeat": true},
-            "buffer": 0.3
-          }
+          "file": "jellyfish-3-mbps-hd-hevc.mkv",
+          "play": {"t": [0.5, 30], "v": 0.1, "rate": 1, "repeat": true},
+          "buffer": 0.3
         },
         {
-          "media": {
-            "file": "big_buck_bunny_excerpt.hevc.mkv",
-            "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
-            "buffer": 0.3
-          },
+          "media": "big_buck_bunny_excerpt.hevc.mkv",
+          "play": {"t": [0.5, 30], "v": [30, 0.5], "repeat": true},
+          "buffer": 0.3,
           "to_xy": [100, 270],
           "to_size": [960, 540],
           "opacity": 0.8
         },
         {
-          "media": {
-            "file": "kitten.rgba.png",
-            "play": {"t": [0.5, 1], "v": 0, "repeat": true}
-          },
+          "media": "kitten.rgba.png",
+          "play": {"t": [0.5, 1], "v": 0, "repeat": true},
           "to_xy": [
              {
                  "segments": [
@@ -61,11 +55,9 @@
           ]
         },
         {
-          "media": {
-            "file": "totoro.pal8-t.gif",
-            "play": {"t": [0.5, 1.78], "rate": 1, "repeat": true},
-            "buffer": 2.0
-          },
+          "media": "totoro.pal8-t.gif",
+          "play": {"t": [0.5, 1.78], "rate": 1, "repeat": true},
+          "buffer": 2.0,
           "to_xy": [{"t": [0.5, 10.5], "v": [1920, -500], "repeat": true}, 358]
         }
       ]

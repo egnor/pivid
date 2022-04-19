@@ -11,15 +11,21 @@
 
 namespace pivid {
 
+struct ScriptPreload {
+    BezierSpline begin;
+    BezierSpline end;
+};
+
 struct ScriptMedia {
-    std::string file;
-    BezierSpline play;
-    double playtime_buffer = 0.2;
-    double mediatime_buffer = 0.0;
+    std::vector<ScriptPreload> preload;
+    double decoder_idle_time = 1.0;
+    double seek_scan_time = 1.0;
 };
 
 struct ScriptLayer {
-    ScriptMedia media;
+    std::string media;
+    BezierSpline play;
+    double buffer = 0.2;
     XY<BezierSpline> from_xy, from_size;
     XY<BezierSpline> to_xy, to_size;
     BezierSpline opacity;
@@ -33,13 +39,13 @@ struct ScriptScreen {
 };
 
 struct Script {
+    std::map<std::string, ScriptMedia> media;
     std::map<std::string, ScriptScreen> screens;
-    std::vector<ScriptMedia> standbys;
-    std::optional<double> zero_time;
+    double zero_time = 0.0;
     double main_loop_hz = 15.0;
     double main_buffer_time = 0.2;
 };
 
-Script parse_script(std::string_view);
+Script parse_script(std::string_view, double default_zero_time);
 
 }  // namespace pivid

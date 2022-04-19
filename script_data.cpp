@@ -37,13 +37,12 @@ static double parse_json_time(json const& j) {
 
 static void from_json(json const& j, BezierSegment& seg) {
     if (j.is_number()) {
-        seg.t = {0, 1e12};
-        seg.begin_v = seg.p1_v = seg.p2_v = seg.end_v = j.get<double>();
+        seg = constant_segment({0, 1e12}, j.get<double>());
         return;
     }
 
     CHECK_ARG(j.is_object(), "Bad Bezier segment: {}", j.dump());
-    auto const t_j = j.value("t", json{});
+    auto const t_j = j.value("t", json());
     if (t_j.empty()) {
         seg.t = {0.0, j.value("len", 1e12)};
     } else if (t_j.is_number() || (t_j.is_array() && t_j.size() == 1)) {
@@ -58,7 +57,7 @@ static void from_json(json const& j, BezierSegment& seg) {
     double const dt = seg.t.end - seg.t.begin;
     CHECK_ARG(dt >= 0.0, "Bad Bezier segment times: {}", j.dump());
 
-    auto const v_j = j.value("v", json{});
+    auto const v_j = j.value("v", json());
     if (v_j.empty()) {
         seg.begin_v = 0.0;
         seg.end_v = seg.begin_v + j.value("rate", 0.0) * dt;
@@ -73,7 +72,7 @@ static void from_json(json const& j, BezierSegment& seg) {
         v_j.at(0).get_to(seg.begin_v);
         v_j.at(1).get_to(seg.end_v);
 
-        auto const rate_j = j.value("rate", json{});
+        auto const rate_j = j.value("rate", json());
         if (rate_j.empty()) {
             seg.p1_v = seg.begin_v + (seg.end_v - seg.begin_v) / 3.0;
             seg.p2_v = seg.end_v - (seg.end_v - seg.begin_v) / 3.0;
@@ -111,7 +110,7 @@ static void from_json(json const& j, BezierSpline& bezier) {
     }
 
     if (j.is_object()) {
-        auto const rep_j = j.value("repeat", json{});
+        auto const rep_j = j.value("repeat", json());
         if (rep_j.is_number()) {
             bezier.repeat = rep_j.get<double>();
         } else if (rep_j.is_boolean()) {
@@ -127,49 +126,74 @@ static void from_json(json const& j, BezierSpline& bezier) {
 }
 
 static void from_json(json const& j, ScriptMedia& m) {
-    CHECK_ARG(j.count("file"), "No \"file\" in JSON media: {}", j.dump());
-    j.at("file").get_to(m.file);
-    j.value("play", json(0)).get_to(m.play);
-    m.playtime_buffer = j.value("playtime_buffer", m.playtime_buffer);
-    CHECK_ARG(m.playtime_buffer >= 0.0, "Bad playtime_buffer: {}", j.dump());
-    m.mediatime_buffer = j.value("mediatime_buffer", m.mediatime_buffer);
+    auto const preload_j = j.value("preload", json());
+    if (preload_j.is_number()) {
+        auto* preload = &m.preload.emplace_back();
+        from_json(json(0.0), preload->begin);
+        from_json(preload_j, preload->end);
+    } else if (
+        preload_j.is_array() && preload_j.size() == 2 &&
+        !preload_j.at(0).is_array()
+    ) {
+        auto* preload = &m.preload.emplace_back();
+        from_json(preload_j.at(0), preload->begin);
+        from_json(preload_j.at(1), preload->end);
+    } else {
+        CHECK_ARG(preload_j.is_array(), "Bad JSON preload: {}", j.dump());
+        for (auto const& item_j : preload_j) {
+            CHECK_ARG(
+                item_j.is_array() && item_j.size() == 2,
+                "Bad JSON preload range: {}", j.dump()
+            );
+            auto* preload = &m.preload.emplace_back();
+            from_json(item_j.at(0), preload->begin);
+            from_json(item_j.at(1), preload->end);
+        }
+    }
+
+    m.seek_scan_time = j.value("seek_scan_time", m.seek_scan_time);
+    CHECK_ARG(m.seek_scan_time >= 0.0, "Bad seek_scan_time: {}", j.dump());
+
+    m.decoder_idle_time = j.value("decoder_idle_time", m.decoder_idle_time);
+    CHECK_ARG(
+        m.decoder_idle_time >= 0.0, "Bad decoder_idle_time: {}", j.dump()
+    );
 }
 
 static void from_json(json const& j, ScriptLayer& layer) {
     CHECK_ARG(j.is_object(), "Bad JSON layer: {}", j.dump());
-    CHECK_ARG(j.count("media"), "No \"media\" in JSON layer: {}", j.dump());
-    j.at("media").get_to(layer.media);
-    j.value("from_xy", json{}).get_to(layer.from_xy);
-    j.value("from_size", json{}).get_to(layer.from_size);
-    j.value("to_xy", json{}).get_to(layer.to_xy);
-    j.value("to_size", json{}).get_to(layer.to_size);
-    j.value("opacity", json{}).get_to(layer.opacity);
+    layer.media = j.value("media", "");
+    CHECK_ARG(!layer.media.empty(), "No \"media\" in JSON layer: {}", j.dump());
+    j.value("play", json(0)).get_to(layer.play);
+    j.value("buffer", json(layer.buffer)).get_to(layer.buffer);
+    j.value("from_xy", json()).get_to(layer.from_xy);
+    j.value("from_size", json()).get_to(layer.from_size);
+    j.value("to_xy", json()).get_to(layer.to_xy);
+    j.value("to_size", json()).get_to(layer.to_size);
+    j.value("opacity", json()).get_to(layer.opacity);
 }
 
 static void from_json(json const& j, ScriptScreen& screen) {
     CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
-    j.value("display_mode", json{}).get_to(screen.display_mode);
+    j.value("display_mode", json()).get_to(screen.display_mode);
     screen.display_hz = j.value("display_hz", screen.display_hz);
     screen.update_hz = j.value("update_hz", screen.update_hz);
     CHECK_ARG(screen.update_hz >= 0.0, "Bad update_hz: {}", j.dump());
     j.value("layers", json::array()).get_to(screen.layers);
 }
 
-static void from_json(json const& j, Script& s) {
-    s = {};
-    CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
-    j.value("screens", json::object()).get_to(s.screens);
-    j.value("standbys", json::array()).get_to(s.standbys);
-    if (j.count("zero_time"))
-        s.zero_time = j.at("zero_time").get<double>();
-    s.main_loop_hz = j.value("main_loop_hz", s.main_loop_hz);
-    s.main_buffer_time = j.value("main_buffer_time", s.main_buffer_time);
-    CHECK_ARG(s.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
-}
-
-Script parse_script(std::string_view text) {
+Script parse_script(std::string_view text, double default_zero_time) {
     try {
-        return nlohmann::json::parse(text).get<Script>();
+        Script s = {};
+        auto const j = nlohmann::json::parse(text);
+        CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
+        j.value("media", json::object()).get_to(s.media);
+        j.value("screens", json::object()).get_to(s.screens);
+        s.zero_time = j.value("zero_time", default_zero_time);
+        s.main_loop_hz = j.value("main_loop_hz", s.main_loop_hz);
+        s.main_buffer_time = j.value("main_buffer_time", s.main_buffer_time);
+        CHECK_ARG(s.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
+        return s;
     } catch (nlohmann::json::exception const& e) {
         std::throw_with_nested(std::invalid_argument(e.what()));
     }

@@ -72,16 +72,15 @@ Script make_script(
     if (media_arg.empty()) {
         play_logger()->warn("No media to play");
     } else {
-        const double start = global_system()->clock();
-        play_logger()->info("Start: {}", abbrev_realtime(start));
-
         ScriptLayer* layer = &screen->layers.emplace_back();
-        layer->media.file = media_arg;
-        layer->media.play.segments.push_back(
-            linear_segment({start, start + 1e12}, {seek_arg, seek_arg + 1e12})
+        layer->media = media_arg;
+        layer->play.segments.push_back(
+            linear_segment({0, 0 + 1e12}, {seek_arg, seek_arg + 1e12})
         );
     }
 
+    script.zero_time = global_system()->clock();
+    play_logger()->info("Start: {}", format_realtime(script.zero_time));
     return script;
 }
 
@@ -97,7 +96,9 @@ Script load_script(std::string const& script_file) {
         (std::istreambuf_iterator<char>())
     );
 
-    return parse_script(text);
+    double const default_zero_time = sys->clock();
+    play_logger()->info("Start: {}", format_realtime(default_zero_time));
+    return parse_script(text, default_zero_time);
 }
 
 void run_script(ScriptContext const& context, Script const& script) {
@@ -116,17 +117,17 @@ void run_script(ScriptContext const& context, Script const& script) {
         runner->update(script);
 
         bool done = true;
-        const double now = sys->clock();
+        const double now_t0 = sys->clock() - script.zero_time;
         for (auto const& [conn, screen] : script.screens) {
             for (auto const& layer : screen.layers) {
-                auto const range = layer.media.play.range({now, now + 1e12});
-                auto const& info = runner->file_info(layer.media.file);
-                if (info.duration && range.bounds().begin < *info.duration) {
+                auto const range = layer.play.range({now_t0, now_t0 + 1e12});
+                auto const& info = runner->file_info(layer.media);
+                if (info.duration) {
                     TRACE(
                         logger, "{:.3f} / {:.3f}s: {}",
-                        range.bounds().begin, *info.duration, layer.media.file
+                        range.bounds().begin, *info.duration, layer.media
                     );
-                    done = false;
+                    if (range.bounds().begin < *info.duration) done = false;
                 }
             }
         }
@@ -172,6 +173,7 @@ extern "C" int main(int const argc, char const* const* const argv) {
 
     try {
         ScriptContext context = {};
+        context.driver = find_driver(dev_arg);
 
         Script script;
         if (!script_arg.empty()) {
@@ -183,9 +185,6 @@ extern "C" int main(int const argc, char const* const* const argv) {
             script = make_script(media_arg, screen_arg, mode_arg, seek_arg);
         }
 
-        context.driver = find_driver(dev_arg);
-        context.default_zero_time = global_system()->clock();
-        logger->info("Start: {}", format_realtime(context.default_zero_time));
         run_script(context, script);
     } catch (std::exception const& e) {
         logger->critical("{}", e.what());
