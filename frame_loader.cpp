@@ -40,8 +40,13 @@ class FrameLoaderDef : public FrameLoader {
             return;
         }
 
+        req = std::move(request);
         DEBUG(logger, "REQ \"{}\"", cx.filename);
         DEBUG(logger, "  [req] want {}", debug(req.wanted));
+        TRACE(
+            logger, "  [req] idle={:.3f}s scan={:.3f}s",
+            req.decoder_idle_time, req.seek_scan_time
+        );
 
         // Remove no-longer-wanted frames & have-regions
         auto to_erase = loaded.coverage;
