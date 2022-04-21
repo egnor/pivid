@@ -142,7 +142,7 @@ void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
                     header->count_formats
                 );
             } else {
-                fmt::print(" ?0x{:x}? ({}b)", header->version, blob.size());
+                fmt::print(" ?0x{:x}? ({}B)", header->version, blob.size());
             }
         } else if (name == "WRITEBACK_PIXEL_FORMATS") {
             auto const blob = get_blob(fd, value);

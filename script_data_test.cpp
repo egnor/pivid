@@ -20,7 +20,7 @@ TEST_CASE("from_json") {
     auto const text = R"**({
       "main_loop_hz": 10.5,
       "main_buffer_time": 0.5,
-      "zero_time"; 12345.678,
+      "zero_time": 12345.678,
       "screens": {
         "empty_screen": {},
         "full_screen": {

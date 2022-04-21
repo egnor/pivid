@@ -65,19 +65,17 @@ Script make_script(
     XY<int> mode_size,
     double seek_arg
 ) {
+    CHECK_ARG(!media_arg.empty(), "No media for make_script");
+
     Script script;
     auto *screen = &script.screens.try_emplace(screen_arg).first->second;
     screen->display_mode = mode_size;
 
-    if (media_arg.empty()) {
-        play_logger()->warn("No media to play");
-    } else {
-        ScriptLayer* layer = &screen->layers.emplace_back();
-        layer->media = media_arg;
-        layer->play.segments.push_back(
-            linear_segment({0, 0 + 1e12}, {seek_arg, seek_arg + 1e12})
-        );
-    }
+    ScriptLayer* layer = &screen->layers.emplace_back();
+    layer->media = media_arg;
+    layer->play.segments.push_back(
+        linear_segment({0, 0 + 1e12}, {seek_arg, seek_arg + 1e12})
+    );
 
     script.zero_time = global_system()->clock();
     play_logger()->info("Start: {}", format_realtime(script.zero_time));
@@ -122,13 +120,12 @@ void run_script(ScriptContext const& context, Script const& script) {
             for (auto const& layer : screen.layers) {
                 auto const range = layer.play.range({now_t0, now_t0 + 1e12});
                 auto const& info = runner->file_info(layer.media);
-                if (info.duration) {
-                    TRACE(
-                        logger, "{:.3f} / {:.3f}s: {}",
-                        range.bounds().begin, *info.duration, layer.media
-                    );
-                    if (range.bounds().begin < *info.duration) done = false;
-                }
+                auto const duration = info.duration.value_or(0.001);
+                TRACE(
+                    logger, "{:.3f} / {:.3f}s: {}",
+                    range.bounds().begin, duration, layer.media
+                );
+                if (range.bounds().begin < duration) done = false;
             }
         }
 
@@ -172,20 +169,22 @@ extern "C" int main(int const argc, char const* const* const argv) {
     auto const logger = play_logger();
 
     try {
-        ScriptContext context = {};
-        context.driver = find_driver(dev_arg);
-
-        Script script;
         if (!script_arg.empty()) {
             logger->info("Script: {}", script_arg);
+            ScriptContext context = {};
+            context.driver = find_driver(dev_arg);
             context.file_base = script_arg;
-            script = load_script(script_arg);
-        } else {
+            run_script(context, load_script(script_arg));
+        } else if (!media_arg.empty()) {
+            ScriptContext context = {};
+            context.driver = find_driver(dev_arg);
             context.file_base = global_system()->realpath(".").ex("getcwd");
-            script = make_script(media_arg, screen_arg, mode_arg, seek_arg);
+            run_script(
+                context, make_script(media_arg, screen_arg, mode_arg, seek_arg)
+            );
+        } else {
+            logger->warn("No --script or --media to play");
         }
-
-        run_script(context, script);
     } catch (std::exception const& e) {
         logger->critical("{}", e.what());
         return 1;

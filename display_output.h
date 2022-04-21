@@ -56,6 +56,19 @@ struct DisplayUpdateDone {
     std::optional<ImageBuffer> writeback;  // Output for writeback "connectors"
 };
 
+// Estimate of display load factors, where 1.0 is max capacity.
+struct DisplayLoad {
+    double memory_bus = 0.0;
+    double video_hardware = 0.0;
+
+    DisplayLoad operator +(DisplayLoad const& o) const {
+        return {memory_bus + o.memory_bus, video_hardware + o.video_hardware};
+    }
+    DisplayLoad const& operator +=(DisplayLoad const& o) {
+        return (*this = *this + o);
+    }
+};
+
 // Interface to a GPU device. Normally one per system, handling all outputs.
 // Returned by open_display_driver().
 // *Internally synchronized* for multithreaded access.
@@ -79,6 +92,11 @@ class DisplayDriver {
 
     // Returns {} if an update is still pending, otherwise update result.
     virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) = 0;
+
+    // Estimate the system load needed to show a particular layer.
+    virtual DisplayLoad display_load(
+        DisplayMode const&, std::vector<DisplayLayer> const&
+    ) const = 0;
 };
 
 // Description of a GPU device. Returned by list_device_drivers().

@@ -1,0 +1,55 @@
+{
+  "screens": {
+    "*": {
+      "display_mode": [1920, 1080],
+      "update_hz": 30,
+      "layers": [
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [0.5, 212.5], "v": [0, 212], "repeat": true},
+          "to_xy": [0, 0], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [1.0, 213.0], "v": [0, 212], "repeat": true},
+          "to_xy": [533, 0], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [1.5, 213.5], "v": [0, 212], "repeat": true},
+          "to_xy": [1066, 0], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [2.0, 214.0], "v": [0, 212], "repeat": true},
+          "to_xy": [0, 300], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [2.5, 214.5], "v": [0, 212], "repeat": true},
+          "to_xy": [533, 300], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [3.0, 215.0], "v": [0, 212], "repeat": true},
+          "to_xy": [1066, 300], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [3.5, 215.5], "v": [0, 212], "repeat": true},
+          "to_xy": [0, 600], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [4.0, 216.0], "v": [0, 212], "repeat": true},
+          "to_xy": [533, 600], "to_size": [640, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [4.5, 216.5], "v": [0, 212], "repeat": true},
+          "to_xy": [1066, 600], "to_size": [640, 360]
+        }
+      ]
+    }
+  }
+}

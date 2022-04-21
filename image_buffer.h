@@ -18,10 +18,11 @@ namespace pivid {
 class MemoryBuffer {
   public:
     virtual ~MemoryBuffer() = default;
-    virtual size_t size() const = 0;                   // Size in bytes
+    virtual int size() const = 0;                      // Size in bytes
     virtual uint8_t const* read() = 0;                 // Memory-mapped data
     virtual int dma_fd() const { return -1; }          // "DMA-buf" descriptor
     virtual uint32_t drm_handle() const { return 0; }  // DRM buffer handle
+    virtual bool pool_low() const { return false; }    // Please recycle me
 };
 
 // Description of a pixel image stored in one or more MemoryBuffer objects.
@@ -37,8 +38,9 @@ struct ImageBuffer {
     // Channels may use different buffers or offsets within the same buffer.
     struct Channel {
         std::shared_ptr<MemoryBuffer> memory;  // Channel data is stored here
-        ptrdiff_t offset = 0;                  // Start offset within buffer
-        ptrdiff_t stride = 0;                  // Offset between scanlines
+        int offset = 0;                        // Start offset within buffer
+        int size = 0;                          // Total length in bytes
+        int stride = 0;                        // Offset between scanlines
     };
 
     uint32_t fourcc = 0;    // Image pixel layout, like fourcc("RGBA")
@@ -55,6 +57,7 @@ class LoadedImage {
     virtual ~LoadedImage() = default;
     virtual uint32_t drm_id() const = 0;  // DRM framebuffer ID
     virtual XY<int> size() const = 0;     // Pixel dimensions
+    virtual int byte_size() const = 0;    // Memory used
     virtual std::string const& source_comment() const = 0;  // From ImageBuffer
 };
 

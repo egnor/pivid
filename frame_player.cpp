@@ -95,7 +95,7 @@ class FramePlayerDef : public FramePlayer {
         try {
             driver->update(screen_id, mode, {});  // Set the mode right away.
         } catch (std::runtime_error const& e) {
-            logger->error("Display setup (screen {}): {}", screen_id, e.what());
+            logger->error("Display (s={}): {}", screen_id, e.what());
             DEBUG(logger, "Frame player thread giving up (s={})...", screen_id);
             return;
         }
@@ -178,7 +178,7 @@ class FramePlayerDef : public FramePlayer {
                 driver->update(screen_id, mode, show->second);
                 last_update = sys->clock();
             } catch (std::runtime_error const& e) {
-                logger->error("Display (screen {}): {}", screen_id, e.what());
+                logger->error("Display (s={}): {}", screen_id, e.what());
                 // Continue as if displayed to avoid looping
             }
 

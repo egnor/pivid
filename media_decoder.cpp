@@ -3,6 +3,7 @@
 #include <drm_fourcc.h>
 #include <sys/mman.h>
 
+#include <atomic>
 #include <cctype>
 #include <map>
 #include <mutex>
@@ -123,10 +124,16 @@ void ensure_av_logging() {
 // Memory buffer wrappers to AVFrame
 //
 
+struct UsageCounter {
+    int const limit = 0;
+    std::atomic<int> used = 0;
+    bool low() const { return used.load() > limit; }
+};
+
 class LibavDrmBuffer : public MemoryBuffer {
   public:
     ~LibavDrmBuffer() { if (map) munmap(map, av_obj->size); }
-    virtual size_t size() const final { return av_obj->size; }
+    virtual int size() const final { return av_obj->size; }
     virtual int dma_fd() const final { return av_obj->fd; }
 
     virtual uint8_t const* read() final {
@@ -142,78 +149,125 @@ class LibavDrmBuffer : public MemoryBuffer {
         return (uint8_t const*) map;
     }
 
-    void init(std::shared_ptr<AVDRMFrameDescriptor const> av_drm, int index) {
-        auto const* obj = &av_drm->objects[index];
-        av_obj = std::shared_ptr<AVDRMObjectDescriptor const>{
-            std::move(av_drm), obj
-        };
+    virtual bool pool_low() const final { return counter->low(); }
+
+    void init(
+        std::shared_ptr<AVDRMObjectDescriptor const> av_obj,
+        std::shared_ptr<UsageCounter> counter
+    ) {
+        CHECK_ARG(av_obj, "No AVDRMObjectDescriptor for LibavDrmBuffer");
+        CHECK_ARG(counter, "No usage counter for LibavDrmBuffer");
+        this->av_obj = std::move(av_obj);
+        this->counter = std::move(counter);
     }
 
   private:
     std::shared_ptr<AVDRMObjectDescriptor const> av_obj;
+    std::shared_ptr<UsageCounter> counter;
     std::mutex map_mutex;
     void* map = nullptr;
 };
 
 class LibavPlainBuffer : public MemoryBuffer {
   public:
-    virtual size_t size() const final {
-        if (avf->format == AV_PIX_FMT_PAL8 && index == 1) return AVPALETTE_SIZE;
-        return avf->linesize[index] * avf->height;
-    }
+    virtual int size() const final { return data_size; }
 
-    virtual uint8_t const* read() final { return avf->data[index]; }
+    virtual uint8_t const* read() final { return data.get(); }
 
-    void init(std::shared_ptr<AVFrame> avf, int index) {
-        ASSERT(index >= 0 && index < AV_NUM_DATA_POINTERS);
-        ASSERT(avf->data[index]);
-        this->index = index;
-        this->avf = std::move(avf);
+    virtual bool pool_low() const final { return counter->low(); }
+
+    void init(
+        std::shared_ptr<uint8_t> data, int size,
+        std::shared_ptr<UsageCounter> counter
+    ) {
+        CHECK_ARG(data, "No data for LibavPlainBuffer");
+        CHECK_ARG(size > 0, "Bad size {} for LibavPlainBuffer", size);
+        CHECK_ARG(counter, "No usage counter for LibavPlainBuffer");
+        this->data = std::move(data);
+        this->data_size = size;
+        this->counter = std::move(counter);
     }
 
   private:
-    std::shared_ptr<AVFrame const> avf;
-    int index = 0;
+    std::shared_ptr<uint8_t> data;
+    size_t data_size = 0;
+    std::shared_ptr<UsageCounter> counter;
 };
 
 ImageBuffer image_from_av_drm(
-    std::shared_ptr<AVDRMFrameDescriptor const> av_drm, XY<int> size
+    std::shared_ptr<AVDRMFrameDescriptor const> av_drm, XY<int> size,
+    std::shared_ptr<UsageCounter> counter
 ) {
-    std::vector<std::shared_ptr<LibavDrmBuffer>> buffers;
+    std::shared_ptr<LibavDrmBuffer> bufs[AV_DRM_MAX_PLANES];
+    CHECK_RUNTIME(
+        av_drm->nb_objects >= 1 && av_drm->nb_objects <= AV_DRM_MAX_PLANES,
+        "Bad DRM object count {}", av_drm->nb_objects
+    );
     for (int oi = 0; oi < av_drm->nb_objects; ++oi) {
-        buffers.push_back(std::make_shared<LibavDrmBuffer>());
-        buffers.back()->init(av_drm, oi);
+        auto const* av_obj = &av_drm->objects[oi];
+        bufs[oi] = std::make_shared<LibavDrmBuffer>();
+        bufs[oi]->init(
+            std::shared_ptr<AVDRMObjectDescriptor const>{av_drm, av_obj},
+            counter
+        );
     }
+
+    ImageBuffer out = {};
+    out.size = size;
+    out.modifier = av_drm->objects[0].format_modifier;
 
     CHECK_RUNTIME(
         av_drm->nb_layers == 1,
         "DRM frame has {} layers (expected 1)", av_drm->nb_layers
     );
+    auto const& av_layer = av_drm->layers[0];
 
-    ImageBuffer image = {};
-    image.size = size;
-
-    switch (av_drm->layers[0].format) {
-        case DRM_FORMAT_YUV420: image.fourcc = fourcc("I420"); break;
-        case DRM_FORMAT_YUV422: image.fourcc = fourcc("Y42B"); break;
-        default: image.fourcc = av_drm->layers[0].format;
+    // Layer format is DRM format (~= fourcc), NOT AVPixelFormat
+    switch (av_layer.format) {
+        case DRM_FORMAT_YUV420: out.fourcc = fourcc("I420"); break;
+        case DRM_FORMAT_YUV422: out.fourcc = fourcc("Y42B"); break;
+        default: out.fourcc = av_layer.format;
     }
 
-    for (int p = 0; p < av_drm->layers[0].nb_planes; ++p) {
-        auto const& av_plane = av_drm->layers[0].planes[p];
-        auto const& av_obj = av_drm->objects[av_plane.object_index];
-        image.modifier = av_obj.format_modifier;
-        image.channels.push_back({
-            .memory = buffers[av_plane.object_index],
-            .offset = av_plane.offset,
-            .stride = av_plane.pitch,
-        });
+    CHECK_RUNTIME(
+        av_layer.nb_planes >= 1 && av_layer.nb_planes < AV_DRM_MAX_PLANES,
+        "Bad DRM plane count {}", av_layer.nb_planes
+    );
+    for (int p = 0; p < av_layer.nb_planes; ++p) {
+        auto const& av_plane = av_layer.planes[p];
+        CHECK_RUNTIME(
+            av_plane.object_index >= 0 &&
+            av_plane.object_index < av_drm->nb_objects,
+            "Bad DRM object index {}", av_plane.object_index
+        );
+
+        auto* chan = &out.channels.emplace_back();
+        chan->memory = bufs[av_plane.object_index];
+        chan->offset = av_plane.offset;
+        chan->stride = av_plane.pitch;
+
+        // Impute plane byte size (or at least maximum possible size).
+        ptrdiff_t end = av_drm->objects[av_plane.object_index].size;
+        for (int p2 = 0; p2 < av_layer.nb_planes; ++p2) {
+            if (p2 == p) continue;
+            auto const& av_plane2 = av_layer.planes[p2];
+            if (av_plane2.object_index != av_plane.object_index) continue;
+            if (av_plane2.offset > av_plane.offset && av_plane2.offset < end)
+                end = av_plane2.offset;
+        }
+
+        chan->size = end - av_plane.offset;
     }
 
-    return image;
+    return out;
 }
 
-ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
+ImageBuffer image_from_av_plain(
+    std::shared_ptr<AVFrame> av_frame, std::shared_ptr<UsageCounter> counter
+) {
+    auto const* format = av_pix_fmt_desc_get((AVPixelFormat) av_frame->format);
+    CHECK_RUNTIME(format, "Unknown libav pixel format {}", av_frame->format);
+    
     ImageBuffer out = {};
     out.fourcc = avcodec_pix_fmt_to_codec_tag((AVPixelFormat) av_frame->format);
     out.size.x = av_frame->width;
@@ -221,19 +275,30 @@ ImageBuffer image_from_av_plain(std::shared_ptr<AVFrame> av_frame) {
 
     for (int p = 0; p < AV_NUM_DATA_POINTERS; ++p) {
         if (!av_frame->data[p]) break;
+        auto* chan = &out.channels.emplace_back();
+        if ((format->flags & AV_PIX_FMT_FLAG_PAL) && p == 1) {
+            chan->size = AVPALETTE_SIZE;
+            chan->stride = AVPALETTE_SIZE;
+        } else {
+            auto h = out.size.y;
+            if (p == 1 || p == 2) h >>= format->log2_chroma_h;  // U/V if YUV
+            chan->size = av_frame->linesize[p] * h;
+            chan->stride = av_frame->linesize[p];
+        }
+
         auto mem = std::make_shared<LibavPlainBuffer>();
-        mem->init(av_frame, p);
-        out.channels.push_back({
-            .memory = std::move(mem),
-            .offset = 0,
-            .stride = av_frame->linesize[p],
-        });
+        std::shared_ptr<uint8_t> data{av_frame, av_frame->data[p]};
+        mem->init(data, chan->size, counter);
+        chan->memory = std::move(mem);
     }
 
     return out;
 }
 
-MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, double time_base) {
+MediaFrame frame_from_av(
+    std::shared_ptr<AVFrame> av, double time_base,
+    std::shared_ptr<UsageCounter> counter
+) {
     auto timestamp = av->best_effort_timestamp;
     if (timestamp == AV_NOPTS_VALUE) {
         timestamp = av->pts;
@@ -267,13 +332,13 @@ MediaFrame frame_from_av(std::shared_ptr<AVFrame> av, double time_base) {
     }
 
     if (av->format == AV_PIX_FMT_DRM_PRIME) {
-        ASSERT(av->data[0] && !av->data[1]);
+        CHECK_RUNTIME(av->data[0] && !av->data[1], "Bad DRM_PRIME data");
         XY<int> const size = {av->width, av->height};
         auto const* d = (AVDRMFrameDescriptor const*) av->data[0];
         std::shared_ptr<AVDRMFrameDescriptor const> sd{std::move(av), d};
-        out.image = image_from_av_drm(std::move(sd), size);
+        out.image = image_from_av_drm(std::move(sd), size, std::move(counter));
     } else {
-        out.image = image_from_av_plain(std::move(av));
+        out.image = image_from_av_plain(std::move(av), std::move(counter));
     }
     return out;
 }
@@ -406,12 +471,16 @@ class MediaDecoderDef : public MediaDecoder {
             // (always leave the codec with data to chew on if possible).
         } while (!(av_frame->width && (av_packet->data || eof_sent_to_codec)));
 
-        auto const deleter = [](AVFrame* f) mutable {av_frame_free(&f);};
-        std::shared_ptr<AVFrame> av_shared{this->av_frame, std::move(deleter)};
+        auto const& count = this->counter;
+        std::shared_ptr<AVFrame> av_shared{
+            this->av_frame,
+            [count](AVFrame* f) mutable { --count->used; av_frame_free(&f); }
+        };
         av_frame = nullptr;  // The AVFrame is owned by av_shared now.
+        ++count->used;
 
         auto const tb = format_context->streams[stream_index]->time_base;
-        auto out = frame_from_av(std::move(av_shared), av_q2d(tb));
+        auto out = frame_from_av(std::move(av_shared), av_q2d(tb), counter);
         DEBUG(logger, "  {}", debug(out));
 
         out.image.source_comment = fmt::format(
@@ -425,6 +494,7 @@ class MediaDecoderDef : public MediaDecoder {
         media_info.filename = fn;
         auto const pos = fn.find_last_of('/');
         short_filename = (pos == std::string::npos) ? fn : fn.substr(pos + 1);
+        counter = std::make_shared<UsageCounter>(15, 0);
 
         check_av(
             avformat_open_input(&format_context, fn.c_str(), nullptr, nullptr),
@@ -505,6 +575,7 @@ class MediaDecoderDef : public MediaDecoder {
     int stream_index = -1;
     MediaFileInfo media_info = {};
     std::string short_filename;
+    std::shared_ptr<UsageCounter> counter;
 
     AVPacket* av_packet = nullptr;
     AVFrame* av_frame = nullptr;

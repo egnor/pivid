@@ -287,7 +287,7 @@ class FrameLoaderDef : public FrameLoader {
 
                     frame = node.mapped().decoder->next_frame();
                     if (frame && frame->time.begin >= node.key())
-                        image = cx.driver->load_image(frame->image);
+                        image = cx.driver->load_image(std::move(frame->image));
                 } catch (std::runtime_error const& e) {
                     logger->error("{}", e.what());
                     error = std::current_exception();

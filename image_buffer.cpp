@@ -26,9 +26,10 @@ std::string debug_fourcc(uint32_t fourcc) {
 }
 
 std::string debug(MemoryBuffer const& mem) {
-    std::string out = debug_size(mem.size());
-    if (mem.dma_fd() >= 0) out += fmt::format(" f{:<2d}", mem.dma_fd());
-    if (mem.drm_handle()) out += fmt::format(" h{:<2d}", mem.drm_handle());
+    std::string out;
+    if (mem.dma_fd() >= 0) out += fmt::format("f{}=", mem.dma_fd());
+    if (mem.drm_handle()) out += fmt::format("h{}=", mem.drm_handle());
+    out += debug_size(mem.size());
     return out;
 }
 
@@ -68,8 +69,13 @@ std::string debug(ImageBuffer const& i) {
             out += "|" + debug(*chan.memory) + ":";
         }
 
-        out += fmt::format("{}b", 8 * chan.stride / i.size.x);
+        out += fmt::format(
+            "{}/{}", debug_size(chan.stride), debug_size(chan.size)
+        );
     }
+
+    if (!i.channels.empty() && i.channels[0].memory->pool_low())
+        out += fmt::format(" [low]");
 
     if (i.channels.empty()) out += " [no data]";
     if (!i.source_comment.empty())

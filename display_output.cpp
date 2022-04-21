@@ -167,9 +167,9 @@ void to_premultiplied_rgba(
     }
 }
 
-class DrmDumbBuffer : public MemoryBuffer {
+class DumbBuffer : public MemoryBuffer {
   public:
-    DrmDumbBuffer(std::shared_ptr<FileDescriptor> fd, XY<int> size, int bpp) {
+    DumbBuffer(std::shared_ptr<FileDescriptor> fd, XY<int> size, int bpp) {
         ddat.height = size.y;
         ddat.width = size.x;
         ddat.bpp = bpp;
@@ -177,13 +177,13 @@ class DrmDumbBuffer : public MemoryBuffer {
         this->fd = std::move(fd);
     }
 
-    virtual ~DrmDumbBuffer() final {
+    virtual ~DumbBuffer() final {
         if (!ddat.handle) return;
         drm_mode_destroy_dumb dddat = {.handle = ddat.handle};
         (void) fd->ioc<DRM_IOCTL_MODE_DESTROY_DUMB>(&dddat);
     }
 
-    virtual size_t size() const final { return ddat.size; }
+    virtual int size() const final { return ddat.size; }
 
     virtual uint8_t const* read() final {
         std::scoped_lock const lock{mem_mutex};
@@ -202,25 +202,25 @@ class DrmDumbBuffer : public MemoryBuffer {
     uint8_t* write() { read(); return (uint8_t*) mem.get(); }
     ptrdiff_t stride() const { return ddat.pitch; }
 
+    DumbBuffer(DumbBuffer const&) = delete;
+    DumbBuffer& operator=(DumbBuffer const&) = delete;
+
   private:
     std::shared_ptr<FileDescriptor> fd;
     drm_mode_create_dumb ddat = {};
     std::mutex mem_mutex;
     std::shared_ptr<void> mem;
-
-    DrmDumbBuffer(DrmDumbBuffer const&) = delete;
-    DrmDumbBuffer& operator=(DrmDumbBuffer const&) = delete;
 };
 
-class DrmBufferImport {
+class ImportedBuffer {
   public:
-    DrmBufferImport(std::shared_ptr<FileDescriptor> drm_fd, int dma_fd) {
+    ImportedBuffer(std::shared_ptr<FileDescriptor> drm_fd, int dma_fd) {
         hdat.fd = dma_fd;
         drm_fd->ioc<DRM_IOCTL_PRIME_FD_TO_HANDLE>(&hdat).ex("Import DMA");
         fd = std::move(drm_fd);
     }
 
-    ~DrmBufferImport() {
+    ~ImportedBuffer() {
         if (!hdat.handle) return;
         drm_gem_close cdat = {.handle = hdat.handle, .pad = 0};
         (void) fd->ioc<DRM_IOCTL_GEM_CLOSE>(cdat);
@@ -228,30 +228,30 @@ class DrmBufferImport {
 
     uint32_t drm_handle() const { return hdat.handle; }
 
+    ImportedBuffer(ImportedBuffer const&) = delete;
+    ImportedBuffer& operator=(ImportedBuffer const&) = delete;
+
   private:
     std::shared_ptr<FileDescriptor> fd;
     drm_prime_handle hdat = {};
-
-    DrmBufferImport(DrmBufferImport const&) = delete;
-    DrmBufferImport& operator=(DrmBufferImport const&) = delete;
 };
 
 class LoadedImageDef : public LoadedImage {
   public:
     LoadedImageDef(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
-        size_t const max_channels = std::extent_v<decltype(fdat.handles)>;
         CHECK_ARG(
-            im.channels.size() <= max_channels,
+            im.channels.size() <= 4,
             "Too many image channels ({}) for DRM", im.channels.size()
         );
 
+        static_assert(std::extent_v<decltype(fdat.handles)> >= 4);
         fdat.width = im.size.x;
         fdat.height = im.size.y;
         fdat.pixel_format = format_to_drm(im.fourcc);
         fdat.flags = DRM_MODE_FB_MODIFIERS;
 
         // Keep DMA-to-DRM imports until the ADDFB2 call which will ref them.
-        std::vector<std::unique_ptr<DrmBufferImport>> imports;
+        std::vector<std::unique_ptr<ImportedBuffer>> imports;
         for (size_t ci = 0; ci < im.channels.size(); ++ci) {
             auto const& ch = im.channels[ci];
             auto const dma_fd = ch.memory->dma_fd();
@@ -276,7 +276,7 @@ class LoadedImageDef : public LoadedImage {
             if (drm_handle) {
                 fdat.handles[ci] = drm_handle;
             } else {
-                auto imp = std::make_unique<DrmBufferImport>(fd, dma_fd);
+                auto imp = std::make_unique<ImportedBuffer>(fd, dma_fd);
                 fdat.handles[ci] = imp->drm_handle();
                 imports.push_back(std::move(imp));
             }
@@ -284,6 +284,7 @@ class LoadedImageDef : public LoadedImage {
             // The import references the memory at the kernel level, but this
             // also references the user object to avoid reuse via buffer pool.
             buffers.push_back(ch.memory);
+            bytes += ch.size;  // For byte_size()
         }
 
         auto const logger = display_logger();
@@ -306,16 +307,19 @@ class LoadedImageDef : public LoadedImage {
         return XY<int>(fdat.width, fdat.height);
     }
 
+    virtual int byte_size() const final { return bytes; }
+
     virtual std::string const& source_comment() const final { return comment; }
+
+    LoadedImageDef(LoadedImageDef const&) = delete;
+    LoadedImageDef& operator=(LoadedImageDef const&) = delete;
 
   private:
     std::shared_ptr<FileDescriptor> fd;
     std::vector<std::shared_ptr<MemoryBuffer>> buffers;
     drm_mode_fb_cmd2 fdat = {};
+    int bytes = 0;
     std::string comment;
-
-    LoadedImageDef(LoadedImageDef const&) = delete;
-    LoadedImageDef& operator=(LoadedImageDef const&) = delete;
 };
 
 //
@@ -372,6 +376,7 @@ class DisplayDriverDef : public DisplayDriver {
 
     virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer im) final {
         TRACE(logger, "Loading {}", debug(im));
+        CHECK_ARG(im.size.x > 0 && im.size.y > 0, "Bad size: {}", debug(im));
         switch (im.fourcc) {
             case fourcc("ABGR"):
             case fourcc("ARGB"):
@@ -384,29 +389,32 @@ class DisplayDriverDef : public DisplayDriver {
                     im.channels.size(), debug_fourcc(im.fourcc)
                 );
 
-                auto const& chan = im.channels[0];
-                int const w = im.size.x, h = im.size.y;
-                size_t const min_size = chan.offset + chan.stride * h;
+                auto* chan = &im.channels[0];
+                auto const& [w, h] = im.size;
+                int const min_size = chan->offset + chan->stride * h;
                 CHECK_ARG(
-                    chan.memory->size() >= min_size && chan.stride >= 4 * w,
+                    chan->memory->size() >= min_size && chan->stride >= 4 * w,
                     "Bad buffer size ({}/{}) for {}x{} {} @{}",
-                    debug_size(chan.memory->size()),
-                    debug_size(chan.stride), w, h, debug_fourcc(im.fourcc),
-                    debug_size(chan.offset)
+                    debug_size(chan->memory->size()),
+                    debug_size(chan->stride), w, h, debug_fourcc(im.fourcc),
+                    debug_size(chan->offset)
                 );
 
-                auto buf = std::make_shared<DrmDumbBuffer>(fd, im.size, 32);
+                auto buf = std::make_shared<DumbBuffer>(fd, im.size, 32);
+                uint8_t const* read_from = chan->memory->read() + chan->offset;
+                uint8_t* write_to = buf->write();
                 for (int y = 0; y < h; ++y) {
-                    int const from_offset = y * chan.stride + chan.offset;
-                    uint8_t const* from = chan.memory->read() + from_offset;
-                    uint8_t* to = buf->write() + y * buf->stride();
-                    to_premultiplied_rgba(im.fourcc, w, from, to);
+                    to_premultiplied_rgba(
+                        im.fourcc, w,
+                        read_from + y * chan->stride,
+                        write_to + y * buf->stride()
+                    );
                 }
 
+                chan->offset = 0;
+                chan->stride = buf->stride();
+                chan->memory = std::move(buf);
                 im.fourcc = fourcc("rgbA");
-                im.channels[0].offset = 0;
-                im.channels[0].stride = buf->stride();
-                im.channels[0].memory = std::move(buf);
                 break;
             }
 
@@ -417,70 +425,102 @@ class DisplayDriverDef : public DisplayDriver {
                     "Bad channel count ({}) for PAL8 image", im.channels.size()
                 );
 
-                auto const& chan = im.channels[0];
-                int const w = im.size.x, h = im.size.y;
-                size_t const min_size = chan.offset + chan.stride * h;
+                auto* chan = &im.channels[0];
+                auto const& [w, h] = im.size;
+                int const min_size = chan->offset + chan->stride * h;
                 CHECK_ARG(
-                    chan.memory->size() >= min_size && chan.stride >= w,
+                    chan->memory->size() >= min_size && chan->stride >= w,
                     "Bad buffer size ({}/{}) for {}x{} PAL8 @{}",
-                    debug_size(chan.memory->size()),
-                    debug_size(chan.stride), w, h, debug_size(chan.offset)
+                    debug_size(chan->memory->size()),
+                    debug_size(chan->stride), w, h, debug_size(chan->offset)
                 );
 
-                auto const& pch = im.channels[1];
-                size_t const min_pch_size = pch.offset + 256 * 4;
+                auto const& pchan = im.channels[1];
+                int const min_pchan_size = pchan.offset + 256 * 4;
                 CHECK_ARG(
-                    pch.memory->size() >= min_pch_size,
+                    pchan.memory->size() >= min_pchan_size,
                     "Bad palette size ({}) for PAL8 image @{}",
-                    debug_size(pch.memory->size()), debug_size(pch.offset)
+                    debug_size(pchan.memory->size()), debug_size(pchan.offset)
                 );
 
                 // TODO: On big-endian, this would be ARGB.
                 // https://ffmpeg.org/doxygen/3.3/pixfmt_8h.html
                 uint8_t pal[256 * 4];
                 to_premultiplied_rgba(
-                    fourcc("BGRA"), 256, pch.memory->read() + pch.offset, pal
+                    fourcc("BGRA"), 256,
+                    pchan.memory->read() + pchan.offset, pal
                 );
 
-                auto buf = std::make_shared<DrmDumbBuffer>(fd, im.size, 32);
+                auto buf = std::make_shared<DumbBuffer>(fd, im.size, 32);
+                uint8_t const* read_from = chan->memory->read() + chan->offset;
+                uint8_t* write_to = buf->write();
                 for (int y = 0; y < h; ++y) {
-                    int const from_offset = y * chan.stride + chan.offset;
-                    uint8_t const* from = chan.memory->read() + from_offset;
-                    uint8_t* to = buf->write() + y * buf->stride();
+                    auto* line_from = read_from + y * chan->stride;
+                    auto* line_to = write_to + y * buf->stride();
                     for (int x = 0; x < w; ++x)
-                        std::memcpy(to + 4 * x, pal + 4 * from[x], 4);
+                        std::memcpy(line_to + 4 * x, pal + 4 * line_from[x], 4);
                 }
 
-                im.fourcc = fourcc("rgbA");
+                chan->offset = 0;
+                chan->stride = buf->stride();
+                chan->memory = std::move(buf);
                 im.channels.resize(1);
-                im.channels[0].offset = 0;
-                im.channels[0].stride = buf->stride();
-                im.channels[0].memory = std::move(buf);
+                im.fourcc = fourcc("rgbA");
                 break;
             }
-        }
 
-        for (size_t ci = 0; ci < im.channels.size(); ++ci) { 
-            auto *chan = &im.channels[ci];
-            if (chan->memory->dma_fd() >= 0 || chan->memory->drm_handle())
-                continue;
-
-            TRACE(logger, "  (copy {} ch{}...)", debug_fourcc(im.fourcc), ci);
-            auto buf = std::make_shared<DrmDumbBuffer>(
-                fd, im.size, 8 * chan->stride / im.size.x
-            );
-
-            for (int y = 0; y < im.size.y; ++y) {
-                memcpy(
-                    buf->write() + y * buf->stride(),
-                    chan->memory->read() + y * chan->stride + chan->offset,
-                    std::min(buf->stride(), chan->stride)
+            default: {
+                CHECK_ARG(
+                    im.channels.size() <= 4,
+                    "Too many image channels ({}) to copy", im.channels.size()
                 );
-            }
 
-            chan->offset = 0;
-            chan->stride = buf->stride();
-            chan->memory = std::move(buf);
+                int total_space = 0, chan_space[4] = {};
+                for (size_t ci = 0; ci < im.channels.size(); ++ci) {
+                    auto* const chan = &im.channels[ci];
+                    auto const m = chan->memory;
+                    if ((m->dma_fd() >= 0 || m->drm_handle()) && !m->pool_low())
+                        continue;  // No copy needed.
+
+                    chan_space[ci] = (chan->size + 1023) / 1024 * 1024;
+                    total_space += chan_space[ci];
+                }
+
+                if (!total_space) break;  // No copying needed.
+                auto const start_t = sys->clock(CLOCK_MONOTONIC);
+                auto const pixels = im.size.x * im.size.y;
+                auto copy = std::make_shared<DumbBuffer>(
+                    fd, im.size, (8 * total_space + pixels - 1) / pixels
+                );
+
+                CHECK_RUNTIME(
+                    copy->size() >= total_space,
+                    "Buffer size={} < requested size={}",
+                    copy->size(), total_space
+                );
+
+                int offset = 0, total_copy = 0;
+                auto* const out = copy->write();
+                for (size_t ci = 0; ci < im.channels.size(); ++ci) {
+                    if (!chan_space[ci]) continue;
+
+                    auto* const chan = &im.channels[ci];
+                    auto const m = chan->memory;
+                    memcpy(out + offset, m->read() + chan->offset, chan->size);
+
+                    chan->memory = copy;
+                    chan->offset = offset;
+                    offset += chan_space[ci];
+                    total_copy += chan->size;
+                }
+
+                TRACE(
+                    logger, "  copied {} {} {:.1f}ms",
+                    debug_fourcc(im.fourcc), debug_size(total_copy),
+                    (sys->clock(CLOCK_MONOTONIC) - start_t) * 1e3
+                );
+                break;
+            }
         }
 
         return std::make_unique<LoadedImageDef>(fd, std::move(im));
@@ -492,7 +532,28 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        DEBUG(logger, "UPDATE {} ({} layers)", conn->name, layers.size());
+        auto load = display_load(mode, layers);
+        DEBUG(
+            logger, "UPDATE {} layers={} mem={:.1f}% hvs={:.1f}%",
+            conn->name, layers.size(),
+            load.memory_bus * 100, load.video_hardware * 100
+        );
+
+        if (load.memory_bus >= 1.0 || load.video_hardware >= 1.0) {
+            logger->warn(
+                "{} overload: mem={:.1f}% hvs={:.1f}%",
+                conn->name, load.memory_bus * 100, load.video_hardware * 100
+            );
+            for (auto const& layer : layers) {
+                auto const layer_load = display_load(mode, {layer});
+                logger->warn(
+                    "  {:5.1f}%m {:5.1f}%h {}",
+                    layer_load.memory_bus * 100,
+                    layer_load.video_hardware * 100,
+                    debug(layer)
+                );
+            }
+        }
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
@@ -538,7 +599,7 @@ class DisplayDriverDef : public DisplayDriver {
 
             if (conn->WRITEBACK_FB_ID.prop_id) {
                 XY<int> const size = {next.mode.hdisplay, next.mode.vdisplay};
-                auto buf = std::make_shared<DrmDumbBuffer>(fd, size, 32);
+                auto buf = std::make_shared<DumbBuffer>(fd, size, 32);
 
                 Writeback wb = {};
                 wb.image.fourcc = fourcc("RGBA");
@@ -720,6 +781,37 @@ class DisplayDriverDef : public DisplayDriver {
         return done;
     }
 
+    virtual DisplayLoad display_load(
+        DisplayMode const& mode, std::vector<DisplayLayer> const& layers
+    ) const final {
+        // See vc4_plane_calc_load (vc4_plane.c), and
+        // vc4_load_tracker_atomic_check (vc4_kms.c).
+        DisplayLoad out = {};
+        for (auto const& layer : layers) {
+            auto const image_size = layer.image->size();
+            auto const pixels = image_size.x * image_size.y;
+            if (pixels <= 0) continue;
+            if (layer.to_size.y <= 0) continue;
+
+            out.memory_bus +=
+                layer.from_size.x * layer.from_size.y
+                * std::ceil(layer.from_size.y / layer.to_size.y)
+                * layer.image->byte_size() / pixels;
+
+            bool const scaling = (
+                layer.from_size.x != layer.to_size.x ||
+                layer.from_size.y != layer.to_size.y
+            );
+
+            out.video_hardware +=
+                layer.to_size.x * layer.to_size.y * (scaling ? 0.5 : 0.25);
+        }
+
+        out.memory_bus *= double(mode.nominal_hz) / (1536 * 1048576);
+        out.video_hardware *= double(mode.nominal_hz) / (240 * 1000000);
+        return out;
+    }
+
     void open(std::shared_ptr<UnixSystem> sys, std::string const& dev) {
         logger->info("Opening display \"{}\"...", dev);
         this->sys = std::move(sys);
@@ -868,6 +960,9 @@ class DisplayDriverDef : public DisplayDriver {
             fd->raw_fd(), planes.size(), crtcs.size(), connectors.size()
         );
     }
+
+    DisplayDriverDef(DisplayDriverDef const&) = delete;
+    DisplayDriverDef& operator=(DisplayDriverDef const&) = delete;
 
   private:
     struct PropId {
@@ -1084,9 +1179,6 @@ class DisplayDriverDef : public DisplayDriver {
         };
         return {new uint32_t(cblob.blob_id), deleter};
     }
-
-    DisplayDriverDef(DisplayDriverDef const&) = delete;
-    DisplayDriverDef& operator=(DisplayDriverDef const&) = delete;
 };
 
 }  // anonymous namespace
