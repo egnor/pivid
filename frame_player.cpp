@@ -1,5 +1,7 @@
 #include "frame_player.h"
 
+#include <pthread.h>
+
 #include <mutex>
 #include <thread>
 
@@ -91,14 +93,9 @@ class FramePlayerDef : public FramePlayer {
         DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
+        auto const thread_name = fmt::format("pivid:play:s={}", screen_id);
+        pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
         DEBUG(logger, "Frame player thread running (s={})...", screen_id);
-        try {
-            driver->update(screen_id, mode, {});  // Set the mode right away.
-        } catch (std::runtime_error const& e) {
-            logger->error("Display (s={}): {}", screen_id, e.what());
-            DEBUG(logger, "Frame player thread giving up (s={})...", screen_id);
-            return;
-        }
 
         double last_update = 0.0;
         std::unique_lock lock{mutex};

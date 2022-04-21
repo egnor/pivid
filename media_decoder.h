@@ -63,5 +63,6 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const&);
 // Debugging descriptions of structures.
 std::string debug(MediaFrame const&);
 std::string debug(MediaFileInfo const&);
+std::string short_filename(std::string const&);
 
 }  // namespace pivid

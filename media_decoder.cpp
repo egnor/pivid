@@ -355,13 +355,13 @@ class MediaDecoderDef : public MediaDecoder {
         if (codec_context) avcodec_free_context(&codec_context);
         if (format_context) avformat_close_input(&format_context);
         if (!media_info.filename.empty())
-            logger->debug("Closed \"{}\"", media_info.filename);
+            DEBUG(logger, "Closed: {}", short_filename);
     }
 
     virtual MediaFileInfo const& file_info() const final { return media_info; }
 
     virtual void seek_before(double when) final {
-        DEBUG(logger, "SEEK {:.3f}s \"{}\"", when, short_filename);
+        DEBUG(logger, "SEEK {:.3f}s: {}", when, short_filename);
         ASSERT(format_context && codec_context);
 
         // Need to finish EOF flush, avcodec_flush_buffers() isn't enough?
@@ -395,11 +395,11 @@ class MediaDecoderDef : public MediaDecoder {
 
     virtual std::optional<MediaFrame> next_frame() final {
         if (eof_seen_from_codec) {
-            TRACE(logger, "EOF reread \"{}\"", short_filename);
+            TRACE(logger, "EOF: {}", short_filename);
             return {};
         }
 
-        DEBUG(logger, "READ \"{}\"", short_filename);
+        DEBUG(logger, "READ: {}", short_filename);
         ASSERT(format_context && codec_context);
         if (!av_packet) av_packet = check_alloc(av_packet_alloc());
         if (!av_frame) av_frame = check_alloc(av_frame_alloc());
@@ -490,10 +490,9 @@ class MediaDecoderDef : public MediaDecoder {
     }
 
     void init(std::string const& fn) {
-        TRACE(logger, "Opening \"{}\"...", fn);
+        short_filename = pivid::short_filename(fn);
+        TRACE(logger, "Opening: {}", short_filename);
         media_info.filename = fn;
-        auto const pos = fn.find_last_of('/');
-        short_filename = (pos == std::string::npos) ? fn : fn.substr(pos + 1);
         counter = std::make_shared<UsageCounter>(15, 0);
 
         check_av(
@@ -689,7 +688,8 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
 std::string debug(MediaFileInfo const& i) {
     auto out = fmt::format(
         "\"{}\" {}:{}:{}",
-        i.filename, i.container_type, i.codec_name, i.pixel_format
+        short_filename(i.filename),
+        i.container_type, i.codec_name, i.pixel_format
     );
 
     if (i.size) out += fmt::format(" {}x{}", i.size->x, i.size->y);
@@ -707,6 +707,11 @@ std::string debug(MediaFrame const& f) {
     if (f.is_key_frame) out += fmt::format(" KEY");
     if (f.is_corrupt) out += fmt::format(" CORRUPT");
     return out;
+}
+
+std::string short_filename(std::string const& fn) {
+    auto const slash_pos = fn.find_last_of('/');
+    return fn.substr(slash_pos == std::string::npos ? 0 : slash_pos + 1);
 }
 
 }  // namespace pivid

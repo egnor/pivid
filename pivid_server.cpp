@@ -1,5 +1,7 @@
 // HTTP server for video control.
 
+#include <pthread.h>
+
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -71,7 +73,7 @@ class Server {
     ~Server() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            DEBUG(logger, "Stopping update thread");
+            DEBUG(logger, "Stopping main loop thread");
             shutdown = true;
             wakeup_mono->set();
             thread.join();
@@ -92,9 +94,9 @@ class Server {
             [&](auto const& q, auto& s, auto& e) {error_hook(q, s, e);}
         );
 
-        DEBUG(logger, "Launching update thread");
+        DEBUG(logger, "Launching main loop thread");
         wakeup_mono = cx.sys->make_flag(CLOCK_MONOTONIC);
-        thread = std::thread(&Server::update_thread, this);
+        thread = std::thread(&Server::main_loop_thread, this);
         if (cx.trust_network) {
             logger->info("Listening to WHOLE NETWORK on port {}", cx.port);
             http.listen("0.0.0.0", cx.port);
@@ -105,11 +107,12 @@ class Server {
         logger->info("Stopped listening");
     }
 
-    void update_thread() {
-        std::unique_lock lock{mutex};
-        TRACE(logger, "Starting update thread");
+    void main_loop_thread() {
+        pthread_setname_np(pthread_self(), "pivid:mainloop");
+        TRACE(logger, "Starting main loop thread");
 
         double last_mono = 0.0;
+        std::unique_lock lock{mutex};
         while (!shutdown) {
             if (!script) {
                 TRACE(logger, "UPDATE (wait for script)");
@@ -141,7 +144,7 @@ class Server {
             lock.lock();
         }
 
-        TRACE(logger, "Update thread stopped");
+        TRACE(logger, "Main loop thread stopped");
     }
 
   private:

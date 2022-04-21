@@ -1,5 +1,7 @@
 #include "frame_loader.h"
 
+#include <pthread.h>
+
 #include <iterator>
 #include <mutex>
 #include <set>
@@ -24,7 +26,7 @@ class FrameLoaderDef : public FrameLoader {
     virtual ~FrameLoaderDef() {
         std::unique_lock lock{mutex};
         if (thread.joinable()) {
-            TRACE(logger, "Stopping \"{}\" reader", cx.filename);
+            TRACE(logger, "Stopping reader: {}", short_filename(cx.filename));
             shutdown = true;
             lock.unlock();
             wakeup->set();
@@ -35,13 +37,13 @@ class FrameLoaderDef : public FrameLoader {
     virtual void set_request(FrameRequest request) final {
         std::unique_lock lock{mutex};
         if (request.wanted == req.wanted) {
-            TRACE(logger, "REQ (same) \"{}\"", cx.filename);
+            TRACE(logger, "REQ (same): {}", short_filename(cx.filename));
             req = std::move(request);  // Capture options, skip notify
             return;
         }
 
         req = std::move(request);
-        DEBUG(logger, "REQ \"{}\"", cx.filename);
+        DEBUG(logger, "REQ {}", short_filename(cx.filename));
         DEBUG(logger, "  [req] want {}", debug(req.wanted));
         TRACE(
             logger, "  [req] idle={:.3f}s scan={:.3f}s",
@@ -124,18 +126,23 @@ class FrameLoaderDef : public FrameLoader {
         if (!cx.sys) cx.sys = global_system();
         if (!cx.decoder_f) cx.decoder_f = open_media_decoder;
         this->wakeup = cx.sys->make_flag();
-        DEBUG(logger, "Launching reader \"{}\"", cx.filename);
+        DEBUG(logger, "Launching reader: {}", short_filename(cx.filename));
         thread = std::thread(&FrameLoaderDef::loader_thread, this);
     }
 
     void loader_thread() {
-        std::unique_lock lock{mutex};
-        TRACE(logger, "Starting \"{}\" reader", cx.filename);
+        auto const thread_name = "pivid:" + short_filename(cx.filename);
+        pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
+        TRACE(logger, "Starting reader: {}", short_filename(cx.filename));
 
         std::map<double, Decoder> decoders;
+        std::unique_lock lock{mutex};
         while (!shutdown) {
             auto const now = cx.sys->clock();
-            DEBUG(logger, "LOAD {} \"{}\"", abbrev_realtime(now), cx.filename);
+            DEBUG(
+                logger, "LOAD {}: {}",
+                abbrev_realtime(now), short_filename(cx.filename)
+            );
 
             auto to_load = req.wanted;
             to_load.erase({to_load.bounds().begin, 0});
@@ -351,7 +358,7 @@ class FrameLoaderDef : public FrameLoader {
             if (changes && req.notify) req.notify->set();
         }
 
-        DEBUG(logger, "Stopped \"{}\" reader", cx.filename);
+        DEBUG(logger, "Stopped reader: {}", short_filename(cx.filename));
     }
 
   private:
