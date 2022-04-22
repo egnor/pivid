@@ -2,10 +2,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <optional>
-#include <ostream>
 #include <vector>
 
 #include "image_buffer.h"
@@ -58,15 +58,9 @@ struct DisplayUpdateDone {
 
 // Estimate of display load factors, where 1.0 is max capacity.
 struct DisplayLoad {
-    double memory_bus = 0.0;
-    double video_hardware = 0.0;
-
-    DisplayLoad operator +(DisplayLoad const& o) const {
-        return {memory_bus + o.memory_bus, video_hardware + o.video_hardware};
-    }
-    DisplayLoad const& operator +=(DisplayLoad const& o) {
-        return (*this = *this + o);
-    }
+    double memory_bandwidth = 0.0;
+    double compositor_bandwidth = 0.0;
+    double line_buffer_memory = 0.0;
 };
 
 // Interface to a GPU device. Normally one per system, handling all outputs.
@@ -94,7 +88,7 @@ class DisplayDriver {
     virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) = 0;
 
     // Estimate the system load needed to show a particular layer.
-    virtual DisplayLoad display_load(
+    virtual DisplayLoad predict_load(
         DisplayMode const&, std::vector<DisplayLayer> const&
     ) const = 0;
 };

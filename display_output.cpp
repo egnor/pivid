@@ -532,27 +532,34 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        auto load = display_load(mode, layers);
-        DEBUG(
-            logger, "UPDATE {} layers={} mem={:.1f}% hvs={:.1f}%",
-            conn->name, layers.size(),
-            load.memory_bus * 100, load.video_hardware * 100
-        );
+        auto load = predict_load(mode, layers);
 
-        if (load.memory_bus >= 1.0 || load.video_hardware >= 1.0) {
+        if (
+            load.memory_bandwidth >= 1.0 ||
+            load.compositor_bandwidth >= 1.0 ||
+            load.line_buffer_memory >= 1.0
+        ) {
             logger->warn(
-                "{} overload: mem={:.1f}% hvs={:.1f}%",
-                conn->name, load.memory_bus * 100, load.video_hardware * 100
+                "OVERLOAD {} lay={} mbw={:.1f}% cbw={:.1f}% lbuf={:.1f}%",
+                conn->name, layers.size(), load.memory_bandwidth * 100,
+                load.compositor_bandwidth * 100, load.line_buffer_memory * 100
             );
             for (auto const& layer : layers) {
-                auto const layer_load = display_load(mode, {layer});
+                auto const layer_load = predict_load(mode, {layer});
                 logger->warn(
-                    "  {:5.1f}%m {:5.1f}%h {}",
-                    layer_load.memory_bus * 100,
-                    layer_load.video_hardware * 100,
+                    "  {:5.1f}%m {:5.1f}%c {:5.1f}%l {}",
+                    layer_load.memory_bandwidth * 100,
+                    layer_load.compositor_bandwidth * 100,
+                    layer_load.line_buffer_memory * 100,
                     debug(layer)
                 );
             }
+        } else {
+            DEBUG(
+                logger, "UPDATE {} lay={} mbw={:.1f}% cbw={:.1f}% lbuf={:.1f}%",
+                conn->name, layers.size(), load.memory_bandwidth * 100,
+                load.compositor_bandwidth * 100, load.line_buffer_memory * 100
+            );
         }
 
         std::scoped_lock const lock{mutex};
@@ -781,11 +788,9 @@ class DisplayDriverDef : public DisplayDriver {
         return done;
     }
 
-    virtual DisplayLoad display_load(
+    virtual DisplayLoad predict_load(
         DisplayMode const& mode, std::vector<DisplayLayer> const& layers
     ) const final {
-        // See vc4_plane_calc_load (vc4_plane.c), and
-        // vc4_load_tracker_atomic_check (vc4_kms.c).
         DisplayLoad out = {};
         for (auto const& layer : layers) {
             auto const image_size = layer.image->size();
@@ -793,7 +798,9 @@ class DisplayDriverDef : public DisplayDriver {
             if (pixels <= 0) continue;
             if (layer.to_size.y <= 0) continue;
 
-            out.memory_bus +=
+            // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_plane.c#:~:text=vc4_plane_calc_load
+            // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_kms.c#:~:text=vc4_load_tracker_atomic_check
+            out.memory_bandwidth +=
                 layer.from_size.x * layer.from_size.y
                 * std::ceil(layer.from_size.y / layer.to_size.y)
                 * layer.image->byte_size() / pixels;
@@ -803,12 +810,12 @@ class DisplayDriverDef : public DisplayDriver {
                 layer.from_size.y != layer.to_size.y
             );
 
-            out.video_hardware +=
+            out.compositor_bandwidth +=
                 layer.to_size.x * layer.to_size.y * (scaling ? 0.5 : 0.25);
         }
 
-        out.memory_bus *= double(mode.nominal_hz) / (1536 * 1048576);
-        out.video_hardware *= double(mode.nominal_hz) / (240 * 1000000);
+        out.memory_bandwidth *= double(mode.nominal_hz) / (1536 * 1048576);
+        out.compositor_bandwidth *= double(mode.nominal_hz) / (240 * 1000000);
         return out;
     }
 
