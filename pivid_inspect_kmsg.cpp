@@ -20,8 +20,10 @@ std::string const levels[8] = {
 
 extern "C" int main(int const argc, char const* const* const argv) {
     std::string log_arg;
+    bool watch_arg;
     CLI::App app("Read and print kernel log buffer");
-    app.add_flag("--log", log_arg, "Log level/configuration");
+    app.add_option("--log", log_arg, "Log level/configuration");
+    app.add_flag("--watch", watch_arg, "Monitor ongoing logs");
     CLI11_PARSE(app, argc, argv);
 
     configure_logging(log_arg);
@@ -48,12 +50,17 @@ extern "C" int main(int const argc, char const* const* const argv) {
         (void) kmsg->write(inject.data(), inject.size());
         fmt::print("{}\n", banner);
 
+        auto const mono = sys->make_flag(CLOCK_MONOTONIC);
         for (;;) {
             char record[8192];
             TRACE(logger, "Reading log record");
             auto const ret = kmsg->read(record, sizeof(record));
             if (ret.err == EPIPE) continue;  // kmsg skipped records
-            if (ret.err == EAGAIN) break;
+            if (ret.err == EAGAIN) {
+                if (!watch_arg) break;
+                mono->sleep_until(sys->clock(CLOCK_MONOTONIC) + 0.1);
+                continue;
+            }
 
             auto const len = ret.ex("read /dev/kmsg");
             CHECK_RUNTIME(len > 0, "Bad /dev/kmsg read: {} bytes", len);

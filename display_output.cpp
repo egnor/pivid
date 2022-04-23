@@ -238,7 +238,8 @@ class ImportedBuffer {
 
 class LoadedImageDef : public LoadedImage {
   public:
-    LoadedImageDef(std::shared_ptr<FileDescriptor> fd, ImageBuffer const& im) {
+    LoadedImageDef(std::shared_ptr<FileDescriptor> fd, ImageBuffer image) {
+        im = std::move(image);
         CHECK_ARG(
             im.channels.size() <= 4,
             "Too many image channels ({}) for DRM", im.channels.size()
@@ -280,18 +281,12 @@ class LoadedImageDef : public LoadedImage {
                 fdat.handles[ci] = imp->drm_handle();
                 imports.push_back(std::move(imp));
             }
-
-            // The import references the memory at the kernel level, but this
-            // also references the user object to avoid reuse via buffer pool.
-            buffers.push_back(ch.memory);
-            bytes += ch.size;  // For byte_size()
         }
 
         auto const logger = display_logger();
         this->fd = std::move(fd);
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fdat).ex("DRM framebuffer");
         DEBUG(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
-        comment = im.source_comment;
     }
 
     ~LoadedImageDef() {
@@ -302,24 +297,16 @@ class LoadedImageDef : public LoadedImage {
     }
 
     virtual uint32_t drm_id() const final { return fdat.fb_id; }
-
-    virtual XY<int> size() const final {
-        return XY<int>(fdat.width, fdat.height);
-    }
-
-    virtual int byte_size() const final { return bytes; }
-
-    virtual std::string const& source_comment() const final { return comment; }
+    virtual uint32_t drm_format() const final { return fdat.pixel_format; }
+    virtual ImageBuffer const& content() const { return im; }
 
     LoadedImageDef(LoadedImageDef const&) = delete;
     LoadedImageDef& operator=(LoadedImageDef const&) = delete;
 
   private:
     std::shared_ptr<FileDescriptor> fd;
-    std::vector<std::shared_ptr<MemoryBuffer>> buffers;
     drm_mode_fb_cmd2 fdat = {};
-    int bytes = 0;
-    std::string comment;
+    ImageBuffer im;
 };
 
 //
@@ -532,33 +519,33 @@ class DisplayDriverDef : public DisplayDriver {
         std::vector<DisplayLayer> const& layers
     ) final {
         auto* const conn = &connectors.at(screen_id);
-        auto load = predict_load(mode, layers);
+        auto cost = predict_cost(mode, layers);
 
         if (
-            load.memory_bandwidth >= 1.0 ||
-            load.compositor_bandwidth >= 1.0 ||
-            load.line_buffer_memory >= 1.0
+            cost.memory_bandwidth >= 1.0 ||
+            cost.compositor_bandwidth >= 1.0 ||
+            cost.line_buffer_memory >= 1.0
         ) {
             logger->warn(
-                "OVERLOAD {} lay={} mbw={:.1f}% cbw={:.1f}% lbuf={:.1f}%",
-                conn->name, layers.size(), load.memory_bandwidth * 100,
-                load.compositor_bandwidth * 100, load.line_buffer_memory * 100
+                "OVERLOAD {} {}lay mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
+                conn->name, layers.size(), cost.memory_bandwidth * 100,
+                cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );
             for (auto const& layer : layers) {
-                auto const layer_load = predict_load(mode, {layer});
+                auto const layer_cost = predict_cost(mode, {layer});
                 logger->warn(
-                    "  {:5.1f}%m {:5.1f}%c {:5.1f}%l {}",
-                    layer_load.memory_bandwidth * 100,
-                    layer_load.compositor_bandwidth * 100,
-                    layer_load.line_buffer_memory * 100,
+                    "  {:4.1f}%m {:4.1f}%c {:4.1f}%l {}",
+                    layer_cost.memory_bandwidth * 100,
+                    layer_cost.compositor_bandwidth * 100,
+                    layer_cost.line_buffer_memory * 100,
                     debug(layer)
                 );
             }
         } else {
             DEBUG(
-                logger, "UPDATE {} lay={} mbw={:.1f}% cbw={:.1f}% lbuf={:.1f}%",
-                conn->name, layers.size(), load.memory_bandwidth * 100,
-                load.compositor_bandwidth * 100, load.line_buffer_memory * 100
+                logger, "UPDATE {} {}lay mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
+                conn->name, layers.size(), cost.memory_bandwidth * 100,
+                cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );
         }
 
@@ -788,34 +775,67 @@ class DisplayDriverDef : public DisplayDriver {
         return done;
     }
 
-    virtual DisplayLoad predict_load(
+    virtual DisplayCost predict_cost(
         DisplayMode const& mode, std::vector<DisplayLayer> const& layers
     ) const final {
-        DisplayLoad out = {};
+        // These calculations are all RPi 4B specific. TODO: Generalize?
+        DisplayCost out = {};
         for (auto const& layer : layers) {
-            auto const image_size = layer.image->size();
-            auto const pixels = image_size.x * image_size.y;
-            if (pixels <= 0) continue;
-            if (layer.to_size.y <= 0) continue;
+            auto const& image = layer.image->content();
+            auto const image_pix = image.size.x * image.size.y;
+            if (image_pix <= 0) continue;
+
+            int image_bytes = 0;
+            for (auto const& chan : image.channels) image_bytes += chan.size;
+            auto const pix_bytes = (image_bytes + image_pix - 1) / image_pix;
 
             // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_plane.c#:~:text=vc4_plane_calc_load
-            // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_kms.c#:~:text=vc4_load_tracker_atomic_check
+            if (layer.to_size.y <= 0) continue;
             out.memory_bandwidth +=
-                layer.from_size.x * layer.from_size.y
-                * std::ceil(layer.from_size.y / layer.to_size.y)
-                * layer.image->byte_size() / pixels;
+                std::ceil(layer.from_size.x) * std::ceil(layer.from_size.y)
+                * std::ceil(layer.from_size.y / layer.to_size.y) * pix_bytes;
 
-            bool const scaling = (
-                layer.from_size.x != layer.to_size.x ||
-                layer.from_size.y != layer.to_size.y
-            );
+            bool scaled_uv = false;
+            switch (image.fourcc) {
+                case fourcc("I420"):
+                case fourcc("NV12"):
+                case fourcc("NV21"):
+                case fourcc("Y42B"):
+                    scaled_uv = true;
+            }
 
+            bool const scaled = scaled_uv || layer.from_size != layer.to_size;
             out.compositor_bandwidth +=
-                layer.to_size.x * layer.to_size.y * (scaling ? 0.5 : 0.25);
+                layer.to_size.x * layer.to_size.y * (scaled ? 0.5 : 0.25);
+
+            // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_plane.c#:~:text=vc4_lbm_size
+            // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_plane.c#:~:text=vc4_get_scaling_mode
+            if (scaled_uv || layer.from_size.y != layer.to_size.y) {
+                int const line_pix =   // Dest if TPZ, source otherwise
+                    3 * layer.to_size.x < 2 * layer.from_size.x
+                        ? layer.to_size.x : std::ceil(layer.from_size.x);
+
+                int const lbm_pix =  // 2x if TPZ, 4x otherwise
+                     (!scaled_uv && 3 * layer.to_size.y < 2 * layer.from_size.y)
+                        ? line_pix * 2 : line_pix * 4;
+
+                // Align to 128 bytes (32 pixels, 8 "words")
+                out.line_buffer_memory += (lbm_pix + 31) / 32 * 32;
+            }
         }
 
-        out.memory_bandwidth *= double(mode.nominal_hz) / (1536 * 1048576);
-        out.compositor_bandwidth *= double(mode.nominal_hz) / (240 * 1000000);
+        // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_kms.c#:~:text=vc4_load_tracker_atomic_check
+        // Empirically, the Pi4 can do ~150% the Pi3, despite 2x clock??
+        out.compositor_bandwidth *= mode.actual_hz() / (340 * 1000000.0);
+
+        // https://forums.raspberrypi.com/viewtopic.php?t=271121
+        // Empirically, Pi4 has ~2x Pi3's bandwidth, and indeed 2x1.5GB=3.0GB
+        // seems to be around where HVS underruns start creeping in.
+        out.memory_bandwidth *= mode.actual_hz() / (3072 * 1048576.0);
+
+        // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_hvs.c#:~:text=60k%20words
+        // The *2 is because both the old & new config must be allocated.
+        out.line_buffer_memory *= 2.0 / (60 * 1024);
         return out;
     }
 
@@ -1302,9 +1322,11 @@ std::string debug(DisplayMode const& m) {
 std::string debug(DisplayLayer const& l) {
     std::string out = (l.image ? debug(*l.image) + " " : "");
     if (l.from_xy != XY<double>{})
-        out += fmt::format("{:.4g},{:.4g}+", l.from_xy.x, l.from_xy.y);
-    if (l.from_xy != XY<double>{} || !l.image || l.image->size() != l.from_size)
+        out += fmt::format("{:.4g},{:.4g}", l.from_xy.x, l.from_xy.y);
+    if (!l.image || l.image->content().size != l.from_size) {
+        if (l.from_xy != XY<double>{}) out += "+";
         out += fmt::format("{:.4g}x{:.4g}", l.from_size.x, l.from_size.y);
+    }
     out += fmt::format("=>{},{}", l.to_xy.x, l.to_xy.y);
     if (l.to_size != l.from_size)
         out += fmt::format("+{}x{}", l.to_size.x, l.to_size.y);

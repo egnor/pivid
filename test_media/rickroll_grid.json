@@ -7,47 +7,74 @@
         {
           "media": "rickroll-480p.hevc.mp4",
           "play": {"t": [0.5, 212.5], "v": [0, 212], "repeat": true},
-          "to_xy": [0, 0], "to_size": [640, 360]
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [9, 0], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [0.6, 212.6], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [489, 0], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [0.7, 212.7], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [969, 0], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [0.8, 212.8], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [1449, 0], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [0.9, 212.9], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [9, 360], "to_size": [462, 360]
         },
         {
           "media": "rickroll-480p.hevc.mp4",
           "play": {"t": [1.0, 213.0], "v": [0, 212], "repeat": true},
-          "to_xy": [640, 0], "to_size": [640, 360]
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [489, 360], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [1.1, 213.1], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [969, 360], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [1.2, 213.2], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [1449, 360], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [1.3, 213.3], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [9, 720], "to_size": [462, 360]
+        },
+        {
+          "media": "rickroll-480p.hevc.mp4",
+          "play": {"t": [1.4, 213.4], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [489, 720], "to_size": [462, 360]
         },
         {
           "media": "rickroll-480p.hevc.mp4",
           "play": {"t": [1.5, 213.5], "v": [0, 212], "repeat": true},
-          "to_xy": [1280, 0], "to_size": [640, 360]
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [969, 720], "to_size": [462, 360]
         },
         {
           "media": "rickroll-480p.hevc.mp4",
-          "play": {"t": [2.0, 214.0], "v": [0, 212], "repeat": true},
-          "to_xy": [0, 360], "to_size": [640, 360]
-        },
-        {
-          "media": "rickroll-480p.hevc.mp4",
-          "play": {"t": [2.5, 214.5], "v": [0, 212], "repeat": true},
-          "to_xy": [640, 360], "to_size": [640, 360]
-        },
-        {
-          "media": "rickroll-480p.hevc.mp4",
-          "play": {"t": [3.0, 215.0], "v": [0, 212], "repeat": true},
-          "to_xy": [1280, 360], "to_size": [640, 360]
-        },
-        {
-          "media": "rickroll-480p.hevc.mp4",
-          "play": {"t": [3.5, 215.5], "v": [0, 212], "repeat": true},
-          "to_xy": [0, 720], "to_size": [640, 360]
-        },
-        {
-          "media": "rickroll-480p.hevc.mp4",
-          "play": {"t": [4.0, 216.0], "v": [0, 212], "repeat": true},
-          "to_xy": [640, 720], "to_size": [640, 360]
-        },
-        {
-          "media": "rickroll-480p.hevc.mp4",
-          "play": {"t": [4.5, 216.5], "v": [0, 212], "repeat": true},
-          "to_xy": [1280, 720], "to_size": [640, 360]
+          "play": {"t": [1.6, 213.6], "v": [0, 212], "repeat": true},
+          "from_xy": [119, 0], "from_size": [616, 480],
+          "to_xy": [1449, 720], "to_size": [462, 360]
         }
       ]
     }

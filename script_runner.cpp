@@ -185,7 +185,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
                     --fit;
                     auto const frame_t = fit->first;
-                    auto const size = fit->second->size();
+                    auto const size = fit->second->content().size;
                     auto* out = &t_layers.emplace_back();
                     out->from_xy.x = bez(script_layer.from_xy.x, 0);
                     out->from_xy.y = bez(script_layer.from_xy.y, 0);

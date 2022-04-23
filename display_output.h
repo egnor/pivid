@@ -57,7 +57,7 @@ struct DisplayUpdateDone {
 };
 
 // Estimate of display load factors, where 1.0 is max capacity.
-struct DisplayLoad {
+struct DisplayCost {
     double memory_bandwidth = 0.0;
     double compositor_bandwidth = 0.0;
     double line_buffer_memory = 0.0;
@@ -88,7 +88,7 @@ class DisplayDriver {
     virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) = 0;
 
     // Estimate the system load needed to show a particular layer.
-    virtual DisplayLoad predict_load(
+    virtual DisplayCost predict_cost(
         DisplayMode const&, std::vector<DisplayLayer> const&
     ) const = 0;
 };

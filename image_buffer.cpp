@@ -85,12 +85,10 @@ std::string debug(ImageBuffer const& i) {
 }
 
 std::string debug(LoadedImage const& l) {
-    auto const size = l.size();
-    auto const comment = l.source_comment();
-    auto out = fmt::format("fb{} {}x{}", l.drm_id(), size.x, size.y);
-    if (!comment.empty())
-        out += fmt::format(" \"{}\"", comment);
-    return out;
+    std::string out = fmt::format("fb{} ", l.drm_id());
+    if (l.drm_format() != l.content().fourcc)
+        out += debug_fourcc(l.drm_format()) + " ";
+    return out + debug(l.content());
 }
 
 }  // namespace pivid

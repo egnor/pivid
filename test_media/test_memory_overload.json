@@ -1,0 +1,49 @@
+{
+  "screens": {
+    "*": {
+      "update_hz": 2,
+      "layers": [
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [0, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [192, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [384, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [576, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [768, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [960, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [1152, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [1344, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [1536, 0], "to_size": [192, 1080]
+        },
+        {
+          "media": "test-pattern-1080p.rgb24.png",
+          "to_xy": [1728, 0], "to_size": [192, 1080]
+        }
+      ]
+    }
+  }
+}

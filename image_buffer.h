@@ -55,10 +55,9 @@ struct ImageBuffer {
 class LoadedImage {
   public:
     virtual ~LoadedImage() = default;
-    virtual uint32_t drm_id() const = 0;  // DRM framebuffer ID
-    virtual XY<int> size() const = 0;     // Pixel dimensions
-    virtual int byte_size() const = 0;    // Memory used
-    virtual std::string const& source_comment() const = 0;  // From ImageBuffer
+    virtual uint32_t drm_id() const = 0;               // DRM framebuffer ID
+    virtual uint32_t drm_format() const { return 0; }  // DRM_FORMAT_* value
+    virtual ImageBuffer const& content() const = 0;    // Image that was loaded
 };
 
 // Assembles a fourcc uint32_t from text (like "RGBA").

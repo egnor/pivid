@@ -1,0 +1,57 @@
+{
+  "screens": {
+    "*": {
+      "update_hz": 2,
+      "layers": [
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 0], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 50], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 100], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 150], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 200], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 250], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 300], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 350], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 400], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 450], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 550], "to_size": [1920, 1080]
+        },
+        {
+          "media": "test-pattern-thin.rgb24.png",
+          "to_xy": [0, 550], "to_size": [1920, 1080]
+        }
+      ]
+    }
+  }
+}
