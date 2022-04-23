@@ -160,8 +160,8 @@ class FramePlayerDef : public FramePlayer {
             if (!done) {
                 if (last_update && now - last_update > 1.0 / mode.actual_hz()) {
                     logger->warn(
-                        "Slow update: {:.3f}s pending > {:.3f}s refresh",
-                        now - last_update, 1.0 / mode.actual_hz()
+                        "Slow update (s={}): {:.3f}s > {:.3f}s",
+                        screen_id, now - last_update, 1.0 / mode.actual_hz()
                     );
                 }
                 TRACE(logger, "  (s={} update pending, wait 5ms)", screen_id);
