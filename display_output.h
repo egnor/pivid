@@ -25,6 +25,7 @@ struct DisplayMode {
     XY<int> sync_end;       // Horiz / vert sync pulse end
     XY<int> sync_polarity;  // Horiz / vert sync polarity (+1 / -1)
     XY<int> doubling;       // Clock doubling / doublescan / interlace (+1 / -1)
+    XY<int> aspect;         // Picture aspect ratio (0/0 if unspecified)
     int pixel_khz = 0;      // Basic pixel clock
     int nominal_hz = 0;     // Approx refresh rate (like 30 or 60)
     double actual_hz() const;  // Computes true refresh frequency

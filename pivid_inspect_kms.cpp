@@ -24,7 +24,9 @@
 
 namespace pivid {
 
-bool print_properties_flag = false;  // Set by flag in main()
+// Set by flag in main()
+bool print_properties_flag = false;
+bool print_modes_flag = false;
 
 // Support KMS/DRM ioctl conventions for variable size arrays;
 // returns true if the ioctl needs to be re-submitted with a resized array.
@@ -87,7 +89,7 @@ void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
         } while (size_vec(&meta.enum_blob_ptr, &meta.count_enum_blobs, &enums));
 
         std::string const name = meta.name;
-        fmt::print("        prop #{:<3} ", prop_ids[pi]);
+        fmt::print("      prop #{:<3} ", prop_ids[pi]);
         if (meta.flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
         if (meta.flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
         if (meta.flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
@@ -95,7 +97,7 @@ void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
 
         auto const print_fourccs = [](uint8_t const* data, int count) {
             for (int fi = 0; fi < count; ++fi) {
-                if (fi % 12 == 0) fmt::print("\n           ");
+                if (fi % 12 == 0) fmt::print("\n         ");
                 fmt::print(" ");
                 for (int ci = 0; ci < 4; ++ci) {
                     int const ch = data[ci + fi * 4];
@@ -128,7 +130,7 @@ void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
                 auto const blob = get_blob(fd, value);
                 auto const* const m = (drm_mode_modeinfo const*) blob.data();
                 fmt::print(
-                    " {}x{} {}Hz", m->hdisplay, m->vdisplay, m->vrefresh
+                    " {}x{} @{}", m->hdisplay, m->vdisplay, m->vrefresh
                 );
             } else {
                 fmt::print(" (none)");
@@ -310,7 +312,7 @@ void inspect_device(DisplayDriverListing const& listing) {
 
         if (crtc.mode_valid) {
             fmt::print(
-                " => {}x{} {}Hz",
+                " => {}x{} @{}",
                 crtc.mode.hdisplay, crtc.mode.vdisplay, crtc.mode.vrefresh
             );
         }
@@ -417,12 +419,14 @@ void inspect_device(DisplayDriverListing const& listing) {
         }
         fmt::print("\n");
 
-        if (print_properties_flag) {
-            print_properties(dev, id);
+        if (print_properties_flag) print_properties(dev, id);
+
+        if (print_modes_flag) {
             for (auto const& mode : modes) {
                 fmt::print(
-                    "        [mode] {}x{} {}Hz",
-                    mode.hdisplay, mode.vdisplay, mode.vrefresh
+                    "      [mode] {:.3f}M {}x{} {}x{} @{}",
+                    mode.clock * 1e-3, mode.hdisplay, mode.vdisplay,
+                    mode.htotal, mode.vtotal, mode.vrefresh
                 );
                 for (uint32_t bit = 1; bit; bit <<= 1) {
                     if (mode.type & bit) {
@@ -434,8 +438,9 @@ void inspect_device(DisplayDriverListing const& listing) {
                             T(PREFERRED);
                             T(DEFAULT);
                             T(USERDEF);
-                            T(DRIVER);
+                            // T(DRIVER);
 #undef T
+                            case DRM_MODE_TYPE_DRIVER: break;  // Tautological
                             default: fmt::print(" ?type={}?", bit); break;
                         }
                     }
@@ -491,8 +496,9 @@ int main(int argc, char** argv) {
     app.add_option("--dev", dev_arg, "DRM/KMS device (in /dev/dri) to inspect");
     app.add_flag(
         "--print_properties", pivid::print_properties_flag,
-        "List properties, capabilities, and modes"
+        "List properties and capabilities"
     );
+    app.add_flag("--print_modes", pivid::print_modes_flag, "List video modes");
     CLI11_PARSE(app, argc, argv);
 
     try {

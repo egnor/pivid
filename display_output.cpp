@@ -66,6 +66,12 @@ DisplayMode mode_from_drm(drm_mode_modeinfo const& drm) {
             sign(DRM_MODE_FLAG_CLKDIV2, DRM_MODE_FLAG_DBLCLK),
             sign(DRM_MODE_FLAG_INTERLACE, DRM_MODE_FLAG_DBLSCAN),
         },
+        .aspect =
+            (drm.flags & DRM_MODE_FLAG_PIC_AR_4_3) ? XY<int>{4, 3} :
+            (drm.flags & DRM_MODE_FLAG_PIC_AR_16_9) ? XY<int>{16, 9} :
+            (drm.flags & DRM_MODE_FLAG_PIC_AR_64_27) ? XY<int>{64, 27} :
+            (drm.flags & DRM_MODE_FLAG_PIC_AR_256_135) ? XY<int>{256, 135} :
+            XY<int>{},
         .pixel_khz = int(drm.clock), 
         .nominal_hz = int(drm.vrefresh), 
     };
@@ -93,7 +99,11 @@ drm_mode_modeinfo mode_to_drm(DisplayMode const& mode) {
             (mode.doubling.y < 0 ? DRM_MODE_FLAG_INTERLACE : 0) |
             (mode.doubling.y > 0 ? DRM_MODE_FLAG_DBLSCAN : 0) |
             (mode.doubling.x > 0 ? DRM_MODE_FLAG_DBLCLK : 0) |
-            (mode.doubling.x < 0 ? DRM_MODE_FLAG_CLKDIV2 : 0)
+            (mode.doubling.x < 0 ? DRM_MODE_FLAG_CLKDIV2 : 0) |
+            (mode.aspect == XY<int>{4, 3} ? DRM_MODE_FLAG_PIC_AR_4_3 : 0) |
+            (mode.aspect == XY<int>{16, 9} ? DRM_MODE_FLAG_PIC_AR_16_9 : 0) |
+            (mode.aspect == XY<int>{64, 27} ? DRM_MODE_FLAG_PIC_AR_64_27 : 0) |
+            (mode.aspect == XY<int>{256, 135} ? DRM_MODE_FLAG_PIC_AR_256_135 : 0)
         ),
         .type = uint32_t(DRM_MODE_TYPE_USERDEF),
         .name = {},
@@ -1300,22 +1310,26 @@ double DisplayMode::actual_hz() const {
 std::string debug(DisplayMode const& m) {
     if (!m.nominal_hz) return "OFF";
     return fmt::format(
-        "{:5.1f}MHz{} {:3}[{:3}{}]{:<3} {:>4}x"
-        "{:4}{} {:2}[{:2}{}]{:<2} {:6.3f}Hz",
+        "{:4}x{:<5} @{:<6.3f} {:5.1f}M{:2} "
+        "{:3}[{:3}{}]{:<3} {:2}[{:2}{}]{:<2}{}",
+        m.size.x,
+        fmt::format(
+            "{}{}", m.size.y,
+            m.doubling.y > 0 ? "p2" : m.doubling.y < 0 ? "i" : "p"
+        ),
+        m.actual_hz(),
         m.pixel_khz / 1000.0,
-        m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "  ",
+        m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "",
         m.sync_start.x - m.size.x,
         m.sync_end.x - m.sync_start.x,
         m.sync_polarity.x < 0 ? "-" : m.sync_polarity.x > 0 ? "+" : "",
         m.scan_size.x - m.sync_end.x,
-        m.size.x,
-        m.size.y,
-        m.doubling.y > 0 ? "p2" : m.doubling.y < 0 ? "i " : "p ",
         m.sync_start.y - m.size.y,
         m.sync_end.y - m.sync_start.y,
-        m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : " ",
+        m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : "",
         m.scan_size.y - m.sync_end.y,
-        m.actual_hz()
+        m.aspect == XY<int>{0, 0} ? "" :
+            fmt::format(" {}:{}", m.aspect.x, m.aspect.y)
     );
 }
 
