@@ -17,17 +17,13 @@ auto const& runner_logger() {
     return logger;
 }
 
-bool matches_display(std::string const& conn, DisplayScreen const& disp) {
-    return conn == disp.connector || (conn == "*" && disp.display_detected);
-}
-
 bool matches_mode(ScriptScreen const& scr, DisplayMode const& mode) {
-    if (scr.display_mode.x < 0 || scr.display_mode.y < 0 || scr.display_hz < 0)
+    if (scr.mode_size.x < 0 || scr.mode_size.y < 0 || scr.mode_hz < 0)
         return (mode.nominal_hz == 0);
     return (
-        (!scr.display_mode.x || scr.display_mode.x == mode.size.x) &&
-        (!scr.display_mode.y || scr.display_mode.y == mode.size.y) &&
-        (!scr.display_hz || scr.display_hz == mode.nominal_hz)
+        (!scr.mode_size.x || scr.mode_size.x == mode.size.x) &&
+        (!scr.mode_size.y || scr.mode_size.y == mode.size.y) &&
+        (!scr.mode_hz || scr.mode_hz == mode.nominal_hz)
     );
 }
 
@@ -70,17 +66,15 @@ class ScriptRunnerDef : public ScriptRunner {
             output->defined = true;
 
             if (output->player && matches_mode(script_screen, output->mode)) {
-                DEBUG(logger, "  [{}] {}", output->name, debug(output->mode));
+                DEBUG(logger, "  [{}] {}", connector, debug(output->mode));
             } else {
                 if (display_screens.empty())
                     display_screens = cx.driver->scan_screens();
 
-                std::string display_name;
                 uint32_t display_id = 0;
                 DisplayMode display_mode = {};
                 for (auto const& display : display_screens) {
-                    if (!matches_display(connector, display)) continue;
-                    display_name = display.connector;
+                    if (display.connector != connector) continue;
                     display_id = display.id;
 
                     for (auto const& mode : display.modes) {
@@ -101,16 +95,15 @@ class ScriptRunnerDef : public ScriptRunner {
 
                 if (!matches_mode(script_screen, display_mode)) {
                     logger->error(
-                        "Mode not found: {} {}x{} {}Hz", display_name,
-                        script_screen.display_mode.x,
-                        script_screen.display_mode.y,
-                        script_screen.display_hz
+                        "Mode not found: {} {}x{} {}Hz", connector,
+                        script_screen.mode_size.x,
+                        script_screen.mode_size.y,
+                        script_screen.mode_hz
                     );
                     continue;
                 }
 
-                DEBUG(logger, "  [{}] + {}", display_name, debug(display_mode));
-                output->name = display_name;
+                DEBUG(logger, "  [{}] + {}", connector, debug(display_mode));
                 output->mode = display_mode;
                 output->player.reset();
                 output->player = cx.player_f(display_id, display_mode);
@@ -238,7 +231,7 @@ class ScriptRunnerDef : public ScriptRunner {
 
         for (auto& [conn, output] : output_screens) {
             if (!output.defined) {
-                DEBUG(logger, "  [{}] unspecified, blanking", output.name);
+                DEBUG(logger, "  [{}] unspecified, blanking", conn);
                 output.player->set_timeline({});
             } else {
                 output.defined = false;

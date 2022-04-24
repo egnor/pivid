@@ -22,36 +22,6 @@
 
 namespace pivid {
 
-static void to_json(nlohmann::json& j, MediaFileInfo const& info) {
-    j = {};
-    if (!info.filename.empty()) j["filename"] = info.filename;
-    if (!info.container_type.empty()) j["container_type"] = info.container_type;
-    if (!info.codec_name.empty()) j["codec_name"] = info.codec_name;
-    if (!info.pixel_format.empty()) j["pixel_format"] = info.pixel_format;
-    if (info.size) j["size"] = {info.size->x, info.size->y};
-    if (info.frame_rate) j["frame_rate"] = *info.frame_rate;
-    if (info.bit_rate) j["bit_rate"] = *info.bit_rate;
-    if (info.duration) j["duration"] = *info.duration;
-}
-
-static void to_json(nlohmann::json& j, DisplayMode const& mode) {
-    if (!mode.nominal_hz) {
-        j = nullptr;
-    } else {
-        j["size"] = {mode.size.x, mode.size.y};
-        j["nominal_hz"] = mode.nominal_hz;
-        j["actual_hz"] = mode.actual_hz();
-        if (mode.doubling != XY<int>{})
-            j["doubling"] = {mode.doubling.x, mode.doubling.y};
-    }
-}
-
-static void to_json(nlohmann::json& j, DisplayScreen const& screen) {
-    j["detected"] = screen.display_detected;
-    j["active_mode"] = screen.active_mode;
-    j["modes"] = nlohmann::json(screen.modes);
-}
-
 namespace {
 
 std::shared_ptr<log::logger> const& server_logger() {
@@ -165,8 +135,25 @@ class Server {
 
         try {
             DEBUG(logger, "INFO \"{}\"", std::string(req.matches[1]));
-            auto const media_info = cx.runner->file_info(req.matches[1]);
-            j["media"] = media_info;
+            auto const info = cx.runner->file_info(req.matches[1]);
+            nlohmann::json media_j;
+            if (!info.filename.empty())
+                media_j["filename"] = info.filename;
+            if (!info.container_type.empty())
+                media_j["container_type"] = info.container_type;
+            if (!info.pixel_format.empty())
+                media_j["pixel_format"] = info.pixel_format;
+            if (!info.codec_name.empty())
+                media_j["codec_name"] = info.codec_name;
+            if (info.size)
+                media_j["size"] = {info.size->x, info.size->y};
+            if (info.frame_rate)
+                media_j["frame_rate"] = *info.frame_rate;
+            if (info.bit_rate)
+                media_j["bit_rate"] = *info.bit_rate;
+            if (info.duration)
+                media_j["duration"] = *info.duration;
+            j["media"] = media_j;
             j["ok"] = true;
         } catch (std::system_error const& exc) {
             if (exc.code() == std::errc::no_such_file_or_directory) {
@@ -205,10 +192,26 @@ class Server {
         res.set_content(j.dump(), "application/json");
     }
 
-    void on_screens(httplib::Request const&, httplib::Response& res) {
-        nlohmann::json j;
-        for (auto const& screen : cx.driver->scan_screens())
-            to_json(j[screen.connector], screen);
+    void on_screens(httplib::Request const& req, httplib::Response& res) {
+        nlohmann::json j = {{"req", req.path}, {"ok", true}};
+        auto* screens_j = &j["screens"];
+        for (auto const& screen : cx.driver->scan_screens()) {
+            nlohmann::json screen_j;
+            screen_j["detected"] = screen.display_detected;
+
+            auto const& am = screen.active_mode;
+            if (am.nominal_hz)
+                screen_j["active_mode"] = {am.size.x, am.size.y, am.nominal_hz};
+
+            auto* modes_j = &screen_j["modes"];
+            std::set<std::tuple<int, int, int>> added;
+            for (auto const& m : screen.modes) {
+                auto [it, f] = added.emplace(m.size.x, m.size.y, m.nominal_hz);
+                if (f) modes_j->push_back(*it);
+            }
+
+            (*screens_j)[screen.connector] = screen_j;
+        }
 
         res.set_content(j.dump(), "application/json");
     }

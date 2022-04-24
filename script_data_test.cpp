@@ -22,10 +22,9 @@ TEST_CASE("from_json") {
       "main_buffer_time": 0.5,
       "zero_time": 12345.678,
       "screens": {
-        "empty_screen": {},
+        "empty_screen": {"mode": null},
         "full_screen": {
-          "display_mode": [1920, 1080],
-          "display_hz": 30,
+          "mode": [1920, 1080, 30],
           "update_hz": 15.5,
           "layers": [
             {"media": "empty_layer"},
@@ -111,17 +110,17 @@ TEST_CASE("from_json") {
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);
-    CHECK(script.screens["empty_screen"].display_mode.x == 0);
-    CHECK(script.screens["empty_screen"].display_mode.y == 0);
-    CHECK(script.screens["empty_screen"].display_hz == 0);
+    CHECK(script.screens["empty_screen"].mode_size.x == 0);
+    CHECK(script.screens["empty_screen"].mode_size.y == 0);
+    CHECK(script.screens["empty_screen"].mode_hz == 0);
     CHECK(script.screens["empty_screen"].update_hz == 0.0);
     CHECK(script.screens["empty_screen"].layers.empty());
 
     REQUIRE(script.screens.count("full_screen") == 1);
     auto const& screen = script.screens["full_screen"];
-    CHECK(screen.display_mode.x == 1920);
-    CHECK(screen.display_mode.y == 1080);
-    CHECK(screen.display_hz == 30);
+    CHECK(screen.mode_size.x == 1920);
+    CHECK(screen.mode_size.y == 1080);
+    CHECK(screen.mode_hz == 30);
     CHECK(screen.update_hz == Approx(15.5));
     REQUIRE(screen.layers.size() == 2);
     CHECK(screen.layers[0].media == "empty_layer");

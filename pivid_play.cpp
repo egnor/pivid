@@ -63,13 +63,15 @@ Script make_script(
     std::string const& media_arg,
     std::string const& screen_arg,
     XY<int> mode_size,
+    int mode_hz,
     double seek_arg
 ) {
     CHECK_ARG(!media_arg.empty(), "No media for make_script");
 
     Script script;
     auto *screen = &script.screens.try_emplace(screen_arg).first->second;
-    screen->display_mode = mode_size;
+    screen->mode_size = mode_size;
+    screen->mode_hz = mode_hz;
 
     ScriptLayer* layer = &screen->layers.emplace_back();
     layer->media = media_arg;
@@ -141,19 +143,21 @@ void run_script(ScriptContext const& context, Script const& script) {
 // Main program, parses flags and calls the decoder loop.
 extern "C" int main(int const argc, char const* const* const argv) {
     std::string dev_arg;
-    std::string screen_arg = "*";
+    std::string screen_arg = "HDMI-1";
     std::string log_arg;
     std::string media_arg;
     std::string script_arg;
-    XY<int> mode_arg = {0, 0};
+    XY<int> mode_size_arg = {1920, 1080};
+    int mode_hz_arg = 60;
     double seek_arg = -0.2;
     bool debug_kernel = false;
 
     CLI::App app("Decode and show a media file");
     app.add_option("--dev", dev_arg, "DRM driver description substring");
     app.add_option("--log", log_arg, "Log level/configuration");
-    app.add_option("--mode_x", mode_arg.x, "Video pixels per line");
-    app.add_option("--mode_y", mode_arg.y, "Video scan lines");
+    app.add_option("--mode_x", mode_size_arg.x, "Video pixels per line");
+    app.add_option("--mode_y", mode_size_arg.y, "Video scan lines");
+    app.add_option("--mode_hz", mode_hz_arg, "Video refresh rate");
     app.add_option("--screen", screen_arg, "Video output connector");
     app.add_option("--seek", seek_arg, "Seconds into media to start");
     app.add_flag("--debug_kernel", debug_kernel, "Enable kernel DRM debugging");
@@ -180,7 +184,9 @@ extern "C" int main(int const argc, char const* const* const argv) {
             context.driver = find_driver(dev_arg);
             context.file_base = global_system()->realpath(".").ex("getcwd");
             run_script(
-                context, make_script(media_arg, screen_arg, mode_arg, seek_arg)
+                context, make_script(
+                    media_arg, screen_arg, mode_size_arg, mode_hz_arg, seek_arg
+                )
             );
         } else {
             logger->warn("No --script or --media to play");
