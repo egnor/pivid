@@ -35,6 +35,13 @@ struct DisplayLayer {
     // TODO: rotation?
 };
 
+// A complete description of what to show on screen
+struct DisplayFrame {
+    DisplayMode mode;
+    std::vector<DisplayLayer> layers;        // Ordered from back to front
+    std::vector<std::string> warnings = {};  // Log if this frame is shown
+};
+
 // Returned by DisplayDriver::update_status() after a frame has become visible.
 struct DisplayUpdateDone {
     double flip_time;                      // Time of vsync flip
@@ -63,19 +70,13 @@ class DisplayDriver {
 
     // Updates a screen's contents &/or video mode at the next vsync.
     // Do not call again until the update completes (per update_status()).
-    virtual void update(
-        uint32_t screen_id,
-        DisplayMode const& mode,
-        std::vector<DisplayLayer> const& layers  // Z-order, back to front
-    ) = 0;
+    virtual void update(uint32_t screen_id, DisplayFrame const&) = 0;
 
     // Returns {} if an update is still pending, otherwise update result.
     virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) = 0;
 
-    // Estimate the system load needed to show a particular layer.
-    virtual DisplayCost predict_cost(
-        DisplayMode const&, std::vector<DisplayLayer> const&
-    ) const = 0;
+    // Estimate the system load needed to show a particular frame.
+    virtual DisplayCost predict_cost(DisplayFrame const&) const = 0;
 };
 
 // Description of a GPU device. Returned by list_device_drivers().

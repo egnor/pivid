@@ -72,7 +72,6 @@ class FramePlayerDef : public FramePlayer {
     void start(
         std::shared_ptr<DisplayDriver> driver,
         uint32_t screen_id,
-        DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
         logger->info("Launching frame player (s={})...", screen_id);
@@ -82,7 +81,6 @@ class FramePlayerDef : public FramePlayer {
             this,
             std::move(driver),
             screen_id,
-            std::move(mode),
             std::move(sys)
         );
     }
@@ -90,14 +88,13 @@ class FramePlayerDef : public FramePlayer {
     void player_thread(
         std::shared_ptr<DisplayDriver> driver,
         uint32_t screen_id,
-        DisplayMode mode,
         std::shared_ptr<UnixSystem> sys
     ) {
         auto const thread_name = fmt::format("pivid:play:s={}", screen_id);
         pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
         DEBUG(logger, "Frame player thread running (s={})...", screen_id);
 
-        double last_update = 0.0;
+        double expect_done = 0.0;
         std::unique_lock lock{mutex};
         while (!shutdown) {
             if (timeline.empty()) {
@@ -124,15 +121,15 @@ class FramePlayerDef : public FramePlayer {
             }
 
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
-                if (!s->second.empty()) {
+                if (!s->second.layers.empty()) {
                     logger->warn(
-                        "Skip (s={}) layers={} sch={} ({:.3f}s old)",
-                        screen_id, s->second.size(),
+                        "Skip (s={}) {}lay {} ({:.3f}s old)",
+                        screen_id, s->second.layers.size(),
                         abbrev_realtime(s->first), now - s->first
                     );
                 } else {
                     TRACE(
-                        logger, "Skip (s={}) *empty* sch={} ({:.3f}s old)",
+                        logger, "Skip (s={}) *empty* {} ({:.3f}s old)",
                         screen_id, abbrev_realtime(s->first), now - s->first
                     );
                 }
@@ -158,10 +155,10 @@ class FramePlayerDef : public FramePlayer {
 
             auto const done = driver->update_status(screen_id);
             if (!done) {
-                if (last_update && now - last_update > 1.0 / mode.actual_hz()) {
+                if (expect_done && now > expect_done) {
                     logger->warn(
-                        "Slow update (s={}): {:.3f}s > {:.3f}s",
-                        screen_id, now - last_update, 1.0 / mode.actual_hz()
+                        "Slow update (s={}): {:.3f}s overdue",
+                        screen_id, now - expect_done
                     );
                 }
                 TRACE(logger, "  (s={} update pending, wait 5ms)", screen_id);
@@ -171,22 +168,29 @@ class FramePlayerDef : public FramePlayer {
                 continue;
             }
 
+            auto const frame_time = show->first;
+            DisplayFrame frame = std::move(show->second);
+            auto const layer_count = frame.layers.size();
+            lock.unlock();
+
             try {
-                driver->update(screen_id, mode, show->second);
-                last_update = sys->clock();
+                auto const expect_delay = 1.0 / frame.mode.actual_hz();
+                driver->update(screen_id, std::move(frame));
+                expect_done = sys->clock() + expect_delay;
             } catch (std::runtime_error const& e) {
                 logger->error("Display (s={}): {}", screen_id, e.what());
                 // Continue as if displayed to avoid looping
             }
 
-            shown = show->first;
-            if (notify) notify->set();
-
-            auto const lag = now - shown;
             DEBUG(
-                logger, "Frame (s={}) layers={} sch={} ({:.3f}s old)",
-                screen_id, show->second.size(), abbrev_realtime(shown), lag
+                logger, "Frame (s={}) {}lay {} ({:.3f}s old)",
+                screen_id, layer_count, abbrev_realtime(frame_time),
+                now - frame_time
             );
+
+            lock.lock();  // State may have changed!
+            shown = frame_time;
+            if (notify) notify->set();
         }
 
         DEBUG(logger, "Frame player thread ending (s={})...", screen_id);
@@ -211,11 +215,10 @@ class FramePlayerDef : public FramePlayer {
 std::unique_ptr<FramePlayer> start_frame_player(
     std::shared_ptr<DisplayDriver> driver,
     uint32_t screen_id,
-    DisplayMode mode,
     std::shared_ptr<UnixSystem> sys
 ) {
     auto p = std::make_unique<FramePlayerDef>();
-    p->start(std::move(driver), screen_id, std::move(mode), std::move(sys));
+    p->start(std::move(driver), screen_id, std::move(sys));
     return p;
 }
 

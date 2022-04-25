@@ -25,7 +25,7 @@ struct ScriptContext {
     std::string file_base;
     FrameLoaderContext loader_cx;
     std::function<std::unique_ptr<FrameLoader>(FrameLoaderContext)> loader_f;
-    std::function<std::unique_ptr<FramePlayer>(uint32_t, DisplayMode)> player_f;
+    std::function<std::unique_ptr<FramePlayer>(uint32_t)> player_f;
 };
 
 std::unique_ptr<ScriptRunner> make_script_runner(ScriptContext);

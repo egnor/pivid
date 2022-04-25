@@ -15,8 +15,7 @@ namespace pivid {
 class FramePlayer {
   public:
     // Sequence of frames with system clock display time.
-    // Each frame is a stack of layers to pass to DisplayDriver::update().
-    using Timeline = std::map<double, std::vector<DisplayLayer>>;
+    using Timeline = std::map<double, DisplayFrame>;
 
     // Interrupts and shuts down the frame player.
     virtual ~FramePlayer() = default;
@@ -33,7 +32,7 @@ class FramePlayer {
 
 // Creates a frame player instance for a given driver and screen.
 std::unique_ptr<FramePlayer> start_frame_player(
-    std::shared_ptr<DisplayDriver>, uint32_t screen_id, DisplayMode,
+    std::shared_ptr<DisplayDriver>, uint32_t screen_id,
     std::shared_ptr<UnixSystem> = global_system()
 );
 

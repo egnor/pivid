@@ -523,13 +523,9 @@ class DisplayDriverDef : public DisplayDriver {
         return std::make_unique<LoadedImageDef>(fd, std::move(im));
     }
 
-    virtual void update(
-        uint32_t screen_id,
-        DisplayMode const& mode,
-        std::vector<DisplayLayer> const& layers
-    ) final {
+    virtual void update(uint32_t screen_id, DisplayFrame const& frame) final {
         auto* const conn = &connectors.at(screen_id);
-        auto cost = predict_cost(mode, layers);
+        auto cost = predict_cost(frame);
 
         if (
             cost.memory_bandwidth >= 1.0 ||
@@ -538,11 +534,11 @@ class DisplayDriverDef : public DisplayDriver {
         ) {
             logger->warn(
                 "OVERLOAD {} {}lay mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
-                conn->name, layers.size(), cost.memory_bandwidth * 100,
+                conn->name, frame.layers.size(), cost.memory_bandwidth * 100,
                 cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );
-            for (auto const& layer : layers) {
-                auto const layer_cost = predict_cost(mode, {layer});
+            for (auto const& layer : frame.layers) {
+                auto const layer_cost = predict_cost({frame.mode, {layer}});
                 logger->warn(
                     "  {:4.1f}%m {:4.1f}%c {:4.1f}%l {}",
                     layer_cost.memory_bandwidth * 100,
@@ -554,10 +550,13 @@ class DisplayDriverDef : public DisplayDriver {
         } else {
             DEBUG(
                 logger, "UPDATE {} {}lay mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
-                conn->name, layers.size(), cost.memory_bandwidth * 100,
+                conn->name, frame.layers.size(), cost.memory_bandwidth * 100,
                 cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );
         }
+
+        for (auto const& warning : frame.warnings)
+            logger->warn("{} {}", conn->name, warning);
 
         std::scoped_lock const lock{mutex};
         auto* crtc = conn->using_crtc;
@@ -566,7 +565,7 @@ class DisplayDriverDef : public DisplayDriver {
             "Update requested before prev done"
         );
 
-        if (!crtc && mode.nominal_hz) {
+        if (!crtc && frame.mode.nominal_hz) {
             for (auto* const c : conn->usable_crtcs) {
                 if (c->used_by_conn) continue;
                 ASSERT(!c->pending_flip);
@@ -582,7 +581,7 @@ class DisplayDriverDef : public DisplayDriver {
         Crtc::State next = {};
         int32_t writeback_fence_fd = -1;
 
-        if (!mode.nominal_hz) {
+        if (!frame.mode.nominal_hz) {
             DEBUG(logger, "  ({} turning off)", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
             if (crtc) {
@@ -592,12 +591,12 @@ class DisplayDriverDef : public DisplayDriver {
             // Leave next state zeroed (disassociate CRTC).
         } else {
             ASSERT(crtc);
-            next.mode = mode_to_drm(mode);
+            next.mode = mode_to_drm(frame.mode);
             static_assert(sizeof(crtc->active.mode) == sizeof(next.mode));
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
-                DEBUG(logger, "  {}: {}", conn->name, debug(mode));
-                if (mode.nominal_hz) mode_blob = create_blob(next.mode);
-                props[crtc->id][&crtc->ACTIVE] = mode.nominal_hz ? 1 : 0;
+                DEBUG(logger, "  {}: {}", conn->name, debug(frame.mode));
+                if (frame.mode.nominal_hz) mode_blob = create_blob(next.mode);
+                props[crtc->id][&crtc->ACTIVE] = frame.mode.nominal_hz ? 1 : 0;
                 props[crtc->id][&crtc->MODE_ID] = mode_blob ? *mode_blob : 0;
             }
 
@@ -627,9 +626,9 @@ class DisplayDriverDef : public DisplayDriver {
             }
 
             auto plane_iter = crtc->usable_planes.begin();
-            for (size_t li = 0; li < layers.size(); ++li) {
+            for (size_t li = 0; li < frame.layers.size(); ++li) {
                 // Find an appropriate plane (Primary=1, Overlay=0)
-                auto const& layer = layers[li];
+                auto const& layer = frame.layers[li];
                 uint64_t const wanted_type = li ? 0 : 1;
                 for (;; ++plane_iter) {
                     CHECK_RUNTIME(
@@ -785,12 +784,10 @@ class DisplayDriverDef : public DisplayDriver {
         return done;
     }
 
-    virtual DisplayCost predict_cost(
-        DisplayMode const& mode, std::vector<DisplayLayer> const& layers
-    ) const final {
+    virtual DisplayCost predict_cost(DisplayFrame const& frame) const final {
         // These calculations are all RPi 4B specific. TODO: Generalize?
         DisplayCost out = {};
-        for (auto const& layer : layers) {
+        for (auto const& layer : frame.layers) {
             auto const& image = layer.image->content();
             auto const image_pix = image.size.x * image.size.y;
             if (image_pix <= 0) continue;
@@ -836,12 +833,12 @@ class DisplayDriverDef : public DisplayDriver {
 
         // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_kms.c#:~:text=vc4_load_tracker_atomic_check
         // Empirically, the Pi4 can do ~150% the Pi3, despite 2x clock??
-        out.compositor_bandwidth *= mode.actual_hz() / (340 * 1000000.0);
+        out.compositor_bandwidth *= frame.mode.actual_hz() / (340 * 1000000.0);
 
         // https://forums.raspberrypi.com/viewtopic.php?t=271121
         // Empirically, Pi4 has ~2x Pi3's bandwidth, and indeed 2x1.5GB=3.0GB
         // seems to be around where HVS underruns start creeping in.
-        out.memory_bandwidth *= mode.actual_hz() / (3072 * 1048576.0);
+        out.memory_bandwidth *= frame.mode.actual_hz() / (3072 * 1048576.0);
 
         // https://github.com/raspberrypi/linux/blob/rpi-5.15.y/drivers/gpu/drm/vc4/vc4_hvs.c#:~:text=60k%20words
         // The *2 is because both the old & new config must be allocated.

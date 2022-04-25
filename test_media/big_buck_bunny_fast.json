@@ -1,8 +1,8 @@
 {
   "screens": {
     "HDMI-1": {
-      "mode": [1920, 1080, 24],
-      "update_hz": 60,
+      "mode": [1920, 1080, 60],
+      "update_hz": 24,
       "layers": [
         {
           "media": "big_buck_bunny_excerpt.hevc.mkv",

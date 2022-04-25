@@ -138,9 +138,9 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
 
                 DEBUG(logger, "  [{}] + {}", connector, debug(mode));
+                if (!output->player)
+                    output->player = cx.player_f(display_id);
                 output->mode = mode;
-                output->player.reset();
-                output->player = cx.player_f(display_id, mode);
             }
 
             if (!output->mode.nominal_hz) {
@@ -154,15 +154,19 @@ class ScriptRunnerDef : public ScriptRunner {
             double const begin_t = std::ceil(now * hz) / hz;
             double const end_t = now + script.main_buffer_time;
 
+            // Create empty timeline elements at each frame time
             FramePlayer::Timeline timeline;
-            for (double t = begin_t; t < end_t; t += 1.0 / hz)
-                timeline[t];  // Create empty timeline element
+            for (double t = begin_t; t < end_t; t += 1.0 / hz) {
+                auto* frame = &timeline[t];
+                frame->mode = output->mode;
+                frame->layers.reserve(script_screen.layers.size());
+            }
 
             for (size_t li = 0; li < script_screen.layers.size(); ++li) {
                 auto const& script_layer = script_screen.layers[li];
                 auto const& file = find_file(lock, script_layer.media);
                 auto* input = &input_media[file];
-                DEBUG(logger, "    \"{}\"", file);
+                DEBUG(logger, "    \"{}\"", short_filename(file));
 
                 auto const rt = now - t0;
                 Interval const buffer_t{rt, rt + script_layer.buffer};
@@ -176,14 +180,24 @@ class ScriptRunnerDef : public ScriptRunner {
                 }
                 TRACE(logger, "      have {}", debug(input->frames->coverage));
 
-                for (auto& [t, t_layers] : timeline) {
+                for (auto& [t, t_frame] : timeline) {
                     auto const media_t = script_layer.play.value(t - t0);
                     if (!media_t) {
                         TRACE(logger, "      {:+.3f}s inactive", t - now);
                         continue;
-                    } else if (*media_t < 0) {
+                    }
+
+                    if (*media_t < 0) {
                         TRACE(
-                            logger, "      {:+.3f}s m{:.3f}s before start!",
+                            logger, "      {:+.3f}s m{:.3f}s before start",
+                            t - now, *media_t
+                        );
+                        continue;
+                    }
+
+                    if (input->frames->eof && *media_t >= *input->frames->eof) {
+                        TRACE(
+                            logger, "      {:+.3f}s m{:.3f}s after EOF",
                             t - now, *media_t
                         );
                         continue;
@@ -194,6 +208,10 @@ class ScriptRunnerDef : public ScriptRunner {
                             logger, "      {:+.3f}s m{:.3f}s not loaded!",
                             t - now, *media_t
                         );
+
+                        t_frame.warnings.push_back(fmt::format(
+                            "underrun @{:.3f}s \"{}\"", *media_t, file
+                        ));
                         continue;
                     }
 
@@ -213,22 +231,22 @@ class ScriptRunnerDef : public ScriptRunner {
                     --fit;
                     auto const frame_t = fit->first;
                     auto const size = fit->second->content().size;
-                    auto* out = &t_layers.emplace_back();
-                    out->from_xy.x = bez(script_layer.from_xy.x, 0);
-                    out->from_xy.y = bez(script_layer.from_xy.y, 0);
-                    out->from_size.x = bez(script_layer.from_size.x, size.x);
-                    out->from_size.y = bez(script_layer.from_size.y, size.y);
-                    out->to_xy.x = bez(script_layer.to_xy.x, 0);
-                    out->to_xy.y = bez(script_layer.to_xy.y, 0);
-                    out->to_size.x = bez(script_layer.to_size.x, size.x);
-                    out->to_size.y = bez(script_layer.to_size.y, size.y);
-                    out->opacity = bez(script_layer.opacity, 1);
+                    auto* layer = &t_frame.layers.emplace_back();
+                    layer->from_xy.x = bez(script_layer.from_xy.x, 0);
+                    layer->from_xy.y = bez(script_layer.from_xy.y, 0);
+                    layer->from_size.x = bez(script_layer.from_size.x, size.x);
+                    layer->from_size.y = bez(script_layer.from_size.y, size.y);
+                    layer->to_xy.x = bez(script_layer.to_xy.x, 0);
+                    layer->to_xy.y = bez(script_layer.to_xy.y, 0);
+                    layer->to_size.x = bez(script_layer.to_size.x, size.x);
+                    layer->to_size.y = bez(script_layer.to_size.y, size.y);
+                    layer->opacity = bez(script_layer.opacity, 1);
                     TRACE(
                         logger, "      {:+.3f}s m{:.3f} f{:.3f} {}",
-                        t - now, *media_t, frame_t, debug(*out)
+                        t - now, *media_t, frame_t, debug(*layer)
                     );
 
-                    out->image = fit->second;  // Not in TRACE above
+                    layer->image = fit->second;  // Not in TRACE above
                 }
             }
 
@@ -332,8 +350,8 @@ class ScriptRunnerDef : public ScriptRunner {
             cx.loader_f = start_frame_loader;
 
         if (!cx.player_f) {
-            cx.player_f = [this](uint32_t id, DisplayMode const& m) {
-                return start_frame_player(cx.driver, id, m, cx.sys);
+            cx.player_f = [this](uint32_t id) {
+                return start_frame_player(cx.driver, id, cx.sys);
             };
         }
     }
