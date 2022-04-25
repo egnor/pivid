@@ -110,17 +110,17 @@ TEST_CASE("from_json") {
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);
-    CHECK(script.screens["empty_screen"].mode_size.x == 0);
-    CHECK(script.screens["empty_screen"].mode_size.y == 0);
-    CHECK(script.screens["empty_screen"].mode_hz == 0);
+    CHECK(script.screens["empty_screen"].mode.size.x == 0);
+    CHECK(script.screens["empty_screen"].mode.size.y == 0);
+    CHECK(script.screens["empty_screen"].mode.hz == 0);
     CHECK(script.screens["empty_screen"].update_hz == 0.0);
     CHECK(script.screens["empty_screen"].layers.empty());
 
     REQUIRE(script.screens.count("full_screen") == 1);
     auto const& screen = script.screens["full_screen"];
-    CHECK(screen.mode_size.x == 1920);
-    CHECK(screen.mode_size.y == 1080);
-    CHECK(screen.mode_hz == 30);
+    CHECK(screen.mode.size.x == 1920);
+    CHECK(screen.mode.size.y == 1080);
+    CHECK(screen.mode.hz == 30);
     CHECK(screen.update_hz == Approx(15.5));
     REQUIRE(screen.layers.size() == 2);
     CHECK(screen.layers[0].media == "empty_layer");

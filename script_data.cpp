@@ -160,6 +160,24 @@ static void from_json(json const& j, ScriptMedia& m) {
     );
 }
 
+static void from_json(json const& j, ScriptMode& mode) {
+    if (j.is_null()) {
+        mode = {};
+    } else {
+        CHECK_ARG(j.is_array(), "Bad JSON mode: {}", j.dump());
+        CHECK_ARG(j.size() == 3, "Bad JSON mode length: {}", j.dump());
+        CHECK_ARG(
+            j[0].is_number() && j[1].is_number() && j[2].is_number(),
+            "Bad JSON mode format: {}", j.dump()
+        );
+        mode.size = XY<int>{j[0], j[1]};
+        mode.hz = j[2];
+        CHECK_ARG(mode.size.x > 0, "Bad JSON mode X: {}", j.dump());
+        CHECK_ARG(mode.size.y > 0, "Bad JSON mode Y: {}", j.dump());
+        CHECK_ARG(mode.hz > 0, "Bad JSON mode Hz: {}", j.dump());
+    }
+}
+
 static void from_json(json const& j, ScriptLayer& layer) {
     CHECK_ARG(j.is_object(), "Bad JSON layer: {}", j.dump());
     layer.media = j.value("media", "");
@@ -175,25 +193,17 @@ static void from_json(json const& j, ScriptLayer& layer) {
 
 static void from_json(json const& j, ScriptScreen& screen) {
     CHECK_ARG(j.is_object(), "Bad JSON screen: {}", j.dump());
-
     CHECK_ARG(j.count("mode"), "No \"mode\" in JSON screen: {}", j.dump());
-    auto const& mode_j = j.value("mode", json());
-    auto const& layers_j = j.value("layers", json::array());
-    if (mode_j.is_null()) {
-        CHECK_ARG(layers_j.empty(), "Layers without mode: {}", j.dump());
-    } else {
-        CHECK_ARG(mode_j.is_array(), "Bad JSON mode: {}", j.dump());
-        CHECK_ARG(mode_j.size() == 3, "Bad JSON mode length: {}", j.dump());
-        screen.mode_size = XY<int>{mode_j[0], mode_j[1]};
-        screen.mode_hz = mode_j[2];
-        CHECK_ARG(screen.mode_size.x > 0, "Bad JSON mode X: {}", j.dump());
-        CHECK_ARG(screen.mode_size.y > 0, "Bad JSON mode Y: {}", j.dump());
-        CHECK_ARG(screen.mode_hz > 0, "Bad JSON mode Hz: {}", j.dump());
-    }
+    j.at("mode").get_to(screen.mode);
 
     screen.update_hz = j.value("update_hz", screen.update_hz);
     CHECK_ARG(screen.update_hz >= 0.0, "Bad JSON update_hz: {}", j.dump());
-    layers_j.get_to(screen.layers);
+
+    j.value("layers", json::array()).get_to(screen.layers);
+    CHECK_ARG(
+        screen.layers.empty() || screen.mode.hz,
+        "Layers without mode in JSON screen: {}", j.dump()
+    );
 }
 
 Script parse_script(std::string_view text, double default_zero_time) {

@@ -1301,38 +1301,6 @@ std::unique_ptr<DisplayDriver> open_display_driver(
 // Debugging utilities 
 //
 
-double DisplayMode::actual_hz() const {
-    if (!nominal_hz || !scan_size.x || !scan_size.y) return 0;
-    double const raw_hz = pixel_khz * 1000.0 / scan_size.x / scan_size.y;
-    return raw_hz * (doubling.y < 0 ? 2.0 : doubling.y > 0 ? 0.5 : 1.0);
-}
-
-std::string debug(DisplayMode const& m) {
-    if (!m.nominal_hz) return "OFF";
-    return fmt::format(
-        "{:4}x{:<5} @{:<6.3f} {:5.1f}M{:2} "
-        "{:3}[{:3}{}]{:<3} {:2}[{:2}{}]{:<2}{}",
-        m.size.x,
-        fmt::format(
-            "{}{}", m.size.y,
-            m.doubling.y > 0 ? "p2" : m.doubling.y < 0 ? "i" : "p"
-        ),
-        m.actual_hz(),
-        m.pixel_khz / 1000.0,
-        m.doubling.x > 0 ? "*2" : m.doubling.x < 0 ? "/2" : "",
-        m.sync_start.x - m.size.x,
-        m.sync_end.x - m.sync_start.x,
-        m.sync_polarity.x < 0 ? "-" : m.sync_polarity.x > 0 ? "+" : "",
-        m.scan_size.x - m.sync_end.x,
-        m.sync_start.y - m.size.y,
-        m.sync_end.y - m.sync_start.y,
-        m.sync_polarity.y < 0 ? "-" : m.sync_polarity.y > 0 ? "+" : "",
-        m.scan_size.y - m.sync_end.y,
-        m.aspect == XY<int>{0, 0} ? "" :
-            fmt::format(" {}:{}", m.aspect.x, m.aspect.y)
-    );
-}
-
 std::string debug(DisplayLayer const& l) {
     std::string out = (l.image ? debug(*l.image) + " " : "");
     if (l.from_xy != XY<double>{})

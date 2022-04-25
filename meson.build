@@ -1,6 +1,7 @@
 project('pivid', ['c', 'cpp'], version: '0.0',
     default_options: [
         'cpp_std=c++2a',
+        'python.install_env=venv',
         'warning_level=3',
         'werror=true',
     ]
@@ -29,9 +30,20 @@ libav_deps = [
 
 linux_dep = dependency('linux-headers-generic')
 
+python_bin = import('python').find_installation('python3')
+
+display_mode_inc = custom_target(
+    'display_mode.inc',
+    output: 'display_mode.inc',
+    input: 'display_mode_gen.py',
+    command: [python_bin, '@INPUT@', '--output', '@OUTPUT@']
+)
+
 pivid_lib = library(
     'pivid', [
         'bezier_spline.cpp',
+        'display_mode.cpp',
+        display_mode_inc,
         'display_output.cpp',
         'frame_loader.cpp',
         'frame_player.cpp',
@@ -95,6 +107,7 @@ executable(
 pivid_test = executable(
     'pivid_test', [
         'bezier_spline_test.cpp',
+        'display_mode_test.cpp',
         'interval_test.cpp',
         'pivid_test_main.cpp',
         'script_data_test.cpp',

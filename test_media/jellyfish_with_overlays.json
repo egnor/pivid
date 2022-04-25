@@ -1,6 +1,6 @@
 {
   "screens": {
-    "HDMI-1": {
+    "HDMI-2": {
       "mode": [1920, 1080, 30],
       "update_hz": 30,
       "layers": [

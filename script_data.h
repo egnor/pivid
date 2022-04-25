@@ -22,6 +22,12 @@ struct ScriptMedia {
     double seek_scan_time = 1.0;
 };
 
+struct ScriptMode {
+    XY<int> size;
+    int hz = 0;
+    auto operator<=>(ScriptMode const&) const = default;
+};
+
 struct ScriptLayer {
     std::string media;
     BezierSpline play;
@@ -32,8 +38,7 @@ struct ScriptLayer {
 };
 
 struct ScriptScreen {
-    XY<int> mode_size = {0, 0};
-    int mode_hz = 0;
+    ScriptMode mode;
     double update_hz = 0.0;
     std::vector<ScriptLayer> layers;
 };

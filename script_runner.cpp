@@ -17,14 +17,33 @@ auto const& runner_logger() {
     return logger;
 }
 
-bool matches_mode(ScriptScreen const& scr, DisplayMode const& mode) {
-    if (scr.mode_size.x < 0 || scr.mode_size.y < 0 || scr.mode_hz < 0)
-        return (mode.nominal_hz == 0);
-    return (
-        (!scr.mode_size.x || scr.mode_size.x == mode.size.x) &&
-        (!scr.mode_size.y || scr.mode_size.y == mode.size.y) &&
-        (!scr.mode_hz || scr.mode_hz == mode.nominal_hz)
-    );
+std::map<ScriptMode, DisplayMode> make_mode_map() {
+    std::map<ScriptMode, DisplayMode> modes;
+    for (auto const& mode : vesa_dmt_modes) {
+        // Prefer modes with *higher* pixel clock, to select against
+        // Reduced Blanking modes. TODO: Maybe RB is good?
+        auto* slot = &modes[{mode.size, mode.nominal_hz}];
+        if (!slot->nominal_hz || slot->pixel_khz < mode.pixel_khz)
+            *slot = mode;
+    }
+
+    // Prefer CTA modes (we use HDMI after all), so overlay them on top.
+    for (auto const& mode : cta_861_modes) {
+        auto* slot = &modes[{mode.size, mode.nominal_hz}];
+        *slot = mode;
+        slot->aspect = {};  // Ignore various aspect ratio variants 
+    }
+
+    return modes;
+}
+
+std::map<ScriptMode, DisplayMode> const& get_mode_map() {
+    static auto const map = make_mode_map();
+    return map;
+}
+
+bool matches(ScriptMode const& sm, DisplayMode const& dm) {
+    return sm.size == dm.size && sm.hz == dm.nominal_hz;
 }
 
 class ScriptRunnerDef : public ScriptRunner {
@@ -65,26 +84,41 @@ class ScriptRunnerDef : public ScriptRunner {
             auto *output = &output_screens[connector];
             output->defined = true;
 
-            if (output->player && matches_mode(script_screen, output->mode)) {
+            if (output->player && matches(script_screen.mode, output->mode)) {
                 DEBUG(logger, "  [{}] {}", connector, debug(output->mode));
             } else {
                 if (display_screens.empty())
                     display_screens = cx.driver->scan_screens();
 
                 uint32_t display_id = 0;
-                DisplayMode display_mode = {};
+                DisplayMode mode = {};
                 for (auto const& display : display_screens) {
                     if (display.connector != connector) continue;
                     display_id = display.id;
 
-                    for (auto const& mode : display.modes) {
-                        if (!matches_mode(script_screen, mode)) continue;
-                        display_mode = (
-                            mode.size == display.active_mode.size &&
-                            mode.nominal_hz == display.active_mode.nominal_hz
-                        ) ? display.active_mode : mode;
+                    // If screen-off is requested, use the zero-init mode.
+                    if (!script_screen.mode.hz) break;
+
+                    // If the active mode matches the spec, use it.
+                    if (matches(script_screen.mode, display.active_mode)) {
+                        mode = display.active_mode;
                         break;
                     }
+
+                    // Look for a canned mode matching the spec.
+                    auto const& mode_map = get_mode_map();
+                    auto const it = mode_map.find(script_screen.mode);
+                    if (it != mode_map.end()) {
+                        mode = it->second;
+                        break;
+                    }
+
+                    // Finally, try to synthesize a CVT mode for spec.
+                    auto const cvt = vesa_cvt_mode(
+                        script_screen.mode.size,
+                        script_screen.mode.hz
+                    );
+                    if (cvt) mode = *cvt;
                     break;
                 }
 
@@ -93,20 +127,20 @@ class ScriptRunnerDef : public ScriptRunner {
                     continue;
                 }
 
-                if (!matches_mode(script_screen, display_mode)) {
+                if (!matches(script_screen.mode, mode)) {
                     logger->error(
-                        "Mode not found: {} {}x{} {}Hz", connector,
-                        script_screen.mode_size.x,
-                        script_screen.mode_size.y,
-                        script_screen.mode_hz
+                        "Mode not found: {}x{} {}Hz",
+                        script_screen.mode.size.x,
+                        script_screen.mode.size.y,
+                        script_screen.mode.hz
                     );
                     continue;
                 }
 
-                DEBUG(logger, "  [{}] + {}", connector, debug(display_mode));
-                output->mode = display_mode;
+                DEBUG(logger, "  [{}] + {}", connector, debug(mode));
+                output->mode = mode;
                 output->player.reset();
-                output->player = cx.player_f(display_id, display_mode);
+                output->player = cx.player_f(display_id, mode);
             }
 
             if (!output->mode.nominal_hz) {
