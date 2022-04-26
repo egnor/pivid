@@ -1,4 +1,4 @@
-// Interfaces to read and uncompress media (video/image) files.
+// Interface to read and uncompress media (video/image) files.
 
 #pragma once
 

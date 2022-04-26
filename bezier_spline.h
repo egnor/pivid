@@ -26,7 +26,10 @@ struct BezierSpline {
     IntervalSet range(Interval t) const;
 };
 
+// Returns a segment that has the same value everywhere on the interval.
 BezierSegment constant_segment(Interval t, double v);
+
+// Returns a segment that changes linearly across the interval.
 BezierSegment linear_segment(Interval t, Interval v);
 
 }  // namespace pivid

@@ -8,7 +8,7 @@
 
 namespace pivid {
 
-// Convenience struct for coordinate pairs.
+// Convenience struct for X/Y coordinate pairs.
 template <typename T>
 struct XY {
     T x = {}, y = {};

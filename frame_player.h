@@ -1,4 +1,4 @@
-// Interfaces to show images (using display_output.h) at precise times.
+// Interface to show images (using display_output.h) at precise times.
 
 #pragma once
 
