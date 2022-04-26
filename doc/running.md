@@ -104,4 +104,4 @@ various testing and exploration tools:
 
 Use `--help` (and/or read the source) to see usage for each tool.
 
-Next: [REST API reference](interface.md)
+Next: [Architecture overview](architecture.md)
