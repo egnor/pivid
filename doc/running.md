@@ -1,17 +1,17 @@
 # Building Pivid binaries
 
-In its current state, you are recommended to build Pivid from source.
-Please let [the author](https://github.com/egnor) know if these instructions
-don't work.
+You are currently recommended to build Pivid from source. Please
+[open an issue](https://github.com/egnor/pivid/issues) if these
+instructions don't work.
 
 1. Use a Raspberry Pi (4B recommended) with a fully updated
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
 install and 2G+ RAM.
 
-2. Clone this repository (you will need [git-lfs](https://git-lfs.github.com/))
-and `cd` to the repository root.
+2. Clone [this repository](https://github.com/egnor/pivid) (you will need
+[git-lfs](https://git-lfs.github.com/)), and `cd` to the repository root.
 
-3. Run `./dev_setup.py`. (It Works On My Machine™, YMMV)
+3. Run `./dev_setup.py`.
 
 4. Run `ninja -C build` to build the Pivid code.
 
