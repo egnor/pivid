@@ -42,9 +42,9 @@ Pivid uses the GPU and
 [DMA-BUF/DRM-PRIME](https://en.wikipedia.org/wiki/Direct_Rendering_Manager#DMA_Buffer_Sharing_and_PRIME)
 for zero-copy decoding, buffering, compositing and display.
 
-Pivid is "early alpha" status and you are recommended to
-[contact the author](https://github.com/egnor) if you'd like to use it.
-Pivid currently has no audio support, which is obviously a major
+Pivid is "early alpha" status and you are invited to
+[contact the author](https://github.com/egnor) if you're planning to use it
+seriously. Pivid currently has no audio support, which is obviously a major
 limitation and a likely area of upcoming work.
 
 Pivid is available under the [MIT license](LICENSE.md).
