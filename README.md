@@ -18,11 +18,14 @@ dtoverlay=rpivid-v4l2
 Notable programs:
 
 * `pivid_play` - play a video file via KMS/DRM (stop X first)
+* `pivid_server` - play a video file via KMS/DRM (stop X first)
 * `pivid_save_frames` - split a video file into .tiff images
 * `pivid_scan_displays` - scan video drivers, connectors, and available modes
-* `pivid_inspect_avformat` - print a summary of streams in a video file
-* `pivid_inspect_kms` - print capabilities & properties of KMS/DRM devices
-* `pivid_inspect_v4l2` - print capabilities & properties of V4L2 devices
+* `pivid_scan_media` - scan media files and optionally list or dump frames
+* `pivid_inspect_avformat` - print low level video file details
+* `pivid_inspect_kms` - print low level KMS/DRM driver details
+* `pivid_inspect_kmsg` - print kernel logs with better timestamps than dmesg
+* `pivid_inspect_v4l2` - print low level V4L2 driver details
 
 Use `--help` to see usage (and/or read the source).
 
