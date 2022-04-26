@@ -96,7 +96,7 @@ In addition to `pivid_server` and `pivid_play`, the pivid build includes
 various testing and exploration tools:
 
 * `pivid_scan_displays` - lists video drivers, connectors, and available modes
-* `pivid_scan_media` - lists media file metadata; optionally list or dump frames
+* `pivid_scan_media` - lists media file metadata, and optionally dumps frames
 * `pivid_inspect_avformat` - lists low level video file details
 * `pivid_inspect_kms` - lists low level KMS/DRM driver details
 * `pivid_inspect_kmsg` - lists kernel logs with better timestamps than dmesg
