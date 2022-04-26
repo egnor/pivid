@@ -22,11 +22,11 @@ They are statically linked and may be copied elsewhere as desired.
 
 # Running Pivid binaries
 
-1. Edit `/boot/config.txt` as follows, and reboot:
+1. Edit `/boot/config.txt` (as root), comment out existing
+`dtoverlay=vc4`... lines, and add these options:
 
 ```
-  #dtoverlay=vc4-fkms-v3d  # Disable old dtoverlay=vc4* lines
-  # Use full KMS and H.265 (HEVC) decoding, 512M CMA for frames
+  # Use full KMS and H.265 (HEVC) decoding, reserve 512M CMA for frames
   dtoverlay=vc4-kms-v3d,cma-512
   dtoverlay=rpivid-v4l2
 ```
@@ -51,17 +51,17 @@ The server takes a number of options; see `pivid_server --help`.
 One required argument is `--media_root=DIR`, which points to a directory
 of media files; scripts can only access media files in that directory.
 
-For production, arrange to start `pivid_server` with the media root
-and other options of your choice. (Make sure the X windows desktop
-is not running.)
+For production, you will arrange to start `pivid_server` with the media
+root and other options of your choice, and make sure the X windows desktop
+is not running.
 
-For testing, run this from the repository root:
+For a quick test, run the server from the repository root:
 
 ```
 build/pivid_server --media_root test_media
 ```
 
-At the same time, run this, also from the repository root:
+At the same time, run this script, also from the repository root:
 
 ```
 test_media/rickroll_drop.py
