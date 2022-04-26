@@ -42,6 +42,9 @@ They are statically linked and may be copied elsewhere as desired.
 build/pivid_play --media test_media/jellyfish-3-mbps-hd-hevc.mkv
 ```
 
+If all goes well, 1080p video of blorping jellyfish should play on the
+first HDMI output for 30 seconds.
+
 ## pivid_server
 
 The main `pivid_server` program listens for HTTP requests, serves the
