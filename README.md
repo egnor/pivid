@@ -3,6 +3,7 @@
 [![Example video](doc/example_thumbnail.png)](https://photos.app.goo.gl/aU5KSJmNnLvrw1gc8)
 
 * [Building and running Pivid](doc/running.md)
+* [Architecture overview](doc/architecture.md)
 * [REST API reference](doc/interface.md)
 * [Play script format](doc/script.md)
 * [Development notes and links](doc/notes.md)
