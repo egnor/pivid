@@ -44,16 +44,15 @@ build/pivid_play --media test_media/jellyfish-3-mbps-hd-hevc.mkv
 
 ## pivid_server
 
-In production, `pivid_server` is the program that gets run to
-serve the [REST API](interface.md) and play whatever is requested.
+The main `pivid_server` program listens for HTTP requests, serves the
+[REST API](interface.md), and plays content on screen as requested.
 
-The server takes a number of options; see `pivid_server --help`.
+The server takes a number of arguments; see `pivid_server --help`.
 One required argument is `--media_root=DIR`, which points to a directory
-of media files; scripts can only access media files in that directory.
+of media files; the server will only load media files from that tree.
 
-For production, you will arrange to start `pivid_server` with the media
-root and other options of your choice, and make sure the X windows desktop
-is not running.
+By default, the server listens on port 31415 and only accepts connections
+from localhost; use `--port=PORT` and/or `--trust_network` to change that.
 
 For a quick test, run the server from the repository root:
 
@@ -73,29 +72,32 @@ add falling Rick Astley videos on top of a jellyfish scene.
 running on the default port. You will find other example scripts
 in the `test_media` directory, along with media files.)
 
+A production setup typically starts `pivid_server` on boot with
+appropriate media root and other options, and disables X windows
+desktop autostart. Doing so is left as an exercise for the reader
+(the means will depend on local needs and preferences).
+
 ## pivid_play
 
 The `pivid_play` utility is a self-contained player mainly used
 for testing and development.
 
-This utility takes a number of options; see `pivid_play --help`.
+This utility takes a number of arguments; see `pivid_play --help`.
 One of `--media=FILE` or `--script=SCRIPT` is needed to play
 a video file or execute a [play script](script.md), respectively.
-(Make sure the X windows desktop i snot running.)
+(Make sure the X windows desktop is not running.)
 
 ## Other tools
 
-The pivid build compiles a variety of programs, mostly testing and
-exploration tools:
+In addition to `pivid_server` and `pivid_play`, the pivid build includes a
+variety of other programs, mostly testing and exploration tools:
 
-* `pivid_server` - serve the pivid web API ([see above](#pivid_server))
-* `pivid_play` - play a video file or play script ([see above](#pivid_play))
-* `pivid_scan_displays` - print video drivers, connectors, and available modes
-* `pivid_scan_media` - print media file metadata; optionally list or dump frames
-* `pivid_inspect_avformat` - print low level video file details
-* `pivid_inspect_kms` - print low level KMS/DRM driver details
-* `pivid_inspect_kmsg` - print kernel logs with better timestamps than dmesg
-* `pivid_inspect_v4l2` - print low level V4L2 driver details
+* `pivid_scan_displays` - lists video drivers, connectors, and available modes
+* `pivid_scan_media` - lists media file metadata; optionally list or dump frames
+* `pivid_inspect_avformat` - lists low level video file details
+* `pivid_inspect_kms` - lists low level KMS/DRM driver details
+* `pivid_inspect_kmsg` - lists kernel logs with better timestamps than dmesg
+* `pivid_inspect_v4l2` - lists low level V4L2 driver details
 
 Use `--help` (and/or read the source) to see usage for each tool.
 
