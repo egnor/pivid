@@ -92,8 +92,8 @@ a video file or execute a [play script](script.md), respectively.
 
 ## Other tools
 
-In addition to `pivid_server` and `pivid_play`, the pivid build includes a
-variety of other programs, mostly testing and exploration tools:
+In addition to `pivid_server` and `pivid_play`, the pivid build includes
+various testing and exploration tools:
 
 * `pivid_scan_displays` - lists video drivers, connectors, and available modes
 * `pivid_scan_media` - lists media file metadata; optionally list or dump frames
