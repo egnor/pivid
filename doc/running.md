@@ -45,7 +45,7 @@ build/pivid_play --media test_media/jellyfish-3-mbps-hd-hevc.mkv
 If all goes well, 1080p video of blorping jellyfish should play on the
 first HDMI output for 30 seconds.
 
-## pivid_server
+## `pivid_server`
 
 The main `pivid_server` program listens for HTTP requests, serves the
 [REST API](protocol.md), and plays content on screen as requested.
@@ -80,7 +80,7 @@ appropriate media root and other options, and disables X windows
 desktop autostart. Doing so is left as an exercise for the reader
 (the means will depend on local needs and preferences).
 
-## pivid_play
+## `pivid_play`
 
 The `pivid_play` utility is a self-contained player mainly used
 for testing and development.

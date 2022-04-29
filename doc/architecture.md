@@ -8,10 +8,11 @@ media decoder and playback, Pivid uses nonlinear _frame caches_,
 random-access maps of all frames currently loaded for each media file.
 
 The main Pivid update thread creates a _frame loader_ for each media file
-referenced in the [play script](script.md). The update thread periodically informs each frame loader which sections of its file will be needed in th
-next little while
-(typically ~200 milliseconds, but configurable). If a jump or loop is
-coming up, or multiple parts of the same video are visible simultaneously, there may be multiple disjoint sections needed.
+referenced in the [play script](script.md). The update thread periodically
+informs each frame loader which sections of its file will be needed in the
+next little while (typically ~0.2 sec, configurable). If a jump or loop is
+coming up, or multiple parts of the same video are visible simultaneously,
+there may be multiple disjoint sections needed.
 
 Each frame loader runs a thread which dynamically creates, uses,
 and deletes media decoders, seeking and reading the file to get frames
@@ -39,7 +40,7 @@ explicit preloading instructions to anticipate.
 
 Actual frame pixels are stored in GPU memory when possible and tracked
 with reference-counted pointers, so frames can be processed through frame
-caches, the update thread, output timelines and player threads without actually
-copying bulk image data.
+caches, the update thread, output timelines and player threads without
+actually copying bulk image data.
 
 Next: [REST API protocol](protocol.md)

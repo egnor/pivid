@@ -9,8 +9,8 @@ features as needed.)
 The Pivid HTTP server is not interesting to visit with a browser, but
 serves these request types with JSON (content-type `application/json`) data.
 
-Syntax note: In this guide, «double chevrons» mark a value placeholder,
-⟦hollow brackets⟧ mark an optional item, and centered dots ⋯ indicate
+Syntax note: In this guide, `«double chevrons»` mark a value placeholder,
+`⟦hollow brackets⟧` mark an optional item, and `three dots ⋯` indicate
 possible repetition.
 
 ## `/media/«path»` (GET) - query media file metadata
@@ -26,10 +26,10 @@ the server's `--media_root`
   "container_type": "«container_type»",
   "codec_name": "«codec_name»",
   "pixel_format": "«pixel_format»",
-⟦ "size": [«width», «height»], ⟧
-⟦ "frame_rate": «frame_rate», ⟧
-⟦ "bit_rate": «bit_rate», ⟧
-⟦ "duration": «duration», ⟧
+  ⟦ "size": [«width», «height»], ⟧
+  ⟦ "frame_rate": «frame_rate», ⟧
+  ⟦ "bit_rate": «bit_rate», ⟧
+  ⟦ "duration": «duration», ⟧
   "req": "/media/«path»",
   "ok": true
 }
@@ -70,8 +70,8 @@ compessed media file
   "screens": {
     "«connector»": {
       "detected": «detected»,
-    ⟦ "active_mode": [«width», «height», «hz»], ⟧ 
-      "modes": [[«width», «height», «hz»], ⋯]
+      "modes": [ [«width», «height», «hz»], ⋯ ],
+      ⟦ "active_mode": [«width», «height», «hz»] ⟧ 
     },
     ⋯
   },

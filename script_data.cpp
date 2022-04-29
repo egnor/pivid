@@ -198,6 +198,10 @@ static void from_json(json const& j, ScriptScreen& screen) {
 
     screen.update_hz = j.value("update_hz", screen.update_hz);
     CHECK_ARG(screen.update_hz >= 0.0, "Bad JSON update_hz: {}", j.dump());
+    CHECK_ARG(
+        screen.update_hz <= screen.mode.hz,
+        "JSON update_hz > mode hz: {}", j.dump()
+    );
 
     j.value("layers", json::array()).get_to(screen.layers);
     CHECK_ARG(
