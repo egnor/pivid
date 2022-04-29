@@ -8,17 +8,14 @@ media decoder and playback, Pivid uses nonlinear _frame caches_,
 random-access maps of all frames currently loaded for each media file.
 
 The main Pivid update thread creates a _frame loader_ for each media file
-referenced in the [play script](script.md). The update thread determines
-which sections from each file will be needed in the next little while
-(typically ~200 milliseconds, but configurable). If a seek or loop is
-coming up in the script, or multiple parts of the same video are being
-played simultaneously, there may be multiple distinct sections needed.
-As time advances, each frame loader is kept updated with the current sections
-of interest.
+referenced in the [play script](script.md). The update thread periodically informs each frame loader which sections of its file will be needed in th
+next little while
+(typically ~200 milliseconds, but configurable). If a jump or loop is
+coming up, or multiple parts of the same video are visible simultaneously, there may be multiple disjoint sections needed.
 
-Each frame loader in turn runs a thread which dynamically creates, uses,
-and deletes media decoders, seeking and reading from the file to get frames
-for sections needed but not yet in the cache. Media files generally have
+Each frame loader runs a thread which dynamically creates, uses,
+and deletes media decoders, seeking and reading the file to get frames
+as needed to fill the cache as requested. Media files often have
 limitations on seeking (based on "key frames") so this can be a somewhat
 complicated optimization (which Pivid approximates with heuristics). The
 loader also removes frames from the cache which are no longer needed.
@@ -36,13 +33,13 @@ frame caches and timelines allow input media to be rearranged arbitrarily
 into output frames, and allow the remixing instructions to be swapped out
 seamlessly.
 
-Pivid can predict which frames will be needed based on a given script, but
+Pivid can predict upcoming frame needs based on the current script, but
 quick script changes (such as sudden starts of new media files) may require
-explicit preloading in the script for gapless play.
+explicit preloading instructions to anticipate.
 
 Actual frame pixels are stored in GPU memory when possible and tracked
 with reference-counted pointers, so frames can be processed through frame
-caches, the update thread, output times and player threads without any actual
-copies of bulk image data.
+caches, the update thread, output timelines and player threads without actually
+copying bulk image data.
 
 Next: [REST API protocol](protocol.md)
