@@ -1,8 +1,8 @@
 # Building Pivid binaries
 
-You are currently recommended to build Pivid from source. Please
-[open an issue](https://github.com/egnor/pivid/issues) if these
-instructions don't work.
+You are currently recommended to build Pivid from source.
+[Open an issue](https://github.com/egnor/pivid/issues) if these
+instructions don't work!
 
 1. Use a Raspberry Pi (4B recommended) with a fully updated
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
@@ -48,7 +48,7 @@ first HDMI output for 30 seconds.
 ## pivid_server
 
 The main `pivid_server` program listens for HTTP requests, serves the
-[REST API](interface.md), and plays content on screen as requested.
+[REST API](protocol.md), and plays content on screen as requested.
 
 The server takes a number of arguments; see `pivid_server --help`.
 One required argument is `--media_root=DIR`, which points to a directory

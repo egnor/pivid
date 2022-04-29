@@ -56,7 +56,7 @@ class Server {
 
         http.Get("/media(/.*)", [&](auto const& q, auto& s) {on_media(q, s);});
         http.Get("/screens", [&](auto const& q, auto& s) {on_screens(q, s);});
-        http.Get("/quit", [&](auto const& q, auto& s) {on_quit(q, s);});
+        http.Post("/quit", [&](auto const& q, auto& s) {on_quit(q, s);});
         http.Post("/play", [&](auto const& q, auto& s) {on_play(q, s);});
 
         http.set_logger([&](auto const& q, auto const& s) {log_hook(q, s);});
