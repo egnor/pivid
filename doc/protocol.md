@@ -9,7 +9,7 @@ It serves the following request types, accepting and returning JSON
 (content-type `application/json`) data.
 
 Syntax note: In this guide, `«double chevrons»` mark a value placeholder,
-`⟦hollow brackets⟧` mark an optional item, and `three dots ⋯` indicate
+`⟦hollow brackets⟧` mark an optional item, and `⋯` indicate
 possible repetition.
 
 ## `/media/«path»` (GET) - query media file metadata
