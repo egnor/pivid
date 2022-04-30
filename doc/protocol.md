@@ -17,8 +17,6 @@ possible repetition.
 `«path»` - The pathname of a media file (movie or image) relative to
 the server's `--media_root`
 
-### `/media` response format and values
-
 ```yaml
 {
   "filename": "«filename»",
@@ -61,8 +59,6 @@ compessed media file
 `«path»` - the media path from the request URL
 
 ## `/screens` (GET) - list video connectors and detected monitors
-
-### `/screens` response format and values
 
 ```yaml
 {
