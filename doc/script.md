@@ -18,7 +18,7 @@ that updated scripts may play that content immediately (see the
 [architecture overview](architecture.md)).
 
 Syntax note: In this guide, `«double chevrons»` mark a value placeholder,
-`⟦hollow brackets⟧` mark an optional item, and `three dots ⋯` indicate
+`⟦hollow brackets⟧` mark an optional item, and three dots `⋯` indicate
 possible repetition.
 
 ## JSON format
