@@ -1,13 +1,12 @@
 # Pivid REST API protocol
 
 When [pivid_server](running.md#pivid_server) is running, it listens for
-HTTP requests on `http://localhost:31415` by default. No authentication is
-done, which is why only localhost connections are allowed by default.
-(Consider using an HTTP proxy to add authentication, HTTPS, and other
-features as needed.)
+requests on `http://localhost:31415` (the port is configurable) without
+authentication. (Consider using an HTTP proxy to add authentication,
+HTTPS, and other features as needed.)
 
-The Pivid HTTP server is not interesting to visit with a browser, but
-serves these request types with JSON (content-type `application/json`) data.
+It serves the following request types, accepting and returning JSON
+(content-type `application/json`) data.
 
 Syntax note: In this guide, `«double chevrons»` mark a value placeholder,
 `⟦hollow brackets⟧` mark an optional item, and `three dots ⋯` indicate
@@ -91,9 +90,8 @@ monitor (`"modes"`)
 
 ## `/play` (POST) - set play script to control video output
 
-The
-[play script format documentation](script.js) describes the request body
-format.
+The request body must be a [play script](script.js) which becomes the
+server's operating play script.
 
 ### Successful response
 
@@ -104,7 +102,7 @@ format.
 ## `/quit` (POST)
 
 The `/quit` request must be sent as a POST (for safety) but no request body
-is required.
+is required. It causes the `pivid_server` process to exit.
 
 ### Successful response
 
@@ -114,7 +112,8 @@ is required.
 
 ## Generic error response
 
-An error in any request will produce this response format:
+An error (invalid request or internal processing error) will return a JSON
+response in this format:
 
 ```yaml
 { "req": "«urlpath»", "error": "«message»" }
@@ -125,6 +124,6 @@ An error in any request will produce this response format:
 `«message»` - a human readable description of the error
 
 Additionally, the HTTP status for an error will be an appropriate code
-(500 by default).
+(e.g. 400 or 500).
 
 Next: [Play script format](script.md)
