@@ -17,7 +17,7 @@ possible repetition.
 `«path»` - The pathname of a media file (movie or image) relative to
 the server's `--media_root`
 
-### Successful response
+### `/media` response format and values
 
 ```yaml
 {
@@ -62,7 +62,7 @@ compessed media file
 
 ## `/screens` (GET) - list video connectors and detected monitors
 
-### Successful response
+### `/screens` response format and values
 
 ```yaml
 {
@@ -91,29 +91,30 @@ monitor (`"modes"`)
 ## `/play` (POST) - set play script to control video output
 
 The request body must be a [play script](script.js) which becomes the
-server's operating play script.
-
-### Successful response
-
-```yaml
-{ "req": "/play", "ok": true }
-```
+server's operating play script. The response is a generic success or
+error (see below).
 
 ## `/quit` (POST)
 
 The `/quit` request must be sent as a POST (for safety) but no request body
-is required. It causes the `pivid_server` process to exit.
+is required. It causes the `pivid_server` process to exit. The response is a
+generic success or (unlikely) error (see below).
 
-### Successful response
+## Generic success response
+
+When not specified, successful actions with no specific result use this
+JSON response format:
 
 ```yaml
-{ "req": "/quit", "ok": true }
+{ "req":  "«urlpath»", "ok": true }
 ```
+
+`«urlpath»` - the relative URL of the error request, e.g. `/play`
 
 ## Generic error response
 
-An error (invalid request or internal processing error) will return a JSON
-response in this format:
+An error (invalid request or internal processing error) use this JSON
+response format:
 
 ```yaml
 { "req": "«urlpath»", "error": "«message»" }
