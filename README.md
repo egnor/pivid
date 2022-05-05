@@ -16,8 +16,8 @@ compositing engine based on [libav](https://libav.org/), optimized for the
 Pivid is intended for escape rooms, immersive experiences, video performances
 and similar applications.
 
-Unlike media player apps like [VLC](https://www.videolan.org/vlc/) or
-[https://kodi.tv](Kodi), Pivid has no user interface of its own and is only
+Unlike apps like [VLC](https://www.videolan.org/vlc/) or
+[Kodi](https://kodi.tv), Pivid has no user interface and is only
 useful driven by other software.
 
 Pivid can splice, overlay, scale, transition, seek and loop videos
@@ -30,23 +30,22 @@ Playback position, media layout onscreen, and layer opacity are specified as
 transition effects. Still images are considered one-frame videos and may be
 layered with moving video content, including alpha-channel transparency support.
 
-Pivid does not run under the Raspberry Pi desktop (X windows). Instead,
-Pivid uses the Linux
-[Direct Rendering Manager](https://en.wikipedia.org/wiki/Direct_Rendering_Manager)
+Pivid does not run in a desktop (X) window. Instead, Pivid uses Linux
+[Direct Rendering](https://en.wikipedia.org/wiki/Direct_Rendering_Manager)
 (with [Atomic Display](https://en.wikipedia.org/wiki/Direct_Rendering_Manager#Atomic_Display))
-for high performance full screen playback. When playing 
+for fast full screen playback. When playing 
 [H.264/AVC](https://en.wikipedia.org/wiki/Advanced_Video_Coding) or
 [H.265/HEVC](https://en.wikipedia.org/wiki/High_Efficiency_Video_Coding)
 video content on the
 [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/),
 Pivid uses the GPU and
-[DMA-BUF/DRM-PRIME](https://en.wikipedia.org/wiki/Direct_Rendering_Manager#DMA_Buffer_Sharing_and_PRIME)
+[DMA buffers](https://en.wikipedia.org/wiki/Direct_Rendering_Manager#DMA_Buffer_Sharing_and_PRIME)
 for zero-copy decoding, buffering, compositing and display.
 
 Pivid is "early alpha" status and you are invited to
 [contact the author](https://github.com/egnor) if you're planning to use it
-seriously. Pivid currently has no audio support, which is obviously a major
-limitation and a likely area of upcoming work.
+seriously. Pivid currently has no audio support, which is an obvious
+limitation and likely area of upcoming work.
 
 Pivid is available under the [MIT license](LICENSE.md).
 

@@ -3,68 +3,91 @@
 A "play script" is a [JSON object](https://www.json.org/json-en.html)
 describing the content Pivid should display. Play script JSON may be sent to a
 running [`pivid_server`](running.md#pivid_server) using the
-[`/play` POST request](protocol.md#play-post---set-play-script-to-control-video-output),
-or supplied as a file to [`pivid_play --script`](running.md#pivid_play)
-(typically for testing).
+[`/play` request](protocol.md#play-post---set-play-script-to-control-video-output),
+or supplied as a file to [`pivid_play --script`](running.md#pivid_play).
 
-A new play script may be sent to the server at any time, so generated play
-scripts need only include short term instructions, but play scripts may
-include arbitrarily long term sequencing if desired. Until a new script is
-sent, `pivid_server` will continue executing the previous script
-(`pivid_play` executes a single script until the program is stopped).
+A new play script may be sent to the server at any time; active clients
+may choose to include only short term instructions and update the script
+as needed, but scripts may also include long term sequences if desired.
 
-Play scripts may also include content preloading directives, anticipating
-that updated scripts may play that content immediately (see the
-[architecture overview](architecture.md)).
+In addition to display instructions, play scripts may also include content
+preloading directives, anticipating the content updated scripts may use
+(see the [architecture overview](architecture.md)).
 
-Syntax note: In this guide, `«double chevrons»` mark a value placeholder,
-`⟦hollow brackets⟧` mark an optional item, and three dots `⋯` indicate
-possible repetition.
+Syntax notes:
+* `«double angle brackets»` mark value placeholders
+* `⟦hollow square brackets⟧` surround optional items
+* `triple dots, ···` indicate repeated items
+* anything else is verbatim JSON
+
+Value descriptions with `𝑓(𝑡)` indicate time-varying values (see below).
 
 ## JSON format
 
 ```yaml
 {
-  ⟦ "zero_time": «zero_time», ⟧
-  ⟦ "main_loop_hz": «main_loop_hz», ⟧
-  ⟦ "main_buffer_time": «main_buffer_time», ⟧
+  ⟦ "zero_time": «timestamp baseline, default is server start», ⟧
+  ⟦ "main_loop_hz": «output timeline update frequency, default 30», ⟧
+  ⟦ "main_buffer_time": «output timeline length in seconds, default 0.2», ⟧
 
   ⟦
     "screens": {
-      "«connector»": {
-        ⟦ "mode": [«width», «height», «hz»], ⟧
-        ⟦ "update_hz": «update_hz», ⟧
+      "«hardware connector, eg. HDMI-1»": {
+        ⟦ "mode": [«video mode width», «height», «refresh rate»], ⟧
+        ⟦ "update_hz": «content update frequency, default is refresh rate», ⟧
         ⟦
           "layers": [
             {
-              "media": "«media»",
-              ⟦ "play": «play_var», ⟧
-              ⟦ "buffer": «buffer», ⟧
-              ⟦ "from_xy": [«from_x_var», «from_y_var»], ⟧
-              ⟦ "from_size": [«from_width_var», «from_height_var»], ⟧
-              ⟦ "to_xy": [«to_x_var», «to_y_var»], ⟧
-              ⟦ "to_size": [«to_width_var», «to_height_var»], ⟧
-              ⟦ "opacity": «opacity_var» ⟧
+              "media": "«media file to show, relative to media root»",
+              ⟦ "play": «𝑓(𝑡) seek position within media in seconds, default 0.0», ⟧
+              ⟦ "buffer": «media readahead in seconds, default 0.2», ⟧
+              ⟦
+                "from_xy": [
+                  «𝑓(𝑡) source media clip box left, default 0»,
+                  «𝑓(𝑡) source media clip box top, default 0»
+                ],
+              ⟧
+              ⟦
+                "from_size": [
+                  «𝑓(𝑡) source media clip box width, default is media width»,
+                  «𝑓(𝑡) source media clip box height, default is media height»
+                ],
+              ⟧
+              ⟦
+                "to_xy": [
+                  «𝑓(𝑡) screen region left, default 0»,
+                  «𝑓(𝑡) screen region top, default 0»
+                ],
+              ⟧
+              ⟦
+                "to_size": [
+                  «𝑓(𝑡) screen region width, default is screen width»,
+                  «𝑓(𝑡) screen region height, default is screen height»
+                ],
+              ⟧
+              ⟦ "opacity": «𝑓(𝑡) alpha value, default 1.0» ⟧
             },
-            ⋯
+            ···
           ]
         ⟧
       },
-      ⋯
+      ···
     },
   ⟧
 
   ⟦
     "media": {
-      "«media»": {
-        ⟦ "seek_scan_time": «seek_scan_time», ⟧
-        ⟦ "decoder_idle_time": «decoder_idle_time», ⟧
-        ⟦ "preload": «preload» ⟧
+      "«media file to configure, relative to media root»": {
+        ⟦ "seek_scan_time": «threshold for seeking vs reading, default 1.0», ⟧
+        ⟦ "decoder_idle_time": «retention time for unused decoders, default 1.0», ⟧
+        ⟦ "preload": «preload specification, see below» ⟧
       },
-      ⋯
+      ···
     }
   ⟧
 }
 ```
+
+## Timing and time-variable 𝑓(𝑡) values
 
 Next: [Development notes and links](notes.md)
