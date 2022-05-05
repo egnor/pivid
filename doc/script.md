@@ -14,15 +14,12 @@ In addition to display instructions, play scripts may also include content
 preloading directives, anticipating the content updated scripts may use
 (see the [architecture overview](architecture.md)).
 
-Syntax notes:
-* `«double angle brackets»` mark value placeholders
-* `⟦hollow square brackets⟧` surround optional items
-* `triple dots, ···` indicate repeated items
-* anything else is verbatim JSON
-
-Value descriptions with `𝑓(𝑡)` indicate time-varying values (see below).
-
 ## JSON format
+
+* `«double angle brackets»` mark value placeholders (`𝑓(𝑡)` indicates a [time-varying value](#timing-and-time-variable-values)).
+* `⟦hollow square brackets⟧` surround optional items
+* `triple dots ···` indicate repeated items
+* anything else is verbatim
 
 ```yaml
 {
@@ -88,6 +85,6 @@ Value descriptions with `𝑓(𝑡)` indicate time-varying values (see below).
 }
 ```
 
-## Timing and time-variable 𝑓(𝑡) values
+## Timing and time-variable values
 
 Next: [Development notes and links](notes.md)

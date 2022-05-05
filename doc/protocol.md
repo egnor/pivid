@@ -8,11 +8,10 @@ web browser, but serves
 [JSON](https://www.json.org/json-en.html) (`application/json`)
 data to API clients.
 
-Syntax notes:
 * `«double angle brackets»` mark value placeholders
 * `⟦hollow square brackets⟧` surround optional items
-* `triple dots, ···` indicate repeated items
-* anything else is verbatim JSON
+* `triple dots ···` indicate repeated items
+* anything else is verbatim
 
 ## `/media/«file»` (GET)
 
@@ -38,7 +37,7 @@ Successful response:
 
 ## `/play` (POST) - set play script to control video output
 
-Request format: [Play script](script.js) JSON
+Request body: [Play script](script.js) JSON
 
 Successful response:
 
@@ -71,15 +70,11 @@ The `/quit` request must be sent as a POST (for safety) but no request body
 is required. It causes the `pivid_server` process to exit. The response is a
 generic success or (unlikely) error (see below).
 
-## Generic success response
-
 Successful response:
 
 ```yaml
-{ "req":  "«urlpath»", "ok": true }
+{ "req":  "«/quit»", "ok": true }
 ```
-
-`«urlpath»` - the relative URL of the error request, e.g. `/play`
 
 ## Generic error response
 
@@ -87,7 +82,7 @@ An error (invalid request or internal processing error) use this JSON
 response format:
 
 ```yaml
-{ "req": "«request, eg. /play»", "error": "«human readable message»" }
+{ "req": "«request URL path, eg. /play»", "error": "«human readable message»" }
 ```
 
 Additionally, the HTTP status for an error will be an appropriate code
