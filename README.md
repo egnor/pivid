@@ -16,9 +16,7 @@ compositing engine based on [libav](https://libav.org/), optimized for the
 Pivid is intended for escape rooms, immersive experiences, video performances
 and similar applications.
 
-Unlike apps like [VLC](https://www.videolan.org/vlc/) or
-[Kodi](https://kodi.tv), Pivid has no user interface and is only
-useful driven by other software.
+### Advantages
 
 Pivid can splice, overlay, scale, transition, seek and loop videos
 with no gaps and frame-perfect rendering. The [play script](doc/script.md)
@@ -30,7 +28,7 @@ Playback position, media layout onscreen, and layer opacity are specified as
 transition effects. Still images are considered one-frame videos and may be
 layered with moving video content, including alpha-channel transparency support.
 
-Pivid does not run in a desktop (X) window. Instead, Pivid uses Linux
+Pivid uses Linux
 [Direct Rendering](https://en.wikipedia.org/wiki/Direct_Rendering_Manager)
 (with [Atomic Display](https://en.wikipedia.org/wiki/Direct_Rendering_Manager#Atomic_Display))
 for fast full screen playback. When playing 
@@ -42,11 +40,21 @@ Pivid uses the GPU and
 [DMA buffers](https://en.wikipedia.org/wiki/Direct_Rendering_Manager#DMA_Buffer_Sharing_and_PRIME)
 for zero-copy decoding, buffering, compositing and display.
 
-Pivid is "early alpha" status and you are invited to
-[contact the author](https://github.com/egnor) if you're planning to use it
-seriously. Pivid currently has no audio support, which is an obvious
-limitation and likely area of upcoming work.
+Pivid is open source, available under the [MIT license](LICENSE.md).
 
-Pivid is available under the [MIT license](LICENSE.md).
+### Limitations
+
+Unlike apps like [VLC](https://www.videolan.org/vlc/) or
+[Kodi](https://kodi.tv), Pivid has no user interface and is only
+useful driven by other software.
+
+Pivid requires exclusive use of display hardware and does not run
+in a window (the desktop must be shut down).
+
+Pivid currently has no audio support (a likely area of upcoming work).
+
+Pivid is "early alpha" status.
+[The author](https://github.com/egnor) is excited to hear from you if you're
+planning to use it seriously!
 
 Next: [Building and running Pivid](doc/running.md)

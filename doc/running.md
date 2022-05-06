@@ -1,7 +1,7 @@
 # Building Pivid binaries
 
-It is currently recommended to build Pivid from source.
-Do [open an issue](https://github.com/egnor/pivid/issues) if these
+It's currently best to build Pivid from source.
+Please [open an issue](https://github.com/egnor/pivid/issues) if these
 instructions don't work!
 
 1. Use a Raspberry Pi (4B recommended) with a fully updated
