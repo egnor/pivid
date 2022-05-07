@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <system_error>
 
@@ -155,10 +156,10 @@ class Server {
                 media_j["duration"] = *info.duration;
             j["media"] = media_j;
             j["ok"] = true;
-        } catch (std::system_error const& exc) {
-            if (exc.code() == std::errc::no_such_file_or_directory) {
+        } catch (std::system_error const& e) {
+            if (e.code() == std::errc::no_such_file_or_directory) {
                 res.status = 404;
-                j["error"] = exc.what();
+                j["error"] = e.what();
             } else {
                 throw;
             }
@@ -235,10 +236,10 @@ class Server {
     }
 
     void error_hook(
-        httplib::Request const& req, httplib::Response& res, std::exception& exc
+        httplib::Request const& req, httplib::Response& res, std::exception& e
     ) {
-        res.status = 500;
-        nlohmann::json j = {{"req", req.path}, {"error", exc.what()}};
+        res.status = dynamic_cast<std::invalid_argument*>(&e) ? 400 : 500;
+        nlohmann::json j = {{"req", req.path}, {"error", e.what()}};
         res.set_content(j.dump(), "application/json");
     }
 };

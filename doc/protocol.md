@@ -13,7 +13,9 @@ data to API clients.
 > `✳️` marks required values (other values are optional)  \
 > `🔁` marks repeated items
 
-## `/media/«file»` (GET)
+## GET requests (information query)
+
+### GET `/media/«file»` - fetch media file metadata
 
 The request URL includes the path of a media file (movie or image)
 relative to the server's `--media_root` (eg. `/media/kitten.rgba.png`).
@@ -35,17 +37,7 @@ Successful response:
 }
 ```
 
-## `/play` (POST) - set play script to control video output
-
-Request body: [Play script JSON](script.md)
-
-Successful response:
-
-```yaml
-{ ✳️ "req": "/play", ✳️ "ok": true }
-```
-
-## `/screens` (GET) - list video connectors and detected monitors
+### GET `/screens` - list video connectors and detected monitors
 
 Successful response:
 
@@ -63,7 +55,19 @@ Successful response:
 }
 ```
 
-## `/quit` (POST) - shut down the server process
+## POST requests (commands)
+
+### POST `/play` - set play script to control video output
+
+Request body: [Play script JSON](script.md)
+
+Successful response:
+
+```yaml
+{ ✳️ "req": "/play", ✳️ "ok": true }
+```
+
+### POST `/quit` - shut down the server process
 
 The `/quit` request must be sent as a POST (for safety) but no request body
 is required. It causes the `pivid_server` process to exit. The response is a
@@ -75,16 +79,20 @@ Successful response:
 { ✳️ "req":  "/quit", ✳️ "ok": true }
 ```
 
-## Generic error response
+## Error response format
 
 An error (invalid request or internal processing error) use this JSON
 response format:
 
 ```yaml
-{ ✳️ "req": "«request URL path (eg. /play)»", ✳️ "error": "«human readable message»" }
+{
+  ✳️ "req": "«request URL path (eg. /play)»",
+  ✳️ "error": "«human readable message»"
+}
 ```
 
-Additionally, the HTTP status for an error will be an appropriate code
-(e.g. 400 or 500).
+Any JSON response from pivid should include either `"ok": true` or an
+`"error"` message. Additionally, the HTTP status will be set appropriately
+(200 for success, 500 for generic errors, etc).
 
 Next: [Play script format](script.md)
