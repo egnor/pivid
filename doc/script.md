@@ -14,80 +14,88 @@ Play scripts may also include content preloading directives, anticipating
 content updated scripts may use (see the
 [architecture overview](architecture.md)).
 
-## JSON format
+## Play script JSON format
 
-Syntax notes:
-* `«double angle brackets»` mark value placeholders (`𝑓(𝑡)` indicates a
-[time-variable value](#time-variable-values)).
-* `⟦hollow square brackets⟧` surround optional items
-* `triple dots ···` indicate repeated items
-* anything else is verbatim
+> **Syntax legend:**  \
+> `«angle brackets»` mark value placeholders (`⏱️` indicates a
+> [time-varying value](#time-varying-values))  \
+> `✳️` marks required values (other values are optional)  \
+> `🔁` marks repeated items  \
+> `▶️ 🔘 radio 🔘 buttons ◀️` describe alternative forms
 
 ```yaml
 {
-  ⟦ "zero_time": «timestamp baseline, default is server start», ⟧
-  ⟦ "main_loop_hz": «output timeline update frequency, default 30», ⟧
-  ⟦ "main_buffer_time": «output timeline length in seconds, default 0.2», ⟧
+  "zero_time": «timestamp baseline (default=server start)»,
+  "main_loop_hz": «output timeline update frequency (default=30)»,
+  "main_buffer_time": «output timeline length in seconds (default=0.2)»,
 
-  ⟦
-    "screens": {
-      "«hardware connector, eg. HDMI-1»": {
-        ⟦ "mode": [«video mode width», «height», «refresh rate»], ⟧
-        ⟦ "update_hz": «content update frequency, default is refresh rate», ⟧
-        ⟦
-          "layers": [
-            {
-              "media": "«media file to show, relative to media root»",
-              ⟦ "play": «𝑓(𝑡) seek position within media in seconds, default 0.0», ⟧
-              ⟦ "buffer": «media readahead in seconds, default 0.2», ⟧
-              ⟦
-                "from_xy": [
-                  «𝑓(𝑡) source media clip box left, default 0»,
-                  «𝑓(𝑡) source media clip box top, default 0»
-                ],
-              ⟧
-              ⟦
-                "from_size": [
-                  «𝑓(𝑡) source media clip box width, default is media width»,
-                  «𝑓(𝑡) source media clip box height, default is media height»
-                ],
-              ⟧
-              ⟦
-                "to_xy": [
-                  «𝑓(𝑡) screen region left, default 0»,
-                  «𝑓(𝑡) screen region top, default 0»
-                ],
-              ⟧
-              ⟦
-                "to_size": [
-                  «𝑓(𝑡) screen region width, default is screen width»,
-                  «𝑓(𝑡) screen region height, default is screen height»
-                ],
-              ⟧
-              ⟦ "opacity": «𝑓(𝑡) alpha value, default 1.0» ⟧
-            },
-            ···
-          ]
-        ⟧
-      },
-      ···
-    },
-  ⟧
+  "screens": {
+    🔁 "«hardware connector, eg. HDMI-1»": {
+      ✳️ "mode": ▶️ 🔘 [«video mode width», «height», «refresh rate»] 🔘 null ◀️,
+      "update_hz": «content update frequency (default=mode refresh rate)», 
+      "layers": [
+        🔁 {
+          ✳️ "media": "«media file, relative to media root»",
+          "play": ⏱️ «seek position within media in seconds (default=0.0)», 
+          "buffer": «media readahead in seconds (default=0.2)», 
+          "from_xy": [
+            ⏱️ «source media clip box left (default=0)»,
+            ⏱️ «source media clip box top (default=0)»
+          ],
+                
+          "from_size": [
+            ⏱️ «source media clip box width (default=media width)»,
+            ⏱️ «source media clip box height (default=media height)»
+          ],
+                
+          "to_xy": [
+            ⏱️ «screen region left (default=0)»,
+            ⏱️ «screen region top (default=0)»
+          ],
+                
+          "to_size": [
+            ⏱️ «screen region width (default=screen width)»,
+            ⏱️ «screen region height (default=screen height)»
+          ],
+                
+          "opacity": ⏱️ «alpha value (default=1.0)» 
+        }, ···
+      ]
+    }, ···
+  }
+  
 
-  ⟦
-    "media": {
-      "«media file to configure, relative to media root»": {
-        ⟦ "seek_scan_time": «threshold for seeking vs reading, default 1.0», ⟧
-        ⟦ "decoder_idle_time": «retention time for unused decoders, default 1.0», ⟧
-        ⟦ "preload": «preload specification, see below» ⟧
-      },
-      ···
-    }
-  ⟧
+  "media": {
+    🔁 "«media file to configure, relative to media root»": {
+      "seek_scan_time": «threshold for seeking vs reading (default=1.0)», 
+      "decoder_idle_time": «retention time for unused decoders (default=1.0)», 
+      🔽
+      🔘 "preload": «seconds to preload from start of media»
+      🔘 "preload": [«begin time within media», «end time within media»]
+      🔘 "preload": [🔁 [«begin time within media», «end time within media»], ···]
+      🔼
+    }, ···
+  }
 }
 ```
 
 ## General structure
+
+Play scripts list all active outputs in `"screens"`.
+(Use the [`pivid_scan_displays`](running.md#other-tools) tool to show
+screen names.) For each screen, the script gives the video mode to use
+([see below](#video-modes)), and a stack of layers to display.
+
+Each layer references a single media file (still image or video), describing
+which part of the source image should be clipped out, and where it should be
+placed on screen. The clipped image will be resized as necessary to fit the
+destination region.
+
+Play scripts may supply further options for specific media files in
+`"media"`, independent of screens and layers which use the file. (If the
+default options are satisfactory, a media file need not be listed here.)
+These options include `"preload"` definitions which instruct pivid to
+cache portions of the media, anticipating script updates.
 
 ## Time reference and `zero_time`
 
@@ -103,60 +111,95 @@ the script are offsets from this value. If `zero_time` is 0.0, other
 timestamps are absolute Unix times. If not set, `zero_time` defaults to the
 time when the server was started.
 
-## Time-variable values
+## Time-varying values
 
-Many values in pivid scripts (marked with `𝑓(𝑡)` in the syntax above)
-may change with time. This is how all non-static content is described,
-including basic video playback (a time-varying `play` position).
+Many values in pivid scripts (marked with `⏱️` in the syntax above)
+may be set to change over time. This is the basis of all animation,
+including basic video playback (a time-varying `"play"` position).
 
-This JSON format is the most general form of a time-variable value:
+If the value should not actually vary with time, a simple number may
+be used (the third format below).
 
 ```yaml
-{
-  "segments": [
-    {
-      ⟦ "t": [«segment begin timestamp», «segment end timestamp»], ⟧
-      ⟦ "length": «segment length in seconds», ⟧
-      ⟦
-        "v": [
-          «value at segment begin»,
-          ⟦ «spline control point at 1/3 point», ⟧
-          ⟦ «spline control point at 2/3 point», ⟧
-          ⟦ «value at segment end» ⟧
-        ],
-      ⟧
-      ⟦ "rate": «value change rate in units per second», ⟧
-    },
-    ···
-  ],
-  ⟦ "repeat": «loop period, or true/false» ⟧
-}
+🔽
+🔘 «constant value for all time»
+
+🔘 {
+     🔽
+     🔘 "t": [«begin timestamp», «end timestamp»],
+     🔘 "t": «begin timestamp (default=0.0)»,
+        "length": «length in seconds (default=infinite)»,
+     🔼
+
+     🔽
+     🔘 "v": [«value at begin», «control point», «control point», «value at end»],
+     🔘 "v": [«value at begin», «value at end»],
+     🔘 "v": «value at begin», "rate": «slope in units per second»,
+     🔘 "v": «constant value across range»,
+     🔼
+
+     "repeat": ▶️ 🔘 «loop period» 🔘 true ◀️
+   }
+
+🔘 {
+     "segments": [
+       🔁 {
+         🔽
+         🔘 "t": [«begin timestamp», «end timestamp»],
+         🔘 "t": «begin timestamp (default=0.0)», "length": «seconds (default=infinite)»,
+         🔼
+
+         🔽
+         🔘 "v": [«value at begin», «control point», «control point», «value at end»],
+         🔘 "v": [«value at begin», «value at end»],
+         🔘 "v": «value at begin», "rate": «slope in units per second»,
+         🔘 "v": «constant value across segment»,
+         🔼
+       }, ···
+     ],
+
+     "repeat": ▶️ 🔘 «loop period» 🔘 true ◀️
+   }
+🔼
 ```
 
-The function is [defined piecewise](https://en.wikipedia.org/wiki/Piecewise)
-as a collection of segments with begin and end times. Segments must be
+In the most general case (the third format above), the value is
+[defined piecewise](https://en.wikipedia.org/wiki/Piecewise) as
+a collection of segments with begin and end times. Segments must be
 listed in time order and may not overlap. Before, between, and after defined
 segments, the value is undefined and reverts to its default.
 
-Within each section, the value is described by a 1-dimensional
+Within each segment, the value is described by a 1-dimensional
 [cubic Bézier curve](https://en.wikipedia.org/wiki/B%C3%A9zier_curve#Cubic_B%C3%A9zier_curves).
-(Constants and linear ramps are special cases of cubic Bézier.) In the general
-case, the Bezier is given by the value at the ends of the segment, plus
-control points at 1/3 and 2/3 from begin to end.
+The Bézier curve may be described by the value at the ends of the segment, plus
+optional control points at 1/3 and 2/3 from begin to end,
+or by the starting point and a slope.
 
-If `"repeat"` is set to a number, the sequence restarts that long after the
-first segment began, and repeats infinitely with the given period.
+If `"repeat"` is set, the value loops with the given period (if provided)
+or after the last segment ends (if `true`).
 
-The format may be modified or simplified in various ways:
-* Omit the end timestamp, specify `"length"` instead
-* Omit both the end timestamp and length; the segment will continue to infinity
-* Omit both timestamps, but specify `"length"`; the segment will start at zero time
-* Omit both timestamps and length, the segment will extend from zero to infinity
-* Omit the control point values; the segment will be a linear ramp
-* Omit control points and end value, specify `"rate"` instead
-* Omit control points, end value, and rate; the value will be constant over the segment
-* Set `"repeat"' to `true`; looping will begin at the end of the last segment
-* Replace outer JSON with a single segment definition
-* Replace outer JSON with a single number; the value will be constant for all time
+If there is only one segment, a simplified format (the second format above)
+lists the segment by itself without a top-level object; the `repeat` value
+(if present) is now in the single segment. An even more simplified format
+(the first format above) gives a single value which never changes.
+
+## Video modes
+
+For each screen, play scripts list the video mode resolution and refresh
+rate to use (`null` to disable the display). Pivid attempts to find a matching
+mode defined by these standards:
+
+* [CTA-861](https://www.cta.tech/Resources/i3-Magazine/i3-Issues/2019/November-December/cta-861-ctas-most-popular-standard)
+(consumer TV modes)
+* [VESA DMT](https://vesa.org/vesa-standards/) (list of computer monitor modes)
+* [VESA CVT](https://en.wikipedia.org/wiki/Coordinated_Video_Timings)
+(general formula for computer monitors)
+
+If no mode timings can be found, the script is rejected.
+
+The connected display's capabilities are not checked in this process.
+For pivid's use cases, consistent and direct video mode control is normally
+preferred. To adapt to display capabilities, clients may use the
+[`/screens` request](protocol.md#screens-get---list-video-connectors-and-detected-monitors) and choose modes as desired.
 
 Next: [Development notes and links](notes.md)
