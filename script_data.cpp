@@ -82,8 +82,8 @@ static void from_json(json const& j, BezierSegment& seg) {
             seg.p2_v = seg.end_v - rate_j.at(1).get<double>() * dt / 3.0;
         }
     } else if (v_j.is_array() && v_j.size() == 4) {
-        CHECK_ARG(v_j.is_array(), "Bad Bezier \"x\": {}", j.dump());
-        CHECK_ARG(v_j.size() == 4, "Bad Bezier \"x\" length: {}", j.dump());
+        CHECK_ARG(v_j.is_array(), "Bad Bezier \"v\": {}", j.dump());
+        CHECK_ARG(v_j.size() == 4, "Bad Bezier \"v\" length: {}", j.dump());
         v_j.at(0).get_to(seg.begin_v);
         v_j.at(1).get_to(seg.p1_v);
         v_j.at(2).get_to(seg.p2_v);

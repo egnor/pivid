@@ -8,6 +8,7 @@ web browser, but serves
 [JSON](https://www.json.org/json-en.html) (`application/json`)
 data to API clients.
 
+Syntax notes:
 * `«double angle brackets»` mark value placeholders
 * `⟦hollow square brackets⟧` surround optional items
 * `triple dots ···` indicate repeated items
@@ -37,7 +38,7 @@ Successful response:
 
 ## `/play` (POST) - set play script to control video output
 
-Request body: [Play script](script.js) JSON
+Request body: [Play script](script.md) JSON
 
 Successful response:
 
