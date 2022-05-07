@@ -6,7 +6,7 @@ running [`pivid_server`](running.md#pivid_server) using the
 [`/play` request](protocol.md#play-post---set-play-script-to-control-video-output),
 or supplied as a file to [`pivid_play --script`](running.md#pivid_play).
 
-A new play script may be sent to the server at any time. You can choose
+A new play script may be sent to the server at any time. You choose
 whether to send only short term "scene" instructions and update the script
 as needed, or send entire long term sequences.
 
@@ -17,7 +17,8 @@ content updated scripts may use (see the
 ## JSON format
 
 Syntax notes:
-* `«double angle brackets»` mark value placeholders (`𝑓(𝑡)` indicates a [time-varying value](#timing-and-time-variable-values)).
+* `«double angle brackets»` mark value placeholders (`𝑓(𝑡)` indicates a
+[time-variable value](#time-variable-values)).
 * `⟦hollow square brackets⟧` surround optional items
 * `triple dots ···` indicate repeated items
 * anything else is verbatim
@@ -91,42 +92,71 @@ Syntax notes:
 ## Time reference and `zero_time`
 
 Pivid script timing is based on
-[wall-clock Unix time](https://en.wikipedia.org/wiki/Unix_time)
-on the pivid server. (It's best to make sure your
+[wall-clock Unix time](https://en.wikipedia.org/wiki/Unix_time).
+(It's best to make sure your server's
 [clock is synced](https://dayne.broderson.org/2020/03/12/the_time_is_now.html).)
 
 The top level `zero_time` value is a
 [Unix timestamp](https://www.unixtimestamp.com/) as a raw number
-(eg. 1651893234.4 for 2022-05-06 8:13:54.4pm PT). All other timestamps in
+(eg. 1651893234.4 for 2022-05-06 8:13:54.4pm PT). Other time values in
 the script are offsets from this value. If `zero_time` is 0.0, other
-timestamps are themselves absolute Unix times. If `zero_time` is not
-specified, it's the time when the server (or play tool) is started.
+timestamps are absolute Unix times. If not set, `zero_time` defaults to the
+time when the server was started.
 
-## Time-variable values (`𝑓(𝑡)`)
+## Time-variable values
 
 Many values in pivid scripts (marked with `𝑓(𝑡)` in the syntax above)
-are given as functions of time, specified in several ways.
-The most general format is a JSON object:
+may change with time. This is how all non-static content is described,
+including basic video playback (a time-varying `play` position).
+
+This JSON format is the most general form of a time-variable value:
 
 ```yaml
 {
   "segments": [
     {
       ⟦ "t": [«segment begin timestamp», «segment end timestamp»], ⟧
+      ⟦ "length": «segment length in seconds», ⟧
       ⟦
         "v": [
           «value at segment begin»,
-          ⟦ «spline handle at 1/3 point», ⟧
-          ⟦ «spline handle at 2/3 point», ⟧
+          ⟦ «spline control point at 1/3 point», ⟧
+          ⟦ «spline control point at 2/3 point», ⟧
           ⟦ «value at segment end» ⟧
         ],
       ⟧
-      ⟦ "rate": «», ⟧
+      ⟦ "rate": «value change rate in units per second», ⟧
     },
     ···
   ],
   ⟦ "repeat": «loop period, or true/false» ⟧
 }
 ```
+
+The function is [defined piecewise](https://en.wikipedia.org/wiki/Piecewise)
+as a collection of segments with begin and end times. Segments must be
+listed in time order and may not overlap. Before, between, and after defined
+segments, the value is undefined and reverts to its default.
+
+Within each section, the value is described by a 1-dimensional
+[cubic Bézier curve](https://en.wikipedia.org/wiki/B%C3%A9zier_curve#Cubic_B%C3%A9zier_curves).
+(Constants and linear ramps are special cases of cubic Bézier.) In the general
+case, the Bezier is given by the value at the ends of the segment, plus
+control points at 1/3 and 2/3 from begin to end.
+
+If `"repeat"` is set to a number, the sequence restarts that long after the
+first segment began, and repeats infinitely with the given period.
+
+The format may be modified or simplified in various ways:
+* Omit the end timestamp, specify `"length"` instead
+* Omit both the end timestamp and length; the segment will continue to infinity
+* Omit both timestamps, but specify `"length"`; the segment will start at zero time
+* Omit both timestamps and length, the segment will extend from zero to infinity
+* Omit the control point values; the segment will be a linear ramp
+* Omit control points and end value, specify `"rate"` instead
+* Omit control points, end value, and rate; the value will be constant over the segment
+* Set `"repeat"' to `true`; looping will begin at the end of the last segment
+* Replace outer JSON with a single segment definition
+* Replace outer JSON with a single number; the value will be constant for all time
 
 Next: [Development notes and links](notes.md)
