@@ -210,7 +210,7 @@ class ScriptRunnerDef : public ScriptRunner {
                         );
 
                         t_frame.warnings.push_back(fmt::format(
-                            "underrun @{:.3f}s \"{}\"", *media_t, file
+                            "outran buffer @{:.3f}s \"{}\"", *media_t, file
                         ));
                         continue;
                     }

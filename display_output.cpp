@@ -533,7 +533,7 @@ class DisplayDriverDef : public DisplayDriver {
             cost.line_buffer_memory >= 1.0
         ) {
             logger->warn(
-                "OVERLOAD {} {}lay mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
+                "OVERLOAD {} {}l mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
                 conn->name, frame.layers.size(), cost.memory_bandwidth * 100,
                 cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );
@@ -549,7 +549,7 @@ class DisplayDriverDef : public DisplayDriver {
             }
         } else {
             DEBUG(
-                logger, "UPDATE {} {}lay mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
+                logger, "UPDATE {} {}l mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
                 conn->name, frame.layers.size(), cost.memory_bandwidth * 100,
                 cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );

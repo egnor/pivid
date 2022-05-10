@@ -74,7 +74,7 @@ class FramePlayerDef : public FramePlayer {
         uint32_t screen_id,
         std::shared_ptr<UnixSystem> sys
     ) {
-        logger->info("Launching frame player (s={})...", screen_id);
+        logger->info("s{} Launching frame player...", screen_id);
         wakeup = sys->make_flag();
         thread = std::thread(
             &FramePlayerDef::player_thread,
@@ -90,15 +90,15 @@ class FramePlayerDef : public FramePlayer {
         uint32_t screen_id,
         std::shared_ptr<UnixSystem> sys
     ) {
-        auto const thread_name = fmt::format("pivid:play:s={}", screen_id);
+        auto const thread_name = fmt::format("pivid:play:s{}", screen_id);
         pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
-        DEBUG(logger, "Frame player thread running (s={})...", screen_id);
+        DEBUG(logger, "s{} Frame player thread running...", screen_id);
 
         double expect_done = 0.0;
         std::unique_lock lock{mutex};
         while (!shutdown) {
             if (timeline.empty()) {
-                TRACE(logger, "PLAY (s={}) no frames, sleep", screen_id);
+                TRACE(logger, "s{} PLAY no frames, sleep", screen_id);
                 lock.unlock();
                 wakeup->sleep();
                 lock.lock();
@@ -106,7 +106,7 @@ class FramePlayerDef : public FramePlayer {
             }
 
             TRACE(logger, 
-                "PLAY (s={}) {}f {}~{}",
+                "s{} PLAY {}f {}~{}",
                 screen_id, timeline.size(),
                 abbrev_realtime(timeline.begin()->first),
                 abbrev_realtime(timeline.rbegin()->first)
@@ -123,13 +123,13 @@ class FramePlayerDef : public FramePlayer {
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 if (!s->second.layers.empty()) {
                     logger->warn(
-                        "Skip (s={}) {}lay {} ({:.3f}s old)",
+                        "s{} Skip {}l {} ({:.3f}s old)",
                         screen_id, s->second.layers.size(),
                         abbrev_realtime(s->first), now - s->first
                     );
                 } else {
                     TRACE(
-                        logger, "Skip (s={}) *empty* {} ({:.3f}s old)",
+                        logger, "s{} Skip *empty* {} ({:.3f}s old)",
                         screen_id, abbrev_realtime(s->first), now - s->first
                     );
                 }
@@ -137,7 +137,7 @@ class FramePlayerDef : public FramePlayer {
             }
 
             if (show == timeline.end()) {
-                TRACE(logger, "  (s={} no more frames, sleep)", screen_id);
+                TRACE(logger, "s{}  (no more frames, sleep)", screen_id);
                 lock.unlock();
                 wakeup->sleep();
                 lock.lock();
@@ -146,7 +146,7 @@ class FramePlayerDef : public FramePlayer {
 
             if (show->first > now) {
                 auto const delay = show->first - now;
-                TRACE(logger, "  (s={} waiting {:.3f}s)", screen_id, delay);
+                TRACE(logger, "s{}  (waiting {:.3f}s)", screen_id, delay);
                 lock.unlock();
                 wakeup->sleep_until(show->first);
                 lock.lock();
@@ -157,11 +157,11 @@ class FramePlayerDef : public FramePlayer {
             if (!done) {
                 if (expect_done && now > expect_done) {
                     logger->warn(
-                        "Slow update (s={}): {:.3f}s overdue",
+                        "s{} Slow update: {:.3f}s overdue",
                         screen_id, now - expect_done
                     );
                 }
-                TRACE(logger, "  (s={} update pending, wait 5ms)", screen_id);
+                TRACE(logger, "s{}  (update pending, wait 5ms)", screen_id);
                 lock.unlock();
                 wakeup->sleep_until(now + 0.005);
                 lock.lock();
@@ -178,12 +178,12 @@ class FramePlayerDef : public FramePlayer {
                 driver->update(screen_id, std::move(frame));
                 expect_done = sys->clock() + expect_delay;
             } catch (std::runtime_error const& e) {
-                logger->error("Display (s={}): {}", screen_id, e.what());
+                logger->error("s{} Display: {}", screen_id, e.what());
                 // Continue as if displayed to avoid looping
             }
 
             DEBUG(
-                logger, "Frame (s={}) {}lay {} ({:.3f}s old)",
+                logger, "s{} Frame {}l {} ({:.3f}s old)",
                 screen_id, layer_count, abbrev_realtime(frame_time),
                 now - frame_time
             );
@@ -193,7 +193,7 @@ class FramePlayerDef : public FramePlayer {
             if (notify) notify->set();
         }
 
-        DEBUG(logger, "Frame player thread ending (s={})...", screen_id);
+        DEBUG(logger, "s{} Frame player thread ending...", screen_id);
     }
 
   private:
