@@ -69,11 +69,11 @@ content updated scripts may use (see the
     🔁 "«media file to configure, relative to media root»": {
       "seek_scan_time": «threshold for seeking vs reading (default=1.0)», 
       "decoder_idle_time": «retention time for unused decoders (default=1.0)», 
-      🔽
-      🔘 "preload": «seconds to preload from start of media»
-      🔘 "preload": [«begin time within media», «end time within media»]
-      🔘 "preload": [🔁 [«begin time within media», «end time within media»], ···]
-      🔼
+                 🔽
+      "preload": 🔘 «seconds to preload from start of media»
+                 🔘 [«begin time within media», «end time within media»]
+                 🔘 [🔁 [«begin time within media», «end time within media»], ···]
+                 🔼
     }, ···
   }
 }
