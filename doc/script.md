@@ -69,11 +69,11 @@ content updated scripts may use (see the
     🔁 "«media file to configure, relative to media root»": {
       "seek_scan_time": «threshold for seeking vs reading (default=1.0)», 
       "decoder_idle_time": «retention time for unused decoders (default=1.0)», 
-                 🔽
-      "preload": 🔘 «seconds to preload from start of media»
-                 🔘 [«begin time within media», «end time within media»]
-                 🔘 [🔁 [«begin time within media», «end time within media»], ···]
-                 🔼
+      🔽
+      🔘 "preload": «seconds to preload from start of media»
+      🔘 "preload": [«begin time within media», «end time within media»]
+      🔘 "preload": [🔁 [«begin time within media», «end time within media»], ···]
+      🔼
     }, ···
   }
 }
@@ -122,25 +122,6 @@ be used (the third format below).
 
 ```yaml
 🔽
-🔘 «constant value for all time»
-
-🔘 {
-     🔽
-     🔘 "t": [«begin timestamp», «end timestamp»],
-     🔘 "t": «begin timestamp (default=0.0)»,
-        "length": «length in seconds (default=infinite)»,
-     🔼
-
-     🔽
-     🔘 "v": [«value at begin», «control point», «control point», «value at end»],
-     🔘 "v": [«value at begin», «value at end»],
-     🔘 "v": «value at begin», "rate": «slope in units per second»,
-     🔘 "v": «constant value across range»,
-     🔼
-
-     "repeat": ▶️ 🔘 «loop period» 🔘 true ◀️
-   }
-
 🔘 {
      "segments": [
        🔁 {
@@ -152,18 +133,25 @@ be used (the third format below).
          🔽
          🔘 "v": [«value at begin», «control point», «control point», «value at end»],
          🔘 "v": [«value at begin», «value at end»],
-         🔘 "v": «value at begin», "rate": «slope in units per second»,
-         🔘 "v": «constant value across segment»,
+         🔘 "v": «value at begin», "rate": «units per second (default=0.0)»,
          🔼
        }, ···
      ],
 
      "repeat": ▶️ 🔘 «loop period» 🔘 true ◀️
    }
+
+🔘 {
+     "t": «same as "t" above»,
+     "v": «same as "v" above»,
+     "repeat": «same as "repeat" above»
+   }
+
+🔘 «constant value for all time»
 🔼
 ```
 
-In the most general case (the third format above), the value is
+In the most general case (the first format above), the value is
 [defined piecewise](https://en.wikipedia.org/wiki/Piecewise) as
 a collection of segments with begin and end times. Segments must be
 listed in time order and may not overlap. Before, between, and after defined
@@ -181,7 +169,7 @@ or after the last segment ends (if `true`).
 If there is only one segment, a simplified format (the second format above)
 lists the segment by itself without a top-level object; the `repeat` value
 (if present) is now in the single segment. An even more simplified format
-(the first format above) gives a single value which never changes.
+(the third format above) gives a single value which never changes.
 
 ## Video modes
 
