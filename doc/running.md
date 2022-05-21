@@ -20,7 +20,7 @@ install and 2G+ RAM.
 5. Run `ninja -C build` to build the Pivid code. (Repeat after code edits
 or `git pull`.)
 On a 2GB RPI4, you need to limit the number of parallel jobs. Otherwise the build will fail due to the limited memory. 
-You can do this ith the "-j" parameter: `ninja -C build -j 2`
+You can do this with the "-j" parameter: `ninja -C build -j 2`
 
 6. Binaries (such as `pivid_server`) can be found in the `build/` directory.
 They are statically linked and may be copied elsewhere as desired.
