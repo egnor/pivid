@@ -8,18 +8,20 @@ instructions don't work!
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
 install and 2G+ RAM.
 
-2. Clone [this repository](https://github.com/egnor/pivid) (you will need
+2. Install PIP `sudo apt update; sudo apt install pip`
+
+3. Clone [this repository](https://github.com/egnor/pivid) (you will need
 [git-lfs](https://git-lfs.github.com/)), and `cd` to the repository root.
 
-3. Run `./dev_setup.py`.
+4. Run `./dev_setup.py`.
 
-4. Run `ninja -C build` to build the Pivid code. (Repeat after code edits
+5. Run `ninja -C build` to build the Pivid code. (Repeat after code edits
 or `git pull`.)
 
-5. Binaries (such as `pivid_server`) can be found in the `build/` directory.
+6. Binaries (such as `pivid_server`) can be found in the `build/` directory.
 They are statically linked and may be copied elsewhere as desired.
 
-6. To reset the build, `rm -rf build` and start over with `./dev_setup.py`.
+7. To reset the build, `rm -rf build` and start over with `./dev_setup.py`.
 
 # Running Pivid binaries
 
