@@ -10,7 +10,7 @@ With a Raspberry Pi OS Lite installation, SD card size needs to be at least 16GB
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
 install and 2G+ RAM.
 
-2. Install some additional libraries `sudo apt update; sudo apt install pip python3-venv git`
+2. Install some additional libraries `sudo apt update; sudo apt install pip python3-venv git meson`
 
 3. Clone [this repository](https://github.com/egnor/pivid) (you will need
 [git-lfs](https://git-lfs.github.com/)), and `cd` to the repository root.
