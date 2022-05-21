@@ -15,6 +15,7 @@ source_dir = Path(__file__).resolve().parent
 build_dir = source_dir / "build"
 
 print("=== System packages (sudo apt install ...) ===")
+check_call(["sudo", "apt", "update"]
 apt_packages = [
     # TODO: Make libudev and libv4l into Conan dependencies
     "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev", "python3"
