@@ -22,6 +22,7 @@ apt_packages = [
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
 installed = installed.decode().split()
 if not all(p in installed for p in apt_packages):
+    check_call(["sudo", "apt", "update"])
     check_call(["sudo", "apt", "install"] + apt_packages)
 
 print()
