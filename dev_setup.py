@@ -17,7 +17,8 @@ build_dir = source_dir / "build"
 print("=== System packages (sudo apt install ...) ===")
 apt_packages = [
     # TODO: Make libudev and libv4l into Conan dependencies
-    "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev", "python3"
+    "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev",
+    "python3", "python3-pip"
 ]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])
 installed = installed.decode().split()

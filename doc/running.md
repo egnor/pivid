@@ -10,22 +10,24 @@ With a Raspberry Pi OS Lite installation, SD card size needs to be at least 16GB
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
 install and 2G+ RAM.
 
-2. Install some additional libraries `sudo apt update; sudo apt install pip python3-venv git git-lfs`
+2. Install some basic tools:
+`sudo apt update && sudo apt install python3-venv git-lfs`
 
-3. Clone [this repository](https://github.com/egnor/pivid) (you will need
-[git-lfs](https://git-lfs.github.com/)), and `cd` to the repository root.
+3. Clone [this repository](https://github.com/egnor/pivid)
+and `cd` to the repository root.
 
 4. Run `./dev_setup.py`.
 
-5. Run `ninja -C build` to build the Pivid code. (Repeat after code edits
-or `git pull`.)
-On a 2GB RPI4, you need to limit the number of parallel jobs. Otherwise the build will fail due to the limited memory. 
-You can do this with the "-j" parameter: `ninja -C build -j 2`
+5. [Hook direnv into your shell](https://direnv.net/docs/hook.html).
 
-6. Binaries (such as `pivid_server`) can be found in the `build/` directory.
+6. Run `ninja -C build` to build the Pivid code. (Repeat after code edits
+or `git pull`.) Add `-j2` (max 2 parallel jobs) if you only have 2GB to avoid 
+running out of memory.
+
+7. Binaries (such as `pivid_server`) can be found in the `build/` directory.
 They are statically linked and may be copied elsewhere as desired.
 
-7. To reset the build, `rm -rf build` and start over with `./dev_setup.py`.
+8. To reset the build, `rm -rf build` and start over with `./dev_setup.py`.
 
 # Running Pivid binaries
 
