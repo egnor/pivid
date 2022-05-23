@@ -20,12 +20,11 @@ and `cd` to the repository root.
 
 5. [Hook direnv into your shell](https://direnv.net/docs/hook.html).
 
-6. Run `ninja -C build` to build the Pivid code. (Repeat after code edits
-or `git pull`.) Add `-j2` (max 2 parallel jobs) if you only have 2GB to avoid 
-running out of memory.
+6. Run `ninja -C build` to build Pivid. (Add `-j2` to limit build parallelism
+if you only have 2GB.)
 
-7. Binaries (such as `pivid_server`) can be found in the `build/` directory.
-They are statically linked and may be copied elsewhere as desired.
+7. Binaries (eg. `pivid_server`) are created in `build/`.
+They are statically linked and may be copied elsewhere if desired.
 
 8. To reset the build, `rm -rf build` and start over with `./dev_setup.py`.
 
