@@ -6,9 +6,10 @@ running [`pivid_server`](running.md#pivid_server) using the
 [`/play` request](protocol.md#play-post---set-play-script-to-control-video-output),
 or supplied as a file to [`pivid_play --script`](running.md#pivid_play).
 
-A new play script may be sent to the server at any time. You choose
-whether to send only short term instructions and revise the script
-periodically, or send long sequences and only revise if necessary.
+A new play script may be sent to the server at any time, and playback will
+switch seamlessly. You choose whether to send only short term instructions
+and revise the script periodically, or send long sequences and only revise
+if necessary.
 
 Play scripts may also include content preloading directives, anticipating
 content you might use in upcoming scripts (see the
