@@ -7,11 +7,11 @@ running [`pivid_server`](running.md#pivid_server) using the
 or supplied as a file to [`pivid_play --script`](running.md#pivid_play).
 
 A new play script may be sent to the server at any time. You choose
-whether to send only short term "scene" instructions and update the script
-as needed, or send entire long term sequences.
+whether to send only short term instructions and revise the script
+periodically, or send long sequences and only revise if necessary.
 
 Play scripts may also include content preloading directives, anticipating
-content updated scripts may use (see the
+content you might use in upcoming scripts (see the
 [architecture overview](architecture.md)).
 
 ## Play script JSON format
