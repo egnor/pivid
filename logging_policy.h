@@ -41,7 +41,6 @@ using log_level = ::spdlog::level::level_enum;
 #define STRINGIFY(x) STRINGIFY2(x)
 #define STRINGIFY2(x) #x
 
-
 // Configures the logger output format with our preferred pattern.
 // Sets log levels based on a string, typically a command line --log arg,
 // to allow "--log=info,display=trace,media=debug" type parameters.

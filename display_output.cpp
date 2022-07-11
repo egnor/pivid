@@ -295,8 +295,9 @@ class LoadedImageDef : public LoadedImage {
 
         auto const logger = display_logger();
         this->fd = std::move(fd);
+        TRACE(logger, "Loading framebuffer...", debug(im));
         this->fd->ioc<DRM_IOCTL_MODE_ADDFB2>(&fdat).ex("DRM framebuffer");
-        DEBUG(logger, "Loaded fb{} {}", fdat.fb_id, debug(im));
+        DEBUG(logger, "LOADED fb{} {}", fdat.fb_id, debug(im));
     }
 
     ~LoadedImageDef() {
@@ -372,7 +373,7 @@ class DisplayDriverDef : public DisplayDriver {
     }
 
     virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer im) final {
-        TRACE(logger, "Loading {}", debug(im));
+        TRACE(logger, "Loading start {}", debug(im));
         CHECK_ARG(im.size.x > 0 && im.size.y > 0, "Bad size: {}", debug(im));
         switch (im.fourcc) {
             case fourcc("ABGR"):
@@ -484,7 +485,7 @@ class DisplayDriverDef : public DisplayDriver {
                 }
 
                 if (!total_space) break;  // No copying needed.
-                auto const start_t = sys->clock(CLOCK_MONOTONIC);
+                auto const start_mt = sys->clock(CLOCK_MONOTONIC);
                 auto const pixels = im.size.x * im.size.y;
                 auto copy = std::make_shared<DumbBuffer>(
                     fd, im.size, (8 * total_space + pixels - 1) / pixels
@@ -514,7 +515,7 @@ class DisplayDriverDef : public DisplayDriver {
                 TRACE(
                     logger, "  copied {} {} {:.1f}ms",
                     debug_fourcc(im.fourcc), debug_size(total_copy),
-                    (sys->clock(CLOCK_MONOTONIC) - start_t) * 1e3
+                    (sys->clock(CLOCK_MONOTONIC) - start_mt) * 1e3
                 );
                 break;
             }
@@ -731,7 +732,7 @@ class DisplayDriverDef : public DisplayDriver {
             .user_data = update_sequence++,
         };
 
-        TRACE(logger, "  {} sending u{}...", conn->name, atomic.user_data);
+        TRACE(logger, "  {} u{} committing...", conn->name, atomic.user_data);
         auto ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
         if (ret.err == EBUSY) {
             TRACE(logger, "  (busy, retrying commit without NONBLOCK)");
