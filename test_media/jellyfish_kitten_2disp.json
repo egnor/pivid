@@ -51,7 +51,7 @@
     },
     "HDMI-2": {
       "mode": [1920, 1080, 60],
-      "update_hz": 30,
+      "update_hz": 60,
       "layers": [
         {
           "media": "jellyfish-3-mbps-hd-hevc.mkv",
