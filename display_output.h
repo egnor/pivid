@@ -42,8 +42,8 @@ struct DisplayFrame {
     std::vector<std::string> warnings = {};  // Log if this frame is shown
 };
 
-// Returned by DisplayDriver::update_status() after a frame has become visible.
-struct DisplayUpdateDone {
+// Returned by DisplayDriver::update() after a frame has become visible.
+struct DisplayUpdated {
     double flip_time;                      // Time of vsync flip
     std::optional<ImageBuffer> writeback;  // Output for writeback "connectors"
 };
@@ -68,12 +68,9 @@ class DisplayDriver {
     // Imports an image into the GPU for use in DisplayUpdateRequest.
     virtual std::unique_ptr<LoadedImage> load_image(ImageBuffer) = 0;
 
-    // Updates a screen's contents &/or video mode at the next vsync.
-    // Do not call again until the update completes (per update_status()).
-    virtual void update(uint32_t screen_id, DisplayFrame const&) = 0;
-
-    // Returns {} if an update is still pending, otherwise update result.
-    virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) = 0;
+    // Updates a screen's contents &/or video mode at vsync.
+    // BLOCKS until the vsync has occurred and the update is complete.
+    virtual DisplayUpdated update(uint32_t screen_id, DisplayFrame const&) = 0;
 
     // Estimate the system load needed to show a particular frame.
     virtual DisplayCost predict_cost(DisplayFrame const&) const = 0;

@@ -94,7 +94,6 @@ class FramePlayerDef : public FramePlayer {
         pthread_setname_np(pthread_self(), thread_name.substr(0, 15).c_str());
         DEBUG(logger, "s{} Frame player thread running...", screen_id);
 
-        double expect_done = 0.0;
         std::unique_lock lock{mutex};
         while (!shutdown) {
             if (timeline.empty()) {
@@ -153,30 +152,22 @@ class FramePlayerDef : public FramePlayer {
                 continue;
             }
 
-            auto const done = driver->update_status(screen_id);
-            if (!done) {
-                if (expect_done && now > expect_done + 0.001) {
-                    logger->warn(
-                        "s{} Slow update: {:.3f}s overdue",
-                        screen_id, now - expect_done
-                    );
-                }
-                TRACE(logger, "s{}  (update pending, wait 5ms)", screen_id);
-                lock.unlock();
-                wakeup->sleep_until(now + 0.005);
-                lock.lock();
-                continue;
-            }
-
             auto const frame_time = show->first;
             DisplayFrame frame = std::move(show->second);
             auto const layer_count = frame.layers.size();
             lock.unlock();
 
             try {
-                auto const expect_delay = 1.0 / frame.mode.actual_hz();
+                auto const start_time = sys->clock();
                 driver->update(screen_id, std::move(frame));
-                expect_done = sys->clock() + expect_delay;
+                auto const elapsed_time = sys->clock() - start_time;
+                auto const expected_time = 1.0 / frame.mode.actual_hz();
+                if (elapsed_time > expected_time + 0.005) {
+                    logger->warn(
+                        "s{} Slow update: took {:.3f}s, expected {:.3f}s",
+                        screen_id, elapsed_time, expected_time
+                    );
+                }
             } catch (std::runtime_error const& e) {
                 logger->error("s{} Display: {}", screen_id, e.what());
                 // Continue as if displayed to avoid looping

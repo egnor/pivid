@@ -524,7 +524,9 @@ class DisplayDriverDef : public DisplayDriver {
         return std::make_unique<LoadedImageDef>(fd, std::move(im));
     }
 
-    virtual void update(uint32_t screen_id, DisplayFrame const& frame) final {
+    virtual DisplayUpdated update(
+        uint32_t screen_id, DisplayFrame const& frame
+    ) final {
         auto* const conn = &connectors.at(screen_id);
         auto cost = predict_cost(frame);
 
@@ -559,20 +561,26 @@ class DisplayDriverDef : public DisplayDriver {
         for (auto const& warning : frame.warnings)
             logger->warn("{} {}", conn->name, warning);
 
-        std::scoped_lock const lock{mutex};
+        std::unique_lock lock{mutex};
         auto* crtc = conn->using_crtc;
         CHECK_ARG(
             !crtc || !crtc->pending_flip,
             "Update requested before prev done"
         );
 
-        if (!crtc && frame.mode.nominal_hz) {
+        if (!crtc) {
+            if (!frame.mode.nominal_hz) {
+                DEBUG(logger, "  ({} was off, staying off)", conn->name);
+                return {};
+            }
+
             for (auto* const c : conn->usable_crtcs) {
                 if (c->used_by_conn) continue;
                 ASSERT(!c->pending_flip);
                 crtc = c;
                 break;
             }
+
             CHECK_RUNTIME(crtc, "No DRM CRTC: {}", conn->name);
         }
 
@@ -580,18 +588,16 @@ class DisplayDriverDef : public DisplayDriver {
         std::map<uint32_t, std::map<PropId const*, uint64_t>> props;
         std::shared_ptr<uint32_t const> mode_blob;
         Crtc::State next = {};
-        int32_t writeback_fence_fd = -1;
+        int32_t writeback_fd = -1;
 
+        ASSERT(crtc);
         if (!frame.mode.nominal_hz) {
             DEBUG(logger, "  ({} turning off)", conn->name);
             props[conn->id][&conn->CRTC_ID] = 0;
-            if (crtc) {
-                props[crtc->id][&crtc->ACTIVE] = 0;
-                props[crtc->id][&crtc->MODE_ID] = 0;
-            }
+            props[crtc->id][&crtc->ACTIVE] = 0;
+            props[crtc->id][&crtc->MODE_ID] = 0;
             // Leave next state zeroed (disassociate CRTC).
         } else {
-            ASSERT(crtc);
             next.mode = mode_to_drm(frame.mode);
             static_assert(sizeof(crtc->active.mode) == sizeof(next.mode));
             if (memcmp(&crtc->active.mode, &next.mode, sizeof(next.mode))) {
@@ -618,7 +624,7 @@ class DisplayDriverDef : public DisplayDriver {
                 next.writeback = std::move(wb);
                 props[conn->id][&conn->WRITEBACK_FB_ID] = id;
                 props[conn->id][&conn->WRITEBACK_OUT_FENCE_PTR] =
-                    (uint64_t) &writeback_fence_fd;
+                    (uint64_t) &writeback_fd;
             }
 
             if (!conn->using_crtc || next.writeback) {
@@ -693,13 +699,26 @@ class DisplayDriverDef : public DisplayDriver {
         if (props.empty()) {
             TRACE(logger, "  {} unchanged!", conn->name);
             ASSERT(conn->using_crtc == crtc);
-            if (crtc) {
-                ASSERT(crtc->used_by_conn == conn);
-                ASSERT(!crtc->pending_flip);
-                crtc->active = std::move(next);
-            }
-            return;
+            ASSERT(crtc->used_by_conn == conn);
+            ASSERT(!crtc->pending_flip);
+            crtc->active = std::move(next);
+            return {};
         }
+
+        conn->using_crtc = crtc;
+        crtc->used_by_conn = conn;
+        crtc->pending_flip.emplace(std::move(next));
+        crtc->vblank_event.reset();
+        for (auto* plane : crtc->pending_flip->using_planes) {
+            ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
+            plane->used_by_crtc = crtc;
+        }
+
+        //
+        // UNLOCK for blocking commit
+        //
+
+        lock.unlock();
 
         std::vector<uint32_t> obj_ids;
         std::vector<uint32_t> obj_prop_counts;
@@ -721,7 +740,6 @@ class DisplayDriverDef : public DisplayDriver {
         drm_mode_atomic atomic = {
             .flags =
                 DRM_MODE_PAGE_FLIP_EVENT |
-                DRM_MODE_ATOMIC_NONBLOCK |
                 DRM_MODE_ATOMIC_ALLOW_MODESET,
             .count_objs = (uint32_t) obj_ids.size(),
             .objs_ptr = (uint64_t) obj_ids.data(),
@@ -733,55 +751,89 @@ class DisplayDriverDef : public DisplayDriver {
         };
 
         TRACE(logger, "  {} u{} committing...", conn->name, atomic.user_data);
-        auto ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
-        if (ret.err == EBUSY) {
-            TRACE(logger, "  (busy, retrying commit without NONBLOCK)");
-            atomic.flags &= ~DRM_MODE_ATOMIC_NONBLOCK;
-            ret = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
-        }
-
-        if (writeback_fence_fd >= 0) {
-            TRACE(logger, "  (writeback fence fd={})", writeback_fence_fd);
-            if (!next.writeback) next.writeback.emplace();
-            next.writeback->fence = sys->adopt(writeback_fence_fd);
-        }
-
-        ret.ex("DRM atomic update");
+        fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic).ex("DRM atomic update");
         DEBUG(logger, "  {} u{} committed!", conn->name, atomic.user_data);
 
-        conn->using_crtc = crtc;
-        if (crtc) {
-            crtc->used_by_conn = conn;
-            crtc->pending_flip.emplace(std::move(next));
-            for (auto* plane : crtc->pending_flip->using_planes) {
-                ASSERT(plane->used_by_crtc == crtc || !plane->used_by_crtc);
-                plane->used_by_crtc = crtc;
+        std::unique_ptr<FileDescriptor> writeback_fence;
+        if (writeback_fd >= 0) writeback_fence = sys->adopt(writeback_fd);
+
+        //
+        // RE-LOCK after blocking commit
+        //
+
+        lock.lock();
+
+        ASSERT(conn->using_crtc == crtc);
+        ASSERT(crtc->used_by_conn == conn);
+
+        // Read and store events until we've seen one for this CRTC
+        while (!crtc->vblank_event) {
+            drm_event_vblank ev = {};
+            do {
+                auto const len = fd->read(&ev, sizeof(ev)).ex("Read DRM event");
+                CHECK_RUNTIME(len == sizeof(ev), "Bad DRM event size");
+            } while (ev.base.type != DRM_EVENT_FLIP_COMPLETE);
+
+            auto* const crtc = &crtcs.at(ev.crtc_id);
+            CHECK_RUNTIME(
+                crtc->pending_flip && crtc->used_by_conn && !crtc->vblank_event,
+                "Unexpected DRM CRTC pageflip ({})", crtc->id
+            );
+            crtc->vblank_event = std::move(ev);
+        }
+
+        auto const& ev = *crtc->vblank_event;
+        DisplayUpdated done = {};
+        do {
+            double const flip_mt = ev.tv_sec + 1e-6 * ev.tv_usec;
+            double const mt0 = sys->clock(CLOCK_MONOTONIC);
+            double const rt1 = sys->clock();
+            double const mt2 = sys->clock(CLOCK_MONOTONIC);
+            ASSERT(mt2 >= mt0);
+            if (mt2 - mt0 > 0.001) {
+                TRACE(logger, "Clock jump: m{:.6f} => m{:.6f}", mt0, mt2);
+            } else {
+                done.flip_time = flip_mt - 0.5 * (mt0 + mt2) + rt1;
             }
-        }
-    }
 
-    virtual std::optional<DisplayUpdateDone> update_status(uint32_t id) final {
-        auto* const conn = &connectors.at(id);
-        std::scoped_lock const lock{mutex};
-        if (conn->using_crtc && conn->using_crtc->pending_flip) {
-            process_events(lock);
-            if (conn->using_crtc && conn->using_crtc->pending_flip) {
-                TRACE(logger, "{} status: Update still pending", conn->name);
-                return {};
-            }
-        }
+            DEBUG(
+                logger, "{} u{} done! {} (m{:.3f})",
+                conn->name, ev.user_data,
+                abbrev_realtime(done.flip_time), flip_mt
+            );
+        } while (done.flip_time == 0.0);
 
-        DisplayUpdateDone done = {};
-        if (!conn->using_crtc) {
-            TRACE(logger, "{} status: Off, no update pending", conn->name);
-        } else if (conn->using_crtc->active.writeback) {
-            done.writeback = conn->using_crtc->active.writeback->image;
-            TRACE(logger, "{} status: Update done with writeback", conn->name);
-        } else {
-            TRACE(logger, "{} status: Update done", conn->name);
+        if (!crtc->pending_flip->mode.vrefresh) {
+            TRACE(logger, "  (display is off)", conn->name);
+            ASSERT(conn->using_crtc == crtc);
+            ASSERT(crtc->pending_flip->using_planes.empty());
+            conn->using_crtc = nullptr;
+            crtc->used_by_conn = nullptr;
         }
 
-        done.flip_time = conn->flip_time;
+        for (auto* plane : crtc->pending_flip->using_planes)
+            ASSERT(plane->used_by_crtc == crtc);
+
+        for (auto* plane : crtc->active.using_planes) {
+            ASSERT(plane->used_by_crtc == crtc);
+            plane->used_by_crtc = nullptr;
+        }
+
+        for (auto* plane : crtc->pending_flip->using_planes)
+            plane->used_by_crtc = crtc;
+
+        crtc->active = std::move(*crtc->pending_flip);
+        crtc->pending_flip.reset();
+
+        ASSERT(!crtc->used_by_conn || crtc->used_by_conn == conn);
+        ASSERT(!conn->using_crtc || conn->using_crtc == crtc);
+
+        if (writeback_fence) {
+            TRACE(logger, "  (writeback fd={})", writeback_fence->raw_fd());
+            // TODO: Read from writeback fence
+            // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
+        }
+
         return done;
     }
 
@@ -850,7 +902,7 @@ class DisplayDriverDef : public DisplayDriver {
     void open(std::shared_ptr<UnixSystem> sys, std::string const& dev) {
         logger->info("Opening display \"{}\"...", dev);
         this->sys = std::move(sys);
-        fd = this->sys->open(dev.c_str(), O_RDWR | O_NONBLOCK).ex(dev);
+        fd = this->sys->open(dev.c_str(), O_RDWR).ex(dev);
         try {
             fd->ioc<DRM_IOCTL_SET_MASTER>().ex("DRM master mode");
         } catch (std::system_error const& e) {
@@ -1059,6 +1111,7 @@ class DisplayDriverDef : public DisplayDriver {
         Connector* used_by_conn = nullptr;
         State active;
         std::optional<State> pending_flip;
+        std::optional<drm_event_vblank> vblank_event;
     };
 
     struct Connector {
@@ -1073,7 +1126,6 @@ class DisplayDriverDef : public DisplayDriver {
 
         // Guarded by DisplayDriverDef::mutex
         Crtc* using_crtc = nullptr;
-        double flip_time;
     };
 
     // These containers are constant after startup (contained objects change)
@@ -1087,72 +1139,6 @@ class DisplayDriverDef : public DisplayDriver {
     std::map<uint32_t, Connector> connectors;
     std::map<uint32_t, std::string> prop_names;
     uint64_t update_sequence = 0;
-
-    void process_events(std::scoped_lock<std::mutex> const&) {
-        drm_event_vblank ev = {};
-        for (;;) {
-            auto const ret = fd->read(&ev, sizeof(ev));
-            if (ret.err == EAGAIN) break;
-
-            auto const ev_len = ret.ex("Read DRM event");
-            CHECK_RUNTIME(ev_len == sizeof(ev), "Bad DRM event size");
-            if (ev.base.type != DRM_EVENT_FLIP_COMPLETE) continue;
-
-            auto* const crtc = &crtcs.at(ev.crtc_id);
-            CHECK_RUNTIME(
-                crtc->pending_flip && crtc->used_by_conn,
-                "Unexpected DRM CRTC pageflip ({})", crtc->id
-            );
-
-            auto* conn = crtc->used_by_conn;
-            ASSERT(conn);
-
-            // TODO: Check for writeback fence, once it works
-            // (see https://forums.raspberrypi.com/viewtopic.php?t=328068)
-
-            double const flip_mt = ev.tv_sec + 1e-6 * ev.tv_usec;
-            while (true) {
-                double const mt0 = sys->clock(CLOCK_MONOTONIC);
-                double const rt1 = sys->clock();
-                double const mt2 = sys->clock(CLOCK_MONOTONIC);
-                ASSERT(mt2 >= mt0);
-                if (mt2 - mt0 > 0.001) {
-                    TRACE(logger, "Clock jump: m{:.6f} => m{:.6f}", mt0, mt2);
-                } else {
-                    conn->flip_time = flip_mt - 0.5 * (mt0 + mt2) + rt1;
-                    break;
-                }
-            }
-
-            DEBUG(
-                logger, "{} u{} flip! {} (m{:.3f})",
-                conn->name, ev.user_data,
-                abbrev_realtime(conn->flip_time), flip_mt
-            );
-
-            if (!crtc->pending_flip->mode.vrefresh) {
-                TRACE(logger, "  {} is off", conn->name);
-                ASSERT(conn->using_crtc == crtc);
-                ASSERT(crtc->pending_flip->using_planes.empty());
-                conn->using_crtc = nullptr;
-                crtc->used_by_conn = nullptr;
-            }
-
-            for (auto* plane : crtc->pending_flip->using_planes)
-                ASSERT(plane->used_by_crtc == crtc);
-
-            for (auto* plane : crtc->active.using_planes) {
-                ASSERT(plane->used_by_crtc == crtc);
-                plane->used_by_crtc = nullptr;
-            }
-
-            for (auto* plane : crtc->pending_flip->using_planes)
-                plane->used_by_crtc = crtc;
-
-            crtc->active = std::move(*crtc->pending_flip);
-            crtc->pending_flip.reset();
-        }
-    }
 
     void lookup_required_prop_ids(uint32_t obj_id, PropId::Map* map) {
         lookup_prop_ids(obj_id, map);
