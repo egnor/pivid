@@ -31,12 +31,15 @@ They are statically linked and may be copied elsewhere if desired.
 # Running Pivid binaries
 
 1. Edit `/boot/config.txt` (as root), comment out existing
-`dtoverlay=vc4`... lines, and add these options:
+`dtoverlay=vc4`... and `gpu_mem=`... lines, and add these options:
 
 ```
   # Use full KMS and H.265 (HEVC) decoding, reserve 512M CMA for frames
   dtoverlay=vc4-kms-v3d,cma-512
   dtoverlay=rpivid-v4l2
+
+  # Reserve 256M for the GPU (mostly for H.264 decoding)
+  gpu_mem=256
 ```
 
 2. Run `sudo servicectl stop lightdm` to stop the X windows desktop.
