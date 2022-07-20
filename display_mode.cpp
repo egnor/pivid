@@ -74,6 +74,8 @@ std::optional<DisplayMode> vesa_cvt_mode(XY<int> size, int hz) {
     double const ACT_PIXEL_FREQ = CLOCK_STEP *
         int(TOTAL_PIXELS / H_PERIOD_EST / CLOCK_STEP);
 
+    if (ACT_PIXEL_FREQ < 12.5) return {};  // HDMI min (after doubling) is 25MHz
+
     DisplayMode mode = {};
     mode.size = size;
     mode.scan_size = {TOTAL_PIXELS, TOTAL_V_LINES};
@@ -86,9 +88,11 @@ std::optional<DisplayMode> vesa_cvt_mode(XY<int> size, int hz) {
 
     // CVT 3.6 "Sync polarities", Table 3-1
     mode.aspect =
-        (size.y * 4 == size.x * 3) ? XY<int>{4, 3} :
-        (size.y * 16 == size.x * 9) ? XY<int>{16, 9} :
-        (size.y * 16 == size.x * 10) ? XY<int>{16, 10} : XY<int>{};
+        (mode.sync_end.y - mode.sync_start.y == 4) ? XY<int>{4, 3} :
+        (mode.sync_end.y - mode.sync_start.y == 5) ? XY<int>{16, 9} :
+        (mode.sync_end.y - mode.sync_start.y == 6) ? XY<int>{16, 10} :
+            XY<int>{};
+
     return mode;
 }
 
@@ -112,6 +116,9 @@ std::optional<DisplayMode> vesa_cvt_rb_mode(XY<int> size, double target_hz) {
     m.pixel_khz = int(m.scan_size.x * m.scan_size.y * target_hz / 1000);
     m.doubling = {(m.pixel_khz < 25000) ? 1 : 0, 0};
     m.nominal_hz = nominal_hz;
+
+    // HDMI min (after doubling) is 25MHz
+    if (m.pixel_khz * (m.doubling.x > 0 ? 2 : 1) < 25000) return {};
     return m;
 }
 
