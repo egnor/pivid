@@ -219,7 +219,6 @@ Script parse_script(std::string_view text, double default_zero_time) {
         j.value("screens", json::object()).get_to(s.screens);
         s.zero_time = j.value("zero_time", default_zero_time);
         s.main_loop_hz = j.value("main_loop_hz", s.main_loop_hz);
-        s.main_buffer_time = j.value("main_buffer_time", s.main_buffer_time);
         CHECK_ARG(s.main_loop_hz > 0.0, "Bad main_loop_hz: {}", j.dump());
         return s;
     } catch (nlohmann::json::exception const& e) {

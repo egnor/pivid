@@ -151,12 +151,13 @@ class ScriptRunnerDef : public ScriptRunner {
             ASSERT(output->mode.actual_hz() > 0);
             double const script_hz = script_screen.update_hz;
             double const hz = script_hz ? script_hz : output->mode.actual_hz();
+            double const loop_hz = script.main_loop_hz;
             double const begin_t = std::ceil(now * hz) / hz;
-            double const end_t = now + script.main_buffer_time;
+            double const end_t = now + 2.0 / std::min(hz, loop_hz);
 
             // Create empty timeline elements at each frame time
             FramePlayer::Timeline timeline;
-            for (double t = begin_t; t < end_t; t += 1.0 / hz) {
+            for (double t = begin_t; t < end_t + 0.001; t += 1.0 / hz) {
                 auto* frame = &timeline[t];
                 frame->mode = output->mode;
                 frame->layers.reserve(script_screen.layers.size());

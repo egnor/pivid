@@ -28,7 +28,6 @@ content you might use in upcoming scripts (see the
 {
   "zero_time": «timestamp baseline (default=server start)»,
   "main_loop_hz": «output timeline update frequency (default=30)»,
-  "main_buffer_time": «output timeline length in seconds (default=0.2)»,
 
   "screens": {
     🔁 "«hardware connector, eg. HDMI-1»": {

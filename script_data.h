@@ -58,7 +58,6 @@ struct Script {
     std::map<std::string, ScriptScreen> screens;  // Contents by connector name
     double zero_time = 0.0;         // Make all timestamps relative to this
     double main_loop_hz = 30.0;     // Refresh frame timelines this often
-    double main_buffer_time = 0.2;  // Make frame timelines this long
 };
 
 // Returns a script parsed from text.

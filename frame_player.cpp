@@ -155,7 +155,7 @@ class FramePlayerDef : public FramePlayer {
 
             auto const done = driver->update_status(screen_id);
             if (!done) {
-                if (expect_done && now > expect_done) {
+                if (expect_done && now > expect_done + 0.001) {
                     logger->warn(
                         "s{} Slow update: {:.3f}s overdue",
                         screen_id, now - expect_done

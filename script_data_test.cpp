@@ -19,7 +19,6 @@ TEST_CASE("from_json (empty)") {
 TEST_CASE("from_json") {
     auto const text = R"**({
       "main_loop_hz": 10.5,
-      "main_buffer_time": 0.5,
       "zero_time": 12345.678,
       "screens": {
         "empty_screen": {"mode": null},
@@ -64,7 +63,6 @@ TEST_CASE("from_json") {
 
     Script script = parse_script(text, 876.54321);
     CHECK(script.main_loop_hz == Approx(10.5));
-    CHECK(script.main_buffer_time == Approx(0.5));
     CHECK(script.zero_time == 12345.678);
 
     REQUIRE(script.media.size() == 3);
