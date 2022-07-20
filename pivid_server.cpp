@@ -178,8 +178,9 @@ class Server {
             layer_count += screen.layers.size();
 
         DEBUG(
-            logger, "PLAY scr={} lay={} med={} t0={}",
-            new_script->screens.size(), layer_count, new_script->media.size(),
+            logger, "PLAY scr={} lay={} tun={} t0={}",
+            new_script->screens.size(), layer_count,
+            new_script->buffer_tuning.size(),
             format_realtime(new_script->zero_time)
         );
 

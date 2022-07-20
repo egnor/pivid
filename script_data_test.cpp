@@ -11,7 +11,7 @@ namespace pivid {
 
 TEST_CASE("from_json (empty)") {
     Script script = parse_script("{}", 123.45);
-    CHECK(script.media.empty());
+    CHECK(script.buffer_tuning.empty());
     CHECK(script.screens.empty());
     CHECK(script.zero_time == 123.45);
 }
@@ -45,19 +45,19 @@ TEST_CASE("from_json") {
           ]
         }
       },
-      "media": {
+      "buffer_tuning": {
         "media1": {
-          "preload": 1.1,
+          "pin": 1.1,
           "decoder_idle_time": 1.5,
           "seek_scan_time": 2.5
         },
         "media2": {
-          "preload": [
+          "pin": [
             [2.1, 2.2],
             [{"t": [1, 5], "v": [2.3, 2.4]}, 2.5]
           ]
         },
-        "media3": {"preload": [3.1, 3.2]}
+        "media3": {"pin": [3.1, 3.2]}
       }
     })**";
 
@@ -65,46 +65,46 @@ TEST_CASE("from_json") {
     CHECK(script.main_loop_hz == Approx(10.5));
     CHECK(script.zero_time == 12345.678);
 
-    REQUIRE(script.media.size() == 3);
-    REQUIRE(script.media.count("media1") == 1);
-    auto const& media1 = script.media["media1"];
-    REQUIRE(media1.preload.size() == 1);
-    REQUIRE(media1.preload[0].begin.segments.size() == 1);
-    REQUIRE(media1.preload[0].end.segments.size() == 1);
-    CHECK(media1.preload[0].begin.segments[0].t.begin == 0);
-    CHECK(media1.preload[0].begin.segments[0].t.end == 1e12);
-    CHECK(media1.preload[0].begin.segments[0].begin_v == 0);
-    CHECK(media1.preload[0].begin.segments[0].end_v == 0);
-    CHECK(media1.preload[0].end.segments[0].t.begin == 0);
-    CHECK(media1.preload[0].end.segments[0].t.end == 1e12);
-    CHECK(media1.preload[0].end.segments[0].begin_v == 1.1);
-    CHECK(media1.preload[0].end.segments[0].end_v == 1.1);
-    CHECK(media1.decoder_idle_time == 1.5);
-    CHECK(media1.seek_scan_time == 2.5);
+    REQUIRE(script.buffer_tuning.size() == 3);
+    REQUIRE(script.buffer_tuning.count("media1") == 1);
+    auto const& tuning1 = script.buffer_tuning["media1"];
+    REQUIRE(tuning1.pin.size() == 1);
+    REQUIRE(tuning1.pin[0].begin.segments.size() == 1);
+    REQUIRE(tuning1.pin[0].end.segments.size() == 1);
+    CHECK(tuning1.pin[0].begin.segments[0].t.begin == 0);
+    CHECK(tuning1.pin[0].begin.segments[0].t.end == 1e12);
+    CHECK(tuning1.pin[0].begin.segments[0].begin_v == 0);
+    CHECK(tuning1.pin[0].begin.segments[0].end_v == 0);
+    CHECK(tuning1.pin[0].end.segments[0].t.begin == 0);
+    CHECK(tuning1.pin[0].end.segments[0].t.end == 1e12);
+    CHECK(tuning1.pin[0].end.segments[0].begin_v == 1.1);
+    CHECK(tuning1.pin[0].end.segments[0].end_v == 1.1);
+    CHECK(tuning1.decoder_idle_time == 1.5);
+    CHECK(tuning1.seek_scan_time == 2.5);
 
-    REQUIRE(script.media.count("media2") == 1);
-    auto const& media2 = script.media["media2"];
-    REQUIRE(media2.preload.size() == 2);
-    REQUIRE(media2.preload[0].begin.segments.size() == 1);
-    REQUIRE(media2.preload[0].end.segments.size() == 1);
-    REQUIRE(media2.preload[1].begin.segments.size() == 1);
-    REQUIRE(media2.preload[1].end.segments.size() == 1);
-    CHECK(media2.preload[0].begin.segments[0].begin_v == 2.1);
-    CHECK(media2.preload[0].end.segments[0].begin_v == 2.2);
-    CHECK(media2.preload[1].begin.segments[0].t.begin == 1);
-    CHECK(media2.preload[1].begin.segments[0].t.end == 5);
-    CHECK(media2.preload[1].begin.segments[0].begin_v == 2.3);
-    CHECK(media2.preload[1].begin.segments[0].end_v == 2.4);
-    CHECK(media2.preload[1].end.segments[0].begin_v == 2.5);
-    CHECK(media2.preload[1].end.segments[0].end_v == 2.5);
+    REQUIRE(script.buffer_tuning.count("media2") == 1);
+    auto const& media2 = script.buffer_tuning["media2"];
+    REQUIRE(media2.pin.size() == 2);
+    REQUIRE(media2.pin[0].begin.segments.size() == 1);
+    REQUIRE(media2.pin[0].end.segments.size() == 1);
+    REQUIRE(media2.pin[1].begin.segments.size() == 1);
+    REQUIRE(media2.pin[1].end.segments.size() == 1);
+    CHECK(media2.pin[0].begin.segments[0].begin_v == 2.1);
+    CHECK(media2.pin[0].end.segments[0].begin_v == 2.2);
+    CHECK(media2.pin[1].begin.segments[0].t.begin == 1);
+    CHECK(media2.pin[1].begin.segments[0].t.end == 5);
+    CHECK(media2.pin[1].begin.segments[0].begin_v == 2.3);
+    CHECK(media2.pin[1].begin.segments[0].end_v == 2.4);
+    CHECK(media2.pin[1].end.segments[0].begin_v == 2.5);
+    CHECK(media2.pin[1].end.segments[0].end_v == 2.5);
 
-    REQUIRE(script.media.count("media3") == 1);
-    auto const& media3 = script.media["media3"];
-    REQUIRE(media3.preload.size() == 1);
-    REQUIRE(media3.preload[0].begin.segments.size() == 1);
-    REQUIRE(media3.preload[0].end.segments.size() == 1);
-    CHECK(media3.preload[0].begin.segments[0].begin_v == 3.1);
-    CHECK(media3.preload[0].end.segments[0].begin_v == 3.2);
+    REQUIRE(script.buffer_tuning.count("media3") == 1);
+    auto const& media3 = script.buffer_tuning["media3"];
+    REQUIRE(media3.pin.size() == 1);
+    REQUIRE(media3.pin[0].begin.segments.size() == 1);
+    REQUIRE(media3.pin[0].end.segments.size() == 1);
+    CHECK(media3.pin[0].begin.segments[0].begin_v == 3.1);
+    CHECK(media3.pin[0].end.segments[0].begin_v == 3.2);
 
     REQUIRE(script.screens.size() == 2);
     REQUIRE(script.screens.count("empty_screen") == 1);

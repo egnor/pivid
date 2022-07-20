@@ -262,7 +262,7 @@ std::string abbrev_realtime(double t) {
     time_t tt = t;
     gmtime_r(&tt, &parts);
     return fmt::format(
-        "{:02d}:{:02d}:{:06.3f}",
+        "{:02d}:{:02d}:{:06.3f}Z",
         parts.tm_hour, parts.tm_min, parts.tm_sec + (t - tt)
     );
 }

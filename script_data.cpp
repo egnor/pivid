@@ -125,39 +125,37 @@ static void from_json(json const& j, BezierSpline& bezier) {
     CHECK_ARG(bezier.repeat >= 0, "Bad Bezier repeat period: {}", j.dump());
 }
 
-static void from_json(json const& j, ScriptMedia& m) {
-    auto const preload_j = j.value("preload", json());
-    if (preload_j.is_number()) {
-        auto* preload = &m.preload.emplace_back();
-        from_json(json(0.0), preload->begin);
-        from_json(preload_j, preload->end);
+static void from_json(json const& j, ScriptBufferTuning& bt) {
+    auto const pin_j = j.value("pin", json());
+    if (pin_j.is_number()) {
+        auto* pin = &bt.pin.emplace_back();
+        from_json(json(0.0), pin->begin);
+        from_json(pin_j, pin->end);
     } else if (
-        preload_j.is_array() && preload_j.size() == 2 &&
-        !preload_j.at(0).is_array()
+        pin_j.is_array() && pin_j.size() == 2 &&
+        !pin_j.at(0).is_array()
     ) {
-        auto* preload = &m.preload.emplace_back();
-        from_json(preload_j.at(0), preload->begin);
-        from_json(preload_j.at(1), preload->end);
+        auto* pin = &bt.pin.emplace_back();
+        from_json(pin_j.at(0), pin->begin);
+        from_json(pin_j.at(1), pin->end);
     } else {
-        CHECK_ARG(preload_j.is_array(), "Bad JSON preload: {}", j.dump());
-        for (auto const& item_j : preload_j) {
+        CHECK_ARG(pin_j.is_array(), "Bad JSON pin: {}", j.dump());
+        for (auto const& item_j : pin_j) {
             CHECK_ARG(
                 item_j.is_array() && item_j.size() == 2,
-                "Bad JSON preload range: {}", j.dump()
+                "Bad JSON pin range: {}", j.dump()
             );
-            auto* preload = &m.preload.emplace_back();
-            from_json(item_j.at(0), preload->begin);
-            from_json(item_j.at(1), preload->end);
+            auto* pin = &bt.pin.emplace_back();
+            from_json(item_j.at(0), pin->begin);
+            from_json(item_j.at(1), pin->end);
         }
     }
 
-    m.seek_scan_time = j.value("seek_scan_time", m.seek_scan_time);
-    CHECK_ARG(m.seek_scan_time >= 0.0, "Bad seek_scan_time: {}", j.dump());
+    bt.seek_scan_time = j.value("seek_scan_time", bt.seek_scan_time);
+    CHECK_ARG(bt.seek_scan_time >= 0, "Bad seek_scan_time: {}", j.dump());
 
-    m.decoder_idle_time = j.value("decoder_idle_time", m.decoder_idle_time);
-    CHECK_ARG(
-        m.decoder_idle_time >= 0.0, "Bad decoder_idle_time: {}", j.dump()
-    );
+    bt.decoder_idle_time = j.value("decoder_idle_time", bt.decoder_idle_time);
+    CHECK_ARG(bt.decoder_idle_time >= 0, "Bad decoder_idle_time: {}", j.dump());
 }
 
 static void from_json(json const& j, ScriptMode& mode) {
@@ -215,7 +213,7 @@ Script parse_script(std::string_view text, double default_zero_time) {
         Script s = {};
         auto const j = nlohmann::json::parse(text);
         CHECK_ARG(j.is_object(), "Bad JSON script: {}", j.dump());
-        j.value("media", json::object()).get_to(s.media);
+        j.value("buffer_tuning", json::object()).get_to(s.buffer_tuning);
         j.value("screens", json::object()).get_to(s.screens);
         s.zero_time = j.value("zero_time", default_zero_time);
         s.main_loop_hz = j.value("main_loop_hz", s.main_loop_hz);

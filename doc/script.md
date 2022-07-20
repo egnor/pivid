@@ -64,15 +64,14 @@ content you might use in upcoming scripts (see the
     }, ···
   }
   
-
-  "media": {
+  "buffer_tuning": {
     🔁 "«media file to configure, relative to media root»": {
       "seek_scan_time": «threshold for seeking vs reading (default=1.0)», 
       "decoder_idle_time": «retention time for unused decoders (default=1.0)», 
       🔽
-      🔘 "preload": «seconds to preload from start of media»
-      🔘 "preload": [«begin time within media», «end time within media»]
-      🔘 "preload": [🔁 [«begin time within media», «end time within media»], ···]
+      🔘 "pin": «seconds to always keep loaded from start of media»
+      🔘 "pin": [«begin time within media», «end time within media»]
+      🔘 "pin": [🔁 [«begin time within media», «end time within media»], ···]
       🔼
     }, ···
   }

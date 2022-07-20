@@ -36,7 +36,7 @@ TEST_CASE("format_realtime") {
 }
 
 TEST_CASE("abbrev_realtime") {
-    CHECK(abbrev_realtime(1649808363.086814454) == "00:06:03.087");
+    CHECK(abbrev_realtime(1649808363.086814454) == "00:06:03.087Z");
 }
 
 }  // namespace pivid

@@ -53,28 +53,28 @@ class ScriptRunnerDef : public ScriptRunner {
         auto const now = cx.sys->clock();
         auto const t0 = script.zero_time;
         DEBUG(logger, "UPDATE {} (t0+{:.3f}s)", abbrev_realtime(now), now - t0);
-        for (const auto& [media, script_media] : script.media) {
+        for (const auto& [media, tuning] : script.buffer_tuning) {
             auto const& file = find_file(lock, media);
             auto* input = &input_media[file];
-            TRACE(logger, "  media \"{}\"", file);
+            TRACE(logger, "  tuning \"{}\"", file);
 
-            input->req.decoder_idle_time = script_media.decoder_idle_time;
-            input->req.seek_scan_time = script_media.seek_scan_time;
+            input->req.decoder_idle_time = tuning.decoder_idle_time;
+            input->req.seek_scan_time = tuning.seek_scan_time;
             TRACE(
                 logger, "    idle={:.3f}s scan={:.3f}s",
                 input->req.decoder_idle_time,
                 input->req.seek_scan_time
             );
 
-            for (auto const& preload : script_media.preload) {
-                auto const begin = preload.begin.value(now - t0);
-                auto const end = preload.end.value(now - t0);
+            for (auto const& pin : tuning.pin) {
+                auto const begin = pin.begin.value(now - t0);
+                auto const end = pin.end.value(now - t0);
                 if (begin && end) {
                     Interval want{*begin, *end};
-                    TRACE(logger, "    preload {}", debug(want));
+                    TRACE(logger, "    pin {}", debug(want));
                     input->req.wanted.insert(want);
                 } else {
-                    TRACE(logger, "    preload inactive");
+                    TRACE(logger, "    pin inactive");
                 }
             }
         }

@@ -21,8 +21,8 @@ struct ScriptPreload {
 };
 
 // Options applied to a media file, including preload directives.
-struct ScriptMedia {
-    std::vector<ScriptPreload> preload;
+struct ScriptBufferTuning {
+    std::vector<ScriptPreload> pin;
     double decoder_idle_time = 1.0;
     double seek_scan_time = 1.0;
 };
@@ -54,7 +54,7 @@ struct ScriptScreen {
 
 // An entire parsed play script, including global parameters and all screens.
 struct Script {
-    std::map<std::string, ScriptMedia> media;     // Optional media file options
+    std::map<std::string, ScriptBufferTuning> buffer_tuning;  // Per-file config
     std::map<std::string, ScriptScreen> screens;  // Contents by connector name
     double zero_time = 0.0;         // Make all timestamps relative to this
     double main_loop_hz = 30.0;     // Refresh frame timelines this often
