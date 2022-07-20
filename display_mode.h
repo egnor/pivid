@@ -33,9 +33,11 @@ extern std::vector<DisplayMode> const cta_861_modes;
 // Returns all modes listed in the VESA DMT standard
 extern std::vector<DisplayMode> const vesa_dmt_modes;
 
-// Generates a mode compliant with the VESA CVT standard, if possible
-// TODO: Allow specification of Reduced Blanking (RB) modes?
+// Computes a mode per the VESA CVT standard, if possible
 std::optional<DisplayMode> vesa_cvt_mode(XY<int> size, int hz);
+
+// Computes a mode per VESA CVT with Reduced Blanking v2, if possible
+std::optional<DisplayMode> vesa_cvt_rb_mode(XY<int> size, double target_hz);
 
 // Debugging description of DisplayMode.
 std::string debug(DisplayMode const&);

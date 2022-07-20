@@ -10,7 +10,7 @@
 
 namespace pivid {
 
-// Main program, parses flags and calls the decoder loop.
+// Main program, parses flags and scans displays.
 extern "C" int main(int const argc, char const* const* const argv) {
     std::string log_arg;
 

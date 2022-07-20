@@ -114,7 +114,8 @@ class ScriptRunnerDef : public ScriptRunner {
                     }
 
                     // Finally, try to synthesize a CVT mode for spec.
-                    auto const cvt = vesa_cvt_mode(
+                    // (Assume if we get to this point, RB is OK.)
+                    auto const cvt = vesa_cvt_rb_mode(
                         script_screen.mode.size,
                         script_screen.mode.hz
                     );
