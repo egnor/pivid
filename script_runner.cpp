@@ -17,21 +17,29 @@ auto const& runner_logger() {
     return logger;
 }
 
-std::map<ScriptMode, DisplayMode> make_mode_map() {
-    std::map<ScriptMode, DisplayMode> modes;
-    for (auto const& mode : vesa_dmt_modes) {
-        // Prefer modes with *higher* pixel clock, to select against
-        // Reduced Blanking modes. TODO: Maybe RB is good?
-        auto* slot = &modes[{mode.size, mode.nominal_hz}];
-        if (!slot->nominal_hz || slot->pixel_khz < mode.pixel_khz)
-            *slot = mode;
-    }
+int compare(DisplayMode const& a, DisplayMode const& b) {
+    if (bool(a.nominal_hz) != bool(b.nominal_hz))
+        return bool(a.nominal_hz) - bool(b.nominal_hz);  // Prefer defined!
+    if (a.doubling.y != b.doubling.y)
+        return a.doubling.y - b.doubling.y;  // Prefer NOT interlaced
+    return 0;  // Agnostic about other things
+}
 
-    // Prefer CTA modes (we use HDMI after all), so overlay them on top.
+std::map<ScriptMode, DisplayMode> make_mode_map() {
+    // Start with CTA modes (we use HDMI after all)
+    std::map<ScriptMode, DisplayMode> modes;
     for (auto const& mode : cta_861_modes) {
         auto* slot = &modes[{mode.size, mode.nominal_hz}];
-        *slot = mode;
-        slot->aspect = {};  // Ignore various aspect ratio variants 
+        if (compare(mode, *slot) > 0) {
+            *slot = mode;
+            slot->aspect = {};  // Ignore aspect ratio variants 
+        }
+    }
+
+    // Merge in DMT where there's a gap or it's a better mode
+    for (auto const& mode : vesa_dmt_modes) {
+        auto* slot = &modes[{mode.size, mode.nominal_hz}];
+        if (compare(mode, *slot) > 0) *slot = mode;
     }
 
     return modes;
