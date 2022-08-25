@@ -750,9 +750,9 @@ class DisplayDriverDef : public DisplayDriver {
             .user_data = update_sequence++,
         };
 
-        TRACE(logger, "  {} u{} committing...", conn->name, atomic.user_data);
+        DEBUG(logger, "  {} u{} committing...", conn->name, atomic.user_data);
         fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic).ex("DRM atomic update");
-        DEBUG(logger, "  {} u{} committed!", conn->name, atomic.user_data);
+        TRACE(logger, "  {} u{} committed!", conn->name, atomic.user_data);
 
         std::unique_ptr<FileDescriptor> writeback_fence;
         if (writeback_fd >= 0) writeback_fence = sys->adopt(writeback_fd);

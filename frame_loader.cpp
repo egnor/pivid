@@ -37,14 +37,16 @@ class FrameLoaderDef : public FrameLoader {
     virtual void set_request(FrameRequest request) final {
         std::unique_lock lock{mutex};
         if (request.wanted == req.wanted) {
-            TRACE(logger, "REQ (same): {}", short_filename(cx.filename));
+            TRACE(logger, "REQ {} (same)", short_filename(cx.filename));
             req = std::move(request);  // Capture options, skip notify
             return;
         }
 
         req = std::move(request);
-        DEBUG(logger, "REQ {}", short_filename(cx.filename));
-        DEBUG(logger, "  [req] want {}", debug(req.wanted));
+        DEBUG(
+            logger, "REQ {} {}",
+            short_filename(cx.filename), debug(req.wanted)
+        );
         TRACE(
             logger, "  [req] idle={:.3f}s scan={:.3f}s",
             req.decoder_idle_time, req.seek_scan_time
@@ -140,8 +142,8 @@ class FrameLoaderDef : public FrameLoader {
         while (!shutdown) {
             auto const now = cx.sys->clock();
             DEBUG(
-                logger, "LOAD {}: {}",
-                abbrev_realtime(now), short_filename(cx.filename)
+                logger, "LOAD {} want={}",
+                short_filename(cx.filename), debug(req.wanted)
             );
 
             auto to_load = req.wanted;
@@ -150,11 +152,10 @@ class FrameLoaderDef : public FrameLoader {
             if (loaded.eof) to_load.erase({*loaded.eof, to_load.bounds().end});
 
             TRACE(
-                logger, "  have {} ({}fr)",
+                logger, "  have={} ({}fr)",
                 debug(loaded.coverage), loaded.frames.size()
             );
-            TRACE(logger, "  want {}", debug(req.wanted));
-            TRACE(logger, "  load {}", debug(to_load));
+            TRACE(logger, "  load={}", debug(to_load));
 
             //
             // Assign decoders to regions of the media to load
@@ -242,7 +243,8 @@ class FrameLoaderDef : public FrameLoader {
             // If there's no work, wait for a change in input.
             if (assigned.empty()) {
                 DEBUG(
-                    logger, "  waiting with {} ({}fr)",
+                    logger, "  WAIT {} have={} ({}fr)",
+                    short_filename(cx.filename),
                     debug(loaded.coverage), loaded.frames.size()
                 );
                 lock.unlock();
@@ -256,7 +258,7 @@ class FrameLoaderDef : public FrameLoader {
                 auto node = assigned.extract(assigned.begin());
                 auto const& load = node.mapped().assignment;
                 if (!req.wanted.contains(load.begin)) {
-                    TRACE(logger, "  obsolete load {}", debug(load));
+                    TRACE(logger, "  obsolete load={}", debug(load));
                     continue;
                 }
 
@@ -355,8 +357,9 @@ class FrameLoaderDef : public FrameLoader {
             }
 
             DEBUG(
-                logger, "  looping with {} ({}fr, {}ch)",
-                debug(loaded.coverage), loaded.frames.size(), changes
+                logger, "  LOOP {} Δ{} have={} ({}fr)",
+                short_filename(cx.filename), changes,
+                debug(loaded.coverage), loaded.frames.size()
             );
             if (changes && req.notify) req.notify->set();
         }
