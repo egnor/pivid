@@ -321,7 +321,10 @@ class FrameLoaderDef : public FrameLoader {
                         TRACE(logger, "  EOF {:.3f}s >= {}", eof, *loaded.eof);
                     }
                 } else {
-                    DEBUG(logger, "  d@{:.3f}: {}", node.key(), debug(*frame));
+                    DEBUG(
+                        logger, "  d@{:.3f}: {}",
+                        node.key(), debug(*frame, image.get())
+                    );
                     double const backtrack = node.key() - frame->time.begin;
                     if (backtrack > node.mapped().backtrack) {
                         node.mapped().backtrack = backtrack;

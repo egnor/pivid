@@ -699,11 +699,11 @@ std::string debug(MediaFileInfo const& i) {
     return out;
 }
 
-std::string debug(MediaFrame const& f) {
+std::string debug(MediaFrame const& f, LoadedImage const* image) {
     auto out = debug(f.time);
     if (!f.frame_type.empty())
         out += fmt::format(" {:<2s}", f.frame_type);
-    out += fmt::format(" {}", debug(f.image));
+    out += fmt::format(" {}", image ? debug(*image) : debug(f.image));
     if (f.is_key_frame) out += fmt::format(" KEY");
     if (f.is_corrupt) out += fmt::format(" CORRUPT");
     return out;

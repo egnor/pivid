@@ -77,7 +77,6 @@ std::string debug(ImageBuffer const& i) {
     if (!i.channels.empty() && i.channels[0].memory->pool_low())
         out += fmt::format(" [low]");
 
-    if (i.channels.empty()) out += " [no data]";
     if (!i.source_comment.empty())
         out += fmt::format(" \"{}\"", i.source_comment);
 

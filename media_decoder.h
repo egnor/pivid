@@ -61,7 +61,7 @@ std::unique_ptr<MediaDecoder> open_media_decoder(std::string const& filename);
 std::vector<uint8_t> debug_tiff(ImageBuffer const&);
 
 // Debugging descriptions of structures.
-std::string debug(MediaFrame const&);
+std::string debug(MediaFrame const&, LoadedImage const* = nullptr);
 std::string debug(MediaFileInfo const&);
 std::string short_filename(std::string const&);
 

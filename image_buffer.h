@@ -44,7 +44,7 @@ struct ImageBuffer {
     };
 
     uint32_t fourcc = 0;    // Image pixel layout, like fourcc("RGBA")
-    uint64_t modifier = 0;  // Modifier to image pixel layout
+    uint64_t modifier = 0;  // Format modifier, per Linux DRM/KMS (see above)
     XY<int> size = {};      // The pixel size of the image
     std::vector<Channel> channels;  // Channel count depends on the format
     std::string source_comment;     // Debugging text about the image origin
