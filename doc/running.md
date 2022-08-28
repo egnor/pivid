@@ -4,7 +4,8 @@ It's currently best to build Pivid from source.
 Please [open an issue](https://github.com/egnor/pivid/issues) if these
 instructions don't work!
 
-With a Raspberry Pi OS Lite installation, SD card size needs to be at least 16GB, otherwise the installation will fail.
+With a Raspberry Pi OS Lite installation, SD card size needs to be at least 16GB,
+otherwise the installation will fail.
 
 1. Use a Raspberry Pi (4B recommended) with a fully updated
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
@@ -13,10 +14,11 @@ install and 2G+ RAM.
 2. Install some basic tools:
 `sudo apt update && sudo apt install python3-venv git-lfs`
 
-3. Clone [this repository](https://github.com/egnor/pivid)
-and `cd` to the repository root.
+3. Clone [this repository](https://github.com/egnor/pivid).
+Make sure you install [`git-lfs`](https://git-lfs.github.com/) first, or
+you'll get placeholders instead of media files!
 
-4. Run `./dev_setup.py`.
+4. Change (`cd`) to the repository root and run `./dev_setup.py`.
 
 5. [Hook direnv into your shell](https://direnv.net/docs/hook.html).
 
