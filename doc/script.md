@@ -54,8 +54,8 @@ content you might use in upcoming scripts (see the
           ],
                 
           "to_size": [
-            ⏱️ «screen region width (default=screen width)»,
-            ⏱️ «screen region height (default=screen height)»
+            ⏱️ «screen region width (default=media width)»,
+            ⏱️ «screen region height (default=media height)»
           ],
                 
           "opacity": ⏱️ «alpha value (default=1.0)» 
