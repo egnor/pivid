@@ -632,11 +632,15 @@ class DisplayDriverDef : public DisplayDriver {
                 props[crtc->id][&crtc->ACTIVE] = 1;
             }
 
+            int first_plane = true;
             auto plane_iter = crtc->usable_planes.begin();
-            for (size_t li = 0; li < frame.layers.size(); ++li) {
+            for (auto const& layer : frame.layers) {
+                // Don't send invisible layers to the compositor
+                // TODO: Also detect layers positioned fully off-screen?
+                if (!layer.to_size || layer.opacity <= 0) continue;
+
                 // Find an appropriate plane (Primary=1, Overlay=0)
-                auto const& layer = frame.layers[li];
-                uint64_t const wanted_type = li ? 0 : 1;
+                uint64_t const wanted_type = first_plane ? 1 : 0;
                 for (;; ++plane_iter) {
                     CHECK_RUNTIME(
                         plane_iter != crtc->usable_planes.end(),
@@ -645,12 +649,12 @@ class DisplayDriverDef : public DisplayDriver {
 
                     auto const* plane = (*plane_iter);
                     auto const type = plane->type.init_value;
-                    auto const* used = plane->used_by_crtc;
-                    if (type == wanted_type && (used == crtc || !used))
+                    auto const* used_by = plane->used_by_crtc;
+                    if (type == wanted_type && (used_by == crtc || !used_by))
                         break;
 
                     // Disable any plane no longer used by this CRTC
-                    if (used == crtc) {
+                    if (used_by == crtc) {
                         DEBUG(logger, "  pl{}: disable (skipped)", plane->id);
                         auto* plane_props = &props[plane->id];
                         (*plane_props)[&plane->CRTC_ID] = 0;
@@ -658,6 +662,7 @@ class DisplayDriverDef : public DisplayDriver {
                     }
                 }
 
+                first_plane = false;
                 auto* plane = *plane_iter++;
                 int const fb_id = layer.image->drm_id();
                 next.using_planes.push_back(plane);
@@ -841,6 +846,9 @@ class DisplayDriverDef : public DisplayDriver {
         // These calculations are all RPi 4B specific. TODO: Generalize?
         DisplayCost out = {};
         for (auto const& layer : frame.layers) {
+            // Skip invisible frames (matching logic to skip them in update())
+            if (!layer.to_size || layer.opacity <= 0) continue;
+
             auto const& image = layer.image->content();
             auto const image_pix = image.size.x * image.size.y;
             if (image_pix <= 0) continue;
