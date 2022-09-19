@@ -32,7 +32,8 @@ struct DisplayLayer {
     XY<double> from_xy = {}, from_size = {};
     XY<int> to_xy = {}, to_size = {};
     double opacity = 1.0;
-    // TODO: rotation?
+    bool reflect = false;  // Horizontal reflection applied before any rotation
+    int rotate = 0;        // Clockwise rotation: 0, 90, 180, 270
 };
 
 // A complete description of what to show on screen

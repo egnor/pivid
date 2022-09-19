@@ -89,11 +89,11 @@ void print_properties(std::unique_ptr<FileDescriptor> const& fd, uint32_t id) {
         } while (size_vec(&meta.enum_blob_ptr, &meta.count_enum_blobs, &enums));
 
         std::string const name = meta.name;
-        fmt::print("      prop #{:<3} ", prop_ids[pi]);
+        fmt::print("      #{:<3} {} ", prop_ids[pi], name);
         if (meta.flags & DRM_MODE_PROP_IMMUTABLE) fmt::print("[ro] ");
         if (meta.flags & DRM_MODE_PROP_ATOMIC) fmt::print("[atomic] ");
         if (meta.flags & DRM_MODE_PROP_OBJECT) fmt::print("[obj] ");
-        fmt::print("{} =", name);
+        fmt::print("=");
 
         auto const print_fourccs = [](uint8_t const* data, int count) {
             for (int fi = 0; fi < count; ++fi) {

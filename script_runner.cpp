@@ -220,7 +220,8 @@ class ScriptRunnerDef : public ScriptRunner {
                         );
 
                         t_frame.warnings.push_back(fmt::format(
-                            "outran buffer @{:.3f}s \"{}\"", *media_t, file
+                            "Outran buffer (USING BLACK FRAME) @{:.3f}s \"{}\"",
+                            *media_t, file
                         ));
                         continue;
                     }
@@ -251,6 +252,8 @@ class ScriptRunnerDef : public ScriptRunner {
                     layer->to_size.x = bez(script_layer.to_size.x, size.x);
                     layer->to_size.y = bez(script_layer.to_size.y, size.y);
                     layer->opacity = bez(script_layer.opacity, 1);
+                    layer->reflect = script_layer.reflect;
+                    layer->rotate = script_layer.rotate;
                     TRACE(
                         logger, "      {:+.3f}s m{:.3f} f{:.3f} {}",
                         t - now, *media_t, frame_t, debug(*layer)

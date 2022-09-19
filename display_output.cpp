@@ -536,7 +536,7 @@ class DisplayDriverDef : public DisplayDriver {
             cost.line_buffer_memory >= 1.0
         ) {
             logger->warn(
-                "OVERLOAD {} {}l mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
+                "Predicted overload {} {}l mbw={:.0f}% cbw={:.0f}% lbm={:.0f}%",
                 conn->name, frame.layers.size(), cost.memory_bandwidth * 100,
                 cost.compositor_bandwidth * 100, cost.line_buffer_memory * 100
             );
@@ -687,6 +687,24 @@ class DisplayDriverDef : public DisplayDriver {
                 } else {
                     CHECK_RUNTIME(layer.opacity >= 1.0, "Alpha unsupported");
                 }
+
+                if (plane->rotation.prop_id) {
+                    int rotation = 0;
+                    if (layer.reflect) rotation |= DRM_MODE_REFLECT_X;
+                    switch (layer.rotate) {
+                        case 0: rotation |= DRM_MODE_ROTATE_0; break;
+                        case 90: rotation |= DRM_MODE_ROTATE_270; break;
+                        case 180: rotation |= DRM_MODE_ROTATE_180; break;
+                        case 270: rotation |= DRM_MODE_ROTATE_90; break;
+                        default:
+                            CHECK_RUNTIME(0, "Bad rotation {}", layer.rotate);
+                            break;
+                    }
+                    (*plane_props)[&plane->rotation] = rotation;
+                } else {
+                    CHECK_RUNTIME(layer.rotate == 0, "Rotation unsupported");
+                    CHECK_RUNTIME(!layer.reflect, "Reflection unsupported");
+                }
             }
 
             // Disable any other planes no longer used by this CRTC
@@ -756,8 +774,11 @@ class DisplayDriverDef : public DisplayDriver {
         };
 
         DEBUG(logger, "  {} u{} committing...", conn->name, atomic.user_data);
-        fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic).ex("DRM atomic update");
-        TRACE(logger, "  {} u{} committed!", conn->name, atomic.user_data);
+        auto const result = fd->ioc<DRM_IOCTL_MODE_ATOMIC>(&atomic);
+        TRACE(
+            logger, "  {} u{} commit done (err={})",
+            conn->name, atomic.user_data, result.err
+        );
 
         std::unique_ptr<FileDescriptor> writeback_fence;
         if (writeback_fd >= 0) writeback_fence = sys->adopt(writeback_fd);
@@ -767,9 +788,14 @@ class DisplayDriverDef : public DisplayDriver {
         //
 
         lock.lock();
-
         ASSERT(conn->using_crtc == crtc);
         ASSERT(crtc->used_by_conn == conn);
+
+        // If update failed, clear the pending flip value.
+        if (result.err) {
+            crtc->pending_flip.reset();
+            result.check("DRM atomic update");  // Throws an exception
+        }
 
         // Read and store events until we've seen one for this CRTC
         while (!crtc->vblank_event) {
@@ -1306,6 +1332,10 @@ std::string debug(DisplayLayer const& l) {
         out += fmt::format("+{}x{}", l.to_size.x, l.to_size.y);
     if (l.opacity < 1.0)
         out += fmt::format(" a{:.2f}", l.opacity);
+    if (l.reflect)
+        out += " <>";
+    if (l.rotate != 0)
+        out += fmt::format(" {}°", l.rotate);
     return out;
 }
 

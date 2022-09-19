@@ -187,6 +187,8 @@ static void from_json(json const& j, ScriptLayer& layer) {
     j.value("to_xy", json()).get_to(layer.to_xy);
     j.value("to_size", json()).get_to(layer.to_size);
     j.value("opacity", json()).get_to(layer.opacity);
+    j.value("reflect", json(false)).get_to(layer.reflect);
+    j.value("rotate", json(0)).get_to(layer.rotate);
 }
 
 static void from_json(json const& j, ScriptScreen& screen) {

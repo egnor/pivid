@@ -43,6 +43,8 @@ struct ScriptLayer {
     XY<BezierSpline> from_xy, from_size;
     XY<BezierSpline> to_xy, to_size;
     BezierSpline opacity;
+    bool reflect;
+    int rotate;
 };
 
 // Description of what to render on a particular screen.

@@ -122,13 +122,13 @@ class FramePlayerDef : public FramePlayer {
             for (auto s = timeline.upper_bound(shown); s != show; ++s) {
                 if (!s->second.layers.empty()) {
                     logger->warn(
-                        "s{} Skip {}l {} ({:.3f}s old)",
+                        "s{} SKIPPING FRAME {}l {} ({:.3f}s old)",
                         screen_id, s->second.layers.size(),
                         abbrev_realtime(s->first), now - s->first
                     );
                 } else {
                     TRACE(
-                        logger, "s{} Skip *empty* {} ({:.3f}s old)",
+                        logger, "s{} skip *empty* {} ({:.3f}s old)",
                         screen_id, abbrev_realtime(s->first), now - s->first
                     );
                 }

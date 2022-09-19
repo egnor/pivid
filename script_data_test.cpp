@@ -40,7 +40,9 @@ TEST_CASE("from_json") {
                   {"t": [5, 10], "v": [1.0, 0.0]}
                 ],
                 "repeat": true
-              }
+              },
+              "reflect": true,
+              "rotate": 90
             }
           ]
         }
@@ -128,6 +130,8 @@ TEST_CASE("from_json") {
     CHECK(screen.layers[0].play.segments[0].begin_v == 0);
     CHECK(screen.layers[0].play.segments[0].end_v == 0);
     CHECK(screen.layers[0].buffer == 0.2);
+    CHECK(!screen.layers[0].reflect);
+    CHECK(screen.layers[0].rotate == 0);
 
     CHECK(screen.layers[1].media == "full_layer");
     REQUIRE(screen.layers[1].play.segments.size() == 1);
@@ -158,6 +162,8 @@ TEST_CASE("from_json") {
     CHECK(screen.layers[1].from_size.x.segments[0].begin_v == 300);
     CHECK(screen.layers[1].to_xy.x.segments[0].begin_v == 500);
     CHECK(screen.layers[1].to_size.x.segments[0].begin_v == 700);
+    CHECK(screen.layers[1].reflect);
+    CHECK(screen.layers[1].rotate == 90);
 
     REQUIRE(screen.layers[1].opacity.segments.size() == 2);
     CHECK(screen.layers[1].opacity.repeat == 10.0);

@@ -58,7 +58,9 @@ content you might use in upcoming scripts (see the
             ⏱️ «screen region height (default=media height)»
           ],
                 
-          "opacity": ⏱️ «alpha value (default=1.0)» 
+          "opacity": ⏱️ «alpha value (default=1.0)» ,
+          "reflect": «true to swap left/right before rotation (default=false)»,
+          "rotate": «0, 90, 180, or 270 clockwise degrees (default=0)»
         }, ···
       ]
     }, ···
