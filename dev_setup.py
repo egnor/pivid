@@ -39,7 +39,8 @@ if not venv_dir.is_dir():
     venv.create(venv_dir, symlinks=True, with_pip=True)
     check_call(["direnv", "allow", source_dir])
 
-python_packages = ["conan", "meson", "ninja", "requests"]
+# docutils is required by rst2man.py in the libdrm build??
+python_packages = ["conan", "docutils", "meson", "ninja", "requests"]
 if not all(
     any(venv_dir.glob(f"lib/python*/site-packages/{p}-*.dist-info"))
     for p in python_packages
