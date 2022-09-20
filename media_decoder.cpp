@@ -541,7 +541,9 @@ class MediaDecoderDef : public MediaDecoder {
                 "Setting codec parameters", try_codec->name
             );
 
-            codec_context->thread_count = 4;
+            // We used to set codec_context->thread_count = 4, *but* with the
+            // default thread_type = FF_THREAD_FRAME that drops frames,
+            // and in any case is actually slower.
             codec_context->get_format = pixel_format_callback;
             open_err = avcodec_open2(codec_context, try_codec, nullptr);
             if (open_err >= 0) break;
