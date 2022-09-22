@@ -4,12 +4,9 @@ It's currently best to build Pivid from source.
 Please [open an issue](https://github.com/egnor/pivid/issues) if these
 instructions don't work!
 
-With a Raspberry Pi OS Lite installation, SD card size needs to be at least 16GB,
-otherwise the installation will fail.
-
 1. Use a Raspberry Pi (4B recommended) with a fully updated
 [bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
-install and 2G+ RAM.
+install, 2G+ RAM, and 10G+ free space on the SD card.
 
 2. Install some basic tools:
 `sudo apt update && sudo apt install python3-venv git-lfs`
