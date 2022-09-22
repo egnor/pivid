@@ -20,7 +20,7 @@ you'll get placeholders instead of media files!
 5. [Hook direnv into your shell](https://direnv.net/docs/hook.html).
 
 6. Run `ninja -C build` to build Pivid. (Add `-j2` to limit build parallelism
-if you only have 2GB.)
+if you only have 2GB RAM.)
 
 7. Binaries (eg. `pivid_server`) are created in `build/`.
 They are statically linked and may be copied elsewhere if desired.
