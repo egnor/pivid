@@ -62,16 +62,14 @@ std::string debug(ImageBuffer const& i) {
     for (size_t c = 0; c < i.channels.size(); ++c) {
         auto const& chan = i.channels[c];
         if (c == 0) {
-            out += " " + debug(*chan.memory) + ":";
-        } else if (chan.memory == i.channels[c - 1].memory) {
-            out += ",";
-        } else {
-            out += "|" + debug(*chan.memory) + ":";
+            out += " " + debug(*chan.memory);
+        } else if (chan.memory != i.channels[c - 1].memory) {
+            out += "|" + debug(*chan.memory);
         }
 
-        out += fmt::format(
-            "{}/{}", debug_size(chan.stride), debug_size(chan.size)
-        );
+        if (chan.size != chan.memory->size())
+            out += fmt::format(":{}", debug_size(chan.size));
+        out += fmt::format("/{}", debug_size(chan.stride));
     }
 
     if (!i.channels.empty() && i.channels[0].memory->pool_low())

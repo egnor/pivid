@@ -82,7 +82,7 @@ void inspect_media(AVFormatContext* const avc) {
     while ((entry = av_dict_get(
         avc->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
     ))) {
-        fmt::print("    {}: {}\n", entry->key, entry->value);
+        fmt::print("  {}: {}\n", entry->key, entry->value);
     }
     fmt::print("\n");
 
@@ -91,7 +91,7 @@ void inspect_media(AVFormatContext* const avc) {
         auto const* stream = avc->streams[si];
         double const time_base = av_q2d(stream->time_base);
 
-        fmt::print("    S{}", stream->id);
+        fmt::print("  S{}", stream->id);
         if (stream->start_time > 0)
             fmt::print(" {:.3f} +", stream->start_time * time_base);
         if (stream->duration > 0)
@@ -160,7 +160,7 @@ void inspect_media(AVFormatContext* const avc) {
         while ((entry = av_dict_get(
             stream->metadata, "", entry, AV_DICT_IGNORE_SUFFIX
         ))) {
-            fmt::print("        {}: {}\n", entry->key, entry->value);
+            fmt::print("    {}: {}\n", entry->key, entry->value);
         }
     }
     fmt::print("\n");
