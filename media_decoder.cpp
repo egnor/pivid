@@ -135,6 +135,7 @@ class LibavDrmBuffer : public MemoryBuffer {
     ~LibavDrmBuffer() { if (map) munmap(map, av_obj->size); }
     virtual int size() const final { return av_obj->size; }
     virtual int dma_fd() const final { return av_obj->fd; }
+    virtual bool pool_low() const final { return counter->low(); }
 
     virtual uint8_t const* read() final {
         std::scoped_lock const lock{map_mutex};
@@ -148,8 +149,6 @@ class LibavDrmBuffer : public MemoryBuffer {
         }
         return (uint8_t const*) map;
     }
-
-    virtual bool pool_low() const final { return counter->low(); }
 
     void init(
         std::shared_ptr<AVDRMObjectDescriptor const> av_obj,
@@ -171,9 +170,7 @@ class LibavDrmBuffer : public MemoryBuffer {
 class LibavPlainBuffer : public MemoryBuffer {
   public:
     virtual int size() const final { return data_size; }
-
     virtual uint8_t const* read() final { return data.get(); }
-
     virtual bool pool_low() const final { return counter->low(); }
 
     void init(
@@ -417,7 +414,7 @@ class MediaDecoderDef : public MediaDecoder {
                 } else {
                     check_av(err, "Receiving frame from codec", codec_name);
                     TRACE(
-                        logger, "  Frame from codec: bets={} pts={} dts={}",
+                        logger, "  From codec: bets={} pts={} dts={}",
                         av_frame->best_effort_timestamp,
                         av_frame->pts, av_frame->pkt_dts
                     );
@@ -433,7 +430,7 @@ class MediaDecoderDef : public MediaDecoder {
                     check_av(err, "Reading file", media_info.filename);
                     if (av_packet->stream_index == stream_index) {
                         TRACE(
-                            logger, "  Packet from file: {} p={} d={} dur={}",
+                            logger, "  From file: {} p={} d={} dur={}",
                             debug_size(av_packet->size),
                             av_packet->pts, av_packet->dts, av_packet->duration
                         );
@@ -455,7 +452,7 @@ class MediaDecoderDef : public MediaDecoder {
                 } else {
                     check_av(err, "Sending packet to codec", codec_name);
                     TRACE(
-                        logger, "  Packet to codec:  {} p={} d={} dur={}",
+                        logger, "  To codec:  {} p={} d={} dur={}",
                         debug_size(av_packet->size),
                         av_packet->pts, av_packet->dts, av_packet->duration
                     );
@@ -466,6 +463,7 @@ class MediaDecoderDef : public MediaDecoder {
 
             if (eof_seen_from_file && !eof_sent_to_codec) {
                 ASSERT(av_packet->data == nullptr);
+                ASSERT(av_packet->size == 0);
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
                     TRACE(logger, "  (app-to-codec full, can't send EOF)");
