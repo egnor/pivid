@@ -414,7 +414,7 @@ class MediaDecoderDef : public MediaDecoder {
                 } else {
                     check_av(err, "Receiving frame from codec", codec_name);
                     TRACE(
-                        logger, "  From codec: bets={} pts={} dts={}",
+                        logger, "  Got frame: bets={} pts={} dts={}",
                         av_frame->best_effort_timestamp,
                         av_frame->pts, av_frame->pkt_dts
                     );
@@ -430,7 +430,7 @@ class MediaDecoderDef : public MediaDecoder {
                     check_av(err, "Reading file", media_info.filename);
                     if (av_packet->stream_index == stream_index) {
                         TRACE(
-                            logger, "  From file: {} p={} d={} dur={}",
+                            logger, "  Read packet: {} p={} d={} dur={}",
                             debug_size(av_packet->size),
                             av_packet->pts, av_packet->dts, av_packet->duration
                         );
@@ -446,13 +446,14 @@ class MediaDecoderDef : public MediaDecoder {
             }
 
             if (av_packet->data) {
+                ASSERT(!eof_seen_from_file);
                 auto const err = avcodec_send_packet(codec_context, av_packet);
                 if (err == AVERROR(EAGAIN)) {
                     TRACE(logger, "  (app-to-codec full, can't send data)");
                 } else {
                     check_av(err, "Sending packet to codec", codec_name);
                     TRACE(
-                        logger, "  To codec:  {} p={} d={} dur={}",
+                        logger, "  Sent packet: {} p={} d={} dur={}",
                         debug_size(av_packet->size),
                         av_packet->pts, av_packet->dts, av_packet->duration
                     );
@@ -461,7 +462,9 @@ class MediaDecoderDef : public MediaDecoder {
                 }
             }
 
-            if (eof_seen_from_file && !eof_sent_to_codec) {
+            // Only send EOF to codec after draining frames, to avoid stomping
+            // queued packets (https://github.com/egnor/pivid/issues/12)
+            if (eof_seen_from_file && !eof_sent_to_codec && !av_frame->width) {
                 ASSERT(av_packet->data == nullptr);
                 ASSERT(av_packet->size == 0);
                 auto const err = avcodec_send_packet(codec_context, av_packet);
@@ -479,7 +482,7 @@ class MediaDecoderDef : public MediaDecoder {
 
             // Stop when we got a frame *and* the codec won't accept writes
             // (always leave the codec with data to chew on if possible).
-        } while (!(av_frame->width && (av_packet->data || eof_sent_to_codec)));
+        } while (!(av_frame->width && (av_packet->data || eof_seen_from_file)));
 
         auto const& count = this->counter;
         std::shared_ptr<AVFrame> av_shared{
