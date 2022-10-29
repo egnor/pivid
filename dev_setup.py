@@ -49,46 +49,40 @@ if not all(
 
 print()
 print(f"=== C++ package manager (conan init) ===")
-run_conan = lambda *av: check_call(["direnv", "exec", source_dir, "conan", *av])
-conan_profile = build_dir / "conan-profile.txt"
-conan_install = build_dir / "conan-install"
+
+def run_conan(*av, **kw):
+    check_call(["direnv", "exec", source_dir, "conan", *av], **kw)
 
 run_conan("config", "init")
 run_conan("config", "set", "general.revisions_enabled=1")
-if not conan_profile.is_file():
-    run_conan("profile", "new", "--detect", "--force", conan_profile)
-    run_conan(
-        "profile", "update", "settings.compiler.libcxx=libstdc++11",
-        conan_profile
-    )
+run_conan(
+    "profile", "update", "settings.compiler.libcxx=libstdc++11", "default"
+)
 
-for dir, ref in [
-    ("ffmpeg_rpi_recipe", "ffmpeg/4.3+rpi@pivid/specific"),
-]:
-    print()
-    print(f"=== {ref} recipe (conan export) ===")
-    run_conan("export", source_dir / dir, ref)
+print()
+print(f"=== ffmpeg recipe (conan export) ===")
+run_conan(
+    "export", source_dir / "ffmpeg_rpi_recipe", "ffmpeg/4.3+rpi@pivid/specific"
+)
 
 print()
 print(f"=== C++ dependencies (conan install) ===")
 run_conan(
     "install",
-    f"--profile={conan_profile}",
     # "--settings=build_type=Debug",  # Uncomment & re-run to build debug
     "--settings=ffmpeg:build_type=Release",  # ffmpeg ARM won't build Debug
-    f"--install-folder={conan_install}",
-    "--build=outdated",
-    source_dir
+    "--build=outdated",  # Allow source builds for all packages
+    source_dir,
+    cwd=build_dir,
 )
 
 print()
 print(f"=== Prepare build (meson/ninja via conan) ===")
 run_conan(
     "build",
-    f"--build-folder={build_dir}",
-    f"--install-folder={conan_install}",
     "--configure",  # Only configure, not build (yet)
-    source_dir
+    source_dir,
+    cwd=build_dir,
 )
 
 # Save this to the end, to preserve conan cache for debugging if things fail

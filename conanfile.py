@@ -10,6 +10,7 @@ class PividConan(conans.ConanFile):
     generators = "pkg_config"  # Used by the Meson build helper (below)
     options = {"shared": [True, False]}
     default_options = {"shared": False}  # Used by Meson build helper
+    build_policy = "outdated"
 
     requires = [
         "cli11/2.1.1", "cpp-httplib/0.10.1",
