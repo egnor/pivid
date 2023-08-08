@@ -26,6 +26,16 @@ if not all(p in installed for p in apt_packages):
     check_call(["sudo", "apt", "update"])
     check_call(["sudo", "apt", "install"] + apt_packages)
 
+# Unify all pkg-config paths, to avoid issues with separate brew installs, etc.
+pkg_path = {}
+for p in os.environ["PATH"].split(":"):
+    if (pkg_config := Path(p) / "pkg-config").is_file():
+        pkg_command = [pkg_config, "--variable", "pc_path", "pkg-config"]
+        pkg_output = check_output(pkg_command).decode().strip()
+        pkg_path.update({pp: p for pp in pkg_output.split(":")})
+
+os.environ["PKG_CONFIG_PATH"] = ":".join(pkg_path.keys())
+
 print()
 print(f"=== Build dir ({build_dir}) ===")
 build_dir.mkdir(exist_ok=True)
@@ -40,12 +50,8 @@ if not venv_dir.is_dir():
     check_call(["direnv", "allow", source_dir])
 
 # docutils is required by rst2man.py in the libdrm build??
-python_packages = ["conan", "docutils", "meson", "ninja", "requests"]
-if not all(
-    any(venv_dir.glob(f"lib/python*/site-packages/{p}-*.dist-info"))
-    for p in python_packages
-):
-    check_call([venv_bin / "pip", "install"] + python_packages)
+python_packages = ["conan~=1.60.2", "docutils", "meson", "ninja", "requests"]
+check_call([venv_bin / "pip", "install"] + python_packages)
 
 print()
 print(f"=== C++ package manager (conan init) ===")
