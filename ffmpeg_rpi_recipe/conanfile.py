@@ -272,7 +272,7 @@ class FFMpegConan(ConanFile):
         # Added for pivid --egnor
         if self.options.for_pivid:
             self.requires("libdrm/[>=2.4.114 <3]")
-            # self.requires("libjpeg/9e")
+            self.requires("libjpeg/9e")  # dep of libv4l2
 
         if self.options.with_zlib:
             self.requires("zlib/[>=1.2.11 <2]")
