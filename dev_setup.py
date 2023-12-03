@@ -43,7 +43,7 @@ if all(p in installed for p in apt_packages):
     print("✨ (needed apt packages already installed)")
 else:
     run_shell("sudo", "apt", "update")
-    run_shell("sudo", "apt", "install", *apt_packages)
+    run_shell("sudo", "apt", "install", "--assume-yes", *apt_packages)
 
 # Unify all pkg-config paths, to avoid issues with separate brew installs, etc.
 pkg_path = {}
