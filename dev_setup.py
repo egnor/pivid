@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 
+import argparse
 import os
+import shlex
+import shutil
 import venv
 from pathlib import Path
 from subprocess import check_call, check_output
@@ -11,10 +14,17 @@ from subprocess import check_call, check_output
 # - Use pip in venv (pypi.org) for Python dependencies (like conan, meson, etc)
 # - Reluctantly use system packages (apt) for things not covered above
 
+parser = argparse.ArgumentParser(description="Pivid dev environment setup")
+parser.add_argument("--clean", action="store_true", help="Wipe build dir first")
+parser.add_argument("--no-conan", action="store_true", help="Skip conan setup")
+parser.add_argument("--debug", action="store_true", help="Debug build for deps")
+args = parser.parse_args()
+
 source_dir = Path(__file__).resolve().parent
 build_dir = source_dir / "build"
+conan_dir = build_dir / "conan"
 
-print("=== System packages (sudo apt install ...) ===")
+print("\n➡️ System packages (sudo apt install ...)")
 apt_packages = [
     # TODO: Make libudev and libv4l into Conan dependencies
     "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev",
@@ -36,13 +46,15 @@ for p in os.environ["PATH"].split(":"):
 
 os.environ["PKG_CONFIG_PATH"] = ":".join(pkg_path.keys())
 
-print()
-print(f"=== Build dir ({build_dir}) ===")
+print(f"\n➡️ Build dir ({build_dir})")
+if args.clean and build_dir.is_dir():
+    print("🗑️ ERASING build dir (per --clean)")
+    shutil.rmtree(build_dir)
+
 build_dir.mkdir(exist_ok=True)
 (build_dir / ".gitignore").open("w").write("/*\n")
 
-print()
-print(f"=== Python packages (pip install ...) ===")
+print(f"\n➡️ Python packages (pip install ...)")
 venv_dir = build_dir / "python_venv"
 venv_bin = venv_dir / "bin"
 if not venv_dir.is_dir():
@@ -50,51 +62,44 @@ if not venv_dir.is_dir():
     check_call(["direnv", "allow", source_dir])
 
 # docutils is required by rst2man.py in the libdrm build??
-python_packages = ["conan~=1.60.2", "docutils", "meson", "ninja", "requests"]
+python_packages = ["conan~=2.0", "docutils", "meson", "ninja", "requests"]
 check_call([venv_bin / "pip", "install"] + python_packages)
 
-print()
-print(f"=== C++ package manager (conan init) ===")
+print(f"\n➡️ Conan (C++ package manager) setup")
 
 def run_conan(*av, **kw):
-    check_call(["direnv", "exec", source_dir, "conan", *av], **kw)
+    command = f"conan {shlex.join(str(a) for a in av)}"
+    if args.no_conan:
+        print(f"🌵 SKIP: {command}")
+    else:
+        print(f"💪 {command}")
+        check_call(["direnv", "exec", source_dir, "conan", *av], **kw)
 
-run_conan("config", "init")
-run_conan("config", "set", "general.revisions_enabled=1")
+run_conan("profile", "detect", "--force")
+
+print(f"\n➡️ Install ffmpeg Conan recipe")
 run_conan(
-    "profile", "update", "settings.compiler.libcxx=libstdc++11", "default"
+    "export",
+    "--version=5.1.4+rpi",
+    "--user=pivid",
+    source_dir / "ffmpeg_rpi_recipe",
 )
 
-print()
-print(f"=== ffmpeg recipe (conan export) ===")
-run_conan(
-    "export", source_dir / "ffmpeg_rpi_recipe", "ffmpeg/4.3+rpi@pivid/specific"
-)
-
-print()
-print(f"=== C++ dependencies (conan install) ===")
+print(f"\n➡️ Build C++ dependencies")
+build_type = "Debug" if args.debug else "Release"
 run_conan(
     "install",
-    # "--settings=build_type=Debug",  # Uncomment & re-run to build debug
+    f"--settings=build_type={build_type}",
     "--settings=ffmpeg:build_type=Release",  # ffmpeg ARM won't build Debug
-    "--build=outdated",  # Allow source builds for all packages
+    "--build=missing",  # Allow source builds for all packages
     source_dir,
-    cwd=build_dir,
 )
 
-print()
-print(f"=== Prepare build (meson/ninja via conan) ===")
-run_conan(
-    "build",
-    "--configure",  # Only configure, not build (yet)
-    source_dir,
-    cwd=build_dir,
-)
+# Clean up cached packages that weren't used in this process
+print(f"\n➡️ Clean C++ package cache")
+run_conan("remove", "--lru=1d", "--confirm", "*")
 
-# Save this to the end, to preserve conan cache for debugging if things fail
-print()
-print(f"=== Clean C++ package cache (conan remove) ===")
-run_conan("remove", "--src", "--builds", "--force", "*")
-
-print()
-print(f"::: Setup complete, build with: ninja -C build :::")
+if args.no_conan:
+    print(f"\n☑️ Complete (without Conan, per --no-conan)")
+else:
+    print(f"\n😎 Setup complete, build with: ninja -C build")
