@@ -518,7 +518,7 @@ class MediaDecoderDef : public MediaDecoder {
             "Finding stream info", fn
         );
 
-        AVCodec* default_codec = nullptr;
+        AVCodec const* default_codec = nullptr;
         stream_index = check_av(
             av_find_best_stream(
                 format_context, AVMEDIA_TYPE_VIDEO, -1, -1, &default_codec, 0
@@ -528,7 +528,7 @@ class MediaDecoderDef : public MediaDecoder {
         if (default_codec == nullptr || stream_index < 0)
             check_av(AVERROR_DECODER_NOT_FOUND, "Finding video codec", fn);
 
-        AVCodec* preferred_codec = nullptr;
+        AVCodec const* preferred_codec = nullptr;
         if (default_codec->id == AV_CODEC_ID_H264)
             preferred_codec = avcodec_find_decoder_by_name("h264_v4l2m2m");
 

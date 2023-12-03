@@ -18,6 +18,7 @@ util_deps = [
     dependency('doctest'),
     dependency('CLI11'),
     dependency('fmt'),
+    dependency('nlohmann_json'),
     dependency('spdlog'),
     meson.get_compiler('cpp').find_library('atomic'),
     meson.get_compiler('cpp').find_library('stdc++fs'),
@@ -109,7 +110,7 @@ executable(
 executable(
     'pivid_server', 'pivid_server.cpp',
     link_with: [pivid_lib],
-    dependencies: [util_deps],
+    dependencies: [util_deps, dependency('cpp-httplib')],
 )
 
 pivid_test = executable(

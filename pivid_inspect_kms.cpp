@@ -1,7 +1,7 @@
 // Simple command line tool to list DRM/KMS resources.
 
 #include <drm/drm.h>
-#include <drm_fourcc.h>
+#include <drm/drm_fourcc.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>

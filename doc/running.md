@@ -5,11 +5,10 @@ Please [open an issue](https://github.com/egnor/pivid/issues) if these
 instructions don't work!
 
 1. Use a Raspberry Pi (4B recommended) with a fully updated
-[bullseye](https://www.raspberrypi.com/news/raspberry-pi-os-debian-bullseye/)
+[bookworm](https://www.raspberrypi.com/news/bookworm-the-new-version-of-raspberry-pi-os/)
 install, 2G+ RAM, and 10G+ free space on the SD card.
 
-2. Install some basic tools:
-`sudo apt update && sudo apt install python3-venv git-lfs`
+2. Install `git-lfs`: `sudo apt update && sudo apt install git-lfs`
 
 3. Clone [this repository](https://github.com/egnor/pivid).
 Make sure you install [`git-lfs`](https://git-lfs.github.com/) first, or
@@ -25,7 +24,7 @@ if you only have 2GB RAM.)
 7. Binaries (eg. `pivid_server`) are created in `build/`.
 They are statically linked and may be copied elsewhere if desired.
 
-8. To reset the build, `rm -rf build` and start over with `./dev_setup.py`.
+8. To reset the build, start over with `./dev_setup.py --clean`.
 
 # Running Pivid binaries
 

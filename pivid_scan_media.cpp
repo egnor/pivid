@@ -10,10 +10,6 @@
 #include <CLI/Formatter.hpp>
 #include <fmt/core.h>
 
-extern "C" {
-#include <libavutil/log.h>
-}
-
 #include "logging_policy.h"
 #include "media_decoder.h"
 

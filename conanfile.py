@@ -15,17 +15,16 @@ class PividConan(conan.ConanFile):
     build_policy = "outdated"
 
     requires = [
-        "cli11/2.1.1", "cpp-httplib/0.10.1",
-        "ffmpeg/5.1.4+rpi@pivid", "fmt/8.0.1",
-        "linux-headers-generic/[>=5.14.9]", "nlohmann_json/3.10.5",
-        "spdlog/1.9.2",
+        "cli11/2.3.2", "cpp-httplib/0.14.1",
+        "ffmpeg/5.1.4+rpi@pivid", "fmt/10.1.1",
+        "linux-headers-generic/[>=5.14.9]", "nlohmann_json/3.11.3",
+        "spdlog/1.12.0",
     ]
 
     test_requires = ["doctest/2.4.8"]
 
     def build(self):
         meson = conan.tools.meson.Meson(self)
-        meson.configure(reconfigure=True)
         meson.build()
 
     def configure(self):
@@ -49,6 +48,10 @@ class PividConan(conan.ConanFile):
             "udev", "valgrind", "vc4", "vmwgfx",
         ]:
             setattr(self.options["libdrm"], libdrm_disable, False)
+
+    def generate(self):
+        meson = conan.tools.meson.Meson(self)
+        meson.configure(reconfigure=True)
 
     def layout(self):
         self.folders.build = "build"

@@ -98,8 +98,6 @@ void inspect_media(AVFormatContext* const avc) {
             fmt::print(" {:.1f}s", stream->duration * time_base);
         if (stream->nb_frames > 0)
             fmt::print(" {}f", stream->nb_frames);
-        if (stream->nb_index_entries > 0)
-            fmt::print(" {}ix", stream->nb_index_entries);
         if (stream->avg_frame_rate.num > 0)
             fmt::print(" {:.3f}fps", av_q2d(stream->avg_frame_rate));
         for (uint32_t bit = 1; bit > 0; bit <<= 1) {
