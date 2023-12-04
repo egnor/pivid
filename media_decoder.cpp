@@ -644,7 +644,10 @@ std::vector<uint8_t> debug_tiff(ImageBuffer const& im) {
     if (format_iter == format_map.end()) {
         std::string text = "Bad pixel format for TIFF (";
         text += debug_fourcc(im.fourcc) + "), supported:";
-        for (auto const& ff : format_map) text += " " + debug_fourcc(ff.first);
+        for (auto const& ff : format_map) {
+            text += " ";
+            text += debug_fourcc(ff.first);
+        }
         throw std::invalid_argument(text);
     }
 

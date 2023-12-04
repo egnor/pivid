@@ -1176,7 +1176,7 @@ class DisplayDriverDef : public DisplayDriver {
 
     void lookup_required_prop_ids(uint32_t obj_id, PropId::Map* map) {
         lookup_prop_ids(obj_id, map);
-        for (auto const name_propid : *map) {
+        for (auto const& name_propid : *map) {
             CHECK_RUNTIME(
                 name_propid.second->prop_id,
                 "DRM object #{} missing property \"{}\"",

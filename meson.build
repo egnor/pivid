@@ -69,18 +69,18 @@ executable(
 executable(
     'pivid_inspect_kms', 'pivid_inspect_kms.cpp',
     link_with: [pivid_lib],
-    dependencies: [util_deps],
+    dependencies: [util_deps, linux_dep],
 )
 
 executable(
     'pivid_inspect_kmsg', 'pivid_inspect_kmsg.cpp',
     link_with: [pivid_lib],
-    dependencies: [util_deps],
+    dependencies: [util_deps, linux_dep],
 )
 
 executable(
     'pivid_inspect_v4l2', 'pivid_inspect_v4l2.cpp',
-    dependencies: [util_deps],
+    dependencies: [util_deps, linux_dep],
 )
 
 executable(

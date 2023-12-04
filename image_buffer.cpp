@@ -62,9 +62,9 @@ std::string debug(ImageBuffer const& i) {
     for (size_t c = 0; c < i.channels.size(); ++c) {
         auto const& chan = i.channels[c];
         if (c == 0) {
-            out += " " + debug(*chan.memory);
+            out += fmt::format(" {}", debug(*chan.memory));
         } else if (chan.memory != i.channels[c - 1].memory) {
-            out += "|" + debug(*chan.memory);
+            out += fmt::format("|{}", debug(*chan.memory));
         }
 
         if (chan.size != chan.memory->size())
