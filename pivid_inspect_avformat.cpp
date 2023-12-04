@@ -138,7 +138,7 @@ void inspect_media(AVFormatContext* const avc) {
                 T(SUBTITLE);
                 T(ATTACHMENT);
 #undef T
-                default: fmt::print(" ?type=%d?", par->codec_type); break;
+                default: fmt::print(" ?type=%d?", (int) par->codec_type); break;
             }
             if (par->codec_id)
                 fmt::print(" ({})", avcodec_get_name(par->codec_id));
@@ -245,7 +245,8 @@ void list_packets(AVFormatContext* const avc) {
                 S(ENCRYPTION_INFO);
                 S(AFD);
 #undef S
-                default: fmt::print(" ?side%d?", packet.side_data[si].type);
+                default:
+                    fmt::print(" ?side%d?", (int) packet.side_data[si].type);
             }
         }
 

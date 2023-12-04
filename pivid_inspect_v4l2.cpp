@@ -87,7 +87,10 @@ void scan_videodevs() {
 
         v4l2_capability cap = {};
         if (!ioctl(fd, VIDIOC_QUERYCAP, &cap)) {
-            fmt::print("{}: {} ({})\n", path, cap.bus_info, cap.card);
+            fmt::print(
+                "{}: {} ({})\n",
+                path, (char*) cap.bus_info, (char*) cap.card
+            );
             fmt::print("    {}\n", describe_driver(cap));
         }
 
@@ -121,7 +124,7 @@ void inspect_videodev(std::string const& path) {
     }
 
     fmt::print("Driver: {}\n", describe_driver(cap));
-    fmt::print("Device: {} ({})\n", cap.bus_info, cap.card);
+    fmt::print("Device: {} ({})\n", (char*) cap.bus_info, (char*) cap.card);
     fmt::print("\n");
 
     for (int type = 0; type < V4L2_BUF_TYPE_PRIVATE; ++type) {

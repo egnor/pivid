@@ -62,7 +62,7 @@ class Server {
 
         http.set_logger([&](auto const& q, auto const& s) {log_hook(q, s);});
         http.set_exception_handler(
-            [&](auto const& q, auto& s, auto& e) {error_hook(q, s, e);}
+            [&](auto const& q, auto& s, auto e) {error_hook(q, s, e);}
         );
 
         DEBUG(logger, "Launching main loop thread");
@@ -237,10 +237,21 @@ class Server {
     }
 
     void error_hook(
-        httplib::Request const& req, httplib::Response& res, std::exception& e
+        httplib::Request const& req,
+        httplib::Response& res,
+        std::exception_ptr eptr
     ) {
-        res.status = dynamic_cast<std::invalid_argument*>(&e) ? 400 : 500;
-        nlohmann::json j = {{"req", req.path}, {"error", e.what()}};
+        std::string text;
+        try {
+            std::rethrow_exception(eptr);
+        } catch (std::invalid_argument& a) {
+            res.status = 400;
+            text = a.what();
+        } catch (std::exception& e) {
+            res.status = 500;
+            text = e.what();
+        }
+        nlohmann::json const j = {{"req", req.path}, {"error", text}};
         res.set_content(j.dump(), "application/json");
     }
 };
