@@ -34,7 +34,8 @@ def run_shell(*av, **kw):
 
 apt_packages = [
     # TODO: Make libudev and libv4l into Conan dependencies
-    "build-essential", "cmake", "direnv", "libudev-dev", "libv4l-dev",
+    "build-essential", "cmake", "direnv",
+    "libudev-dev", "libv4l-dev", "libjpeg-dev",  # libv4l2 depends on libjpeg
     "python3", "python3-pip", "python3-venv",
 ]
 installed = check_output(["dpkg-query", "--show", "--showformat=${Package}\\n"])

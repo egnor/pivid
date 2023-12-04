@@ -272,7 +272,6 @@ class FFMpegConan(ConanFile):
         # Added for pivid --egnor
         if self.options.for_pivid:
             self.requires("libdrm/[>=2.4.114 <3]")
-            self.requires("libjpeg/9e")  # dep of libv4l2
 
         if self.options.with_zlib:
             self.requires("zlib/[>=1.2.11 <2]")
@@ -832,7 +831,7 @@ class FFMpegConan(ConanFile):
             # Added for pivid --egnor
             if self.options.for_pivid:
                 avcodec_cpp = self.cpp_info.components["avcodec"]
-                avcodec_cpp.requires.extend(["libdrm::libdrm"])  # "libjpeg"
+                avcodec_cpp.requires.extend(["libdrm::libdrm"])
                 avcodec_cpp.system_libs.extend(["udev", "v4l2"])
 
         if self.options.swscale:
