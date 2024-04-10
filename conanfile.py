@@ -16,7 +16,7 @@ class PividConan(conan.ConanFile):
 
     requires = [
         "cli11/2.3.2", "cpp-httplib/0.14.1",
-        "ffmpeg/5.1.4+rpi@pivid", "fmt/10.1.1",
+        "ffmpeg/5.1.4+rpi@pivid", "fmt/10.2.1",
         "linux-headers-generic/[>=5.14.9]", "nlohmann_json/3.11.3",
         "spdlog/1.12.0",
     ]
